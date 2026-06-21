@@ -4,16 +4,27 @@ namespace app\service\system;
 
 use app\constant\StatusCode;
 use app\exception\BusinessException;
+use app\model\AdminUser;
+use Throwable;
 
 class AccountService
 {
     private const ADMIN_STORE = 'admin_accounts';
     private const MERCHANT_STORE = 'merchant_accounts';
     private const MERCHANT_AUTH_STORE = 'merchant_auth_users';
-    private const DEMO_PASSWORD_HASH = '$2y$10$5OM95uHo.gfB6mp1B6NNMO7.u.J0ICK5geS94DDt.vAIGTlG6Ha46';
 
     public static function adminLogin(string $username, string $password): array
     {
+        if (database_available()) {
+            try {
+                $admin = AdminUser::where('username', $username)->where('status', 1)->find();
+                if ($admin && password_verify($password, (string)$admin->password_hash)) {
+                    return self::sanitize(self::row($admin));
+                }
+            } catch (Throwable) {
+            }
+        }
+
         foreach (self::admins() as $admin) {
             if (($admin['username'] ?? '') === $username && password_verify($password, (string)$admin['password_hash'])) {
                 return self::sanitize($admin);
@@ -36,6 +47,16 @@ class AccountService
 
     public static function adminProfile(int $id): array
     {
+        if (database_available()) {
+            try {
+                $admin = AdminUser::find($id);
+                if ($admin) {
+                    return self::sanitize(self::row($admin));
+                }
+            } catch (Throwable) {
+            }
+        }
+
         foreach (self::admins() as $admin) {
             if ((int)$admin['id'] === $id) {
                 return self::sanitize($admin);
@@ -137,15 +158,6 @@ class AccountService
         return trim((string)$fallback);
     }
 
-    private static function isLegacyDemoMerchantRow(array $row): bool
-    {
-        return (int)($row['merchant_id'] ?? $row['id'] ?? 0) === 1
-            && trim((string)($row['username'] ?? '')) === 'merchant001'
-            && trim((string)($row['email'] ?? '')) === 'merchant@example.com'
-            && trim((string)($row['phone'] ?? '')) === '13800138000'
-            && trim((string)($row['mch_key'] ?? '')) === 'epay_v1_key_123456';
-    }
-
     public static function normalizeMerchantRuntimeRow(array $row): array
     {
         $merchantId = (int)($row['merchant_id'] ?? $row['id'] ?? 0);
@@ -216,6 +228,19 @@ class AccountService
 
     public static function saveAdminProfile(int $id, array $payload): array
     {
+        if (database_available()) {
+            try {
+                $admin = AdminUser::find($id);
+                if ($admin) {
+                    $admin->nickname = trim((string)($payload['nickname'] ?? $admin->nickname));
+                    $admin->email = trim((string)($payload['email'] ?? ($admin->email ?? '')));
+                    $admin->save();
+                    return self::sanitize(self::row($admin));
+                }
+            } catch (Throwable) {
+            }
+        }
+
         $admins = self::admins();
         foreach ($admins as &$admin) {
             if ((int)$admin['id'] === $id) {
@@ -316,6 +341,24 @@ class AccountService
 
     public static function changeAdminPassword(int $id, string $oldPassword, string $newPassword): void
     {
+        if (database_available()) {
+            try {
+                $admin = AdminUser::find($id);
+                if ($admin) {
+                    if (!password_verify($oldPassword, (string)$admin->password_hash)) {
+                        throw new BusinessException('原密码错误', StatusCode::UNAUTHORIZED);
+                    }
+
+                    $admin->password_hash = password_hash($newPassword, PASSWORD_BCRYPT);
+                    $admin->save();
+                    return;
+                }
+            } catch (BusinessException $exception) {
+                throw $exception;
+            } catch (Throwable) {
+            }
+        }
+
         $admins = self::admins();
         foreach ($admins as &$admin) {
             if ((int)$admin['id'] === $id) {
@@ -355,18 +398,7 @@ class AccountService
 
     private static function admins(): array
     {
-        return JsonStoreService::load(self::ADMIN_STORE, [
-            [
-                'id' => 1,
-                'username' => 'admin',
-                'nickname' => '系统管理员',
-                'email' => 'admin@example.com',
-                'phone' => '13800138001',
-                'role' => 'super_admin',
-                'avatar' => '',
-                'password_hash' => self::DEMO_PASSWORD_HASH,
-            ],
-        ]);
+        return JsonStoreService::load(self::ADMIN_STORE, []);
     }
 
     private static function merchants(): array
@@ -382,10 +414,6 @@ class AccountService
             }
 
             $normalizedRow = self::normalizeMerchantRuntimeRow($merchant);
-            if (self::isLegacyDemoMerchantRow($normalizedRow)) {
-                $changed = true;
-                continue;
-            }
 
             if ($normalizedRow !== $merchant) {
                 $changed = true;

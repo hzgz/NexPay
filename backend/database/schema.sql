@@ -317,42 +317,6 @@ CREATE TABLE IF NOT EXISTS `plugins` (
   `installed_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `admin_users` (`id`, `username`, `nickname`, `email`, `password_hash`, `status`)
-VALUES
-  (1, 'admin', '平台管理员', 'admin@example.com', '$2y$10$61exabpzYttrqxtq9Wx5bebJ8xZ5TcqjtgVKJYcJ6dnLv4x3.uVgS', 1)
-ON DUPLICATE KEY UPDATE `nickname` = VALUES(`nickname`);
-
-INSERT INTO `merchants`
-(`id`, `uid`, `appid`, `mch_key`, `rsa_private_key`, `rsa_public_key`, `name`, `contact_name`, `email`, `phone`, `status`, `platform_rate`, `notify_url`, `return_url`)
-VALUES
-(
-  1,
-  100001,
-  '1000001',
-  'epay_v1_key_123456',
-  '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',
-  '商户一号',
-  'Merchant One',
-  'merchant@example.com',
-  '13800138000',
-  1,
-  0.80,
-  'https://example.com/merchant/notify',
-  'https://example.com/merchant/return'
-)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
-
-INSERT INTO `merchant_users`
-(`id`, `merchant_id`, `username`, `nickname`, `email`, `phone`, `password_hash`, `status`)
-VALUES
-  (1, 1, 'merchant001', '商户一号账号', 'merchant@example.com', '13800138000', '$2y$10$9DTM8x5ykzOK9FoOpbikaON1BsdWVSxiZFAECrB45CtJmhPxu5K7u', 1)
-ON DUPLICATE KEY UPDATE `nickname` = VALUES(`nickname`);
-
-INSERT INTO `merchant_balances` (`id`, `merchant_id`, `balance`, `frozen_balance`, `total_recharge`, `total_consumption`)
-VALUES (1, 1, 5000.00, 0.00, 5000.00, 0.00)
-ON DUPLICATE KEY UPDATE `balance` = VALUES(`balance`);
-
 INSERT INTO `channel_types` (`id`, `code`, `name`, `category`, `icon`, `status`, `sort`, `config_schema`)
 VALUES
   (1, 'trc20', 'USDT-TRC20', 1, '', 1, 10, JSON_OBJECT('fields', JSON_ARRAY(JSON_OBJECT('key', 'address', 'label', '收款地址', 'type', 'text')))),
@@ -364,18 +328,5 @@ VALUES
   (7, 'qqpay', 'QQ钱包', 2, '', 1, 70, JSON_OBJECT('fields', JSON_ARRAY(JSON_OBJECT('key', 'qrcode_url', 'label', '收款码链接', 'type', 'image'))))
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
-INSERT INTO `announcements` (`id`, `title`, `summary`, `content`, `status`, `sort`)
-VALUES
-  (1, '系统初始化完成', 'NexPay 第一版项目骨架已经可进入联调。', '后端已具备首页数据接口、商户/管理员登录、易支付 V1/V2 兼容建单/查单骨架。', 1, 10),
-  (2, '开发建议', '管理员端与商户端建议共用一个前端控制台壳子。', '三端 UI 已经很明确，首页单独部署，商户与后台共用一套组件体系和权限路由最省成本。', 1, 20)
-ON DUPLICATE KEY UPDATE `summary` = VALUES(`summary`);
-
-INSERT INTO `system_configs` (`id`, `key`, `value`, `description`)
-VALUES
-  (1, 'app_name', 'NexPay 聚合支付系统', '站点名称'),
-  (2, 'app_url', 'http://127.0.0.1:5174', '网关基础地址'),
-  (3, 'site_logo', '/assets/logo.svg', '站点 Logo'),
-  (4, 'tg_notify_enabled', '0', '是否启用 TG 通知')
-ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);
 
 SET FOREIGN_KEY_CHECKS = 1;

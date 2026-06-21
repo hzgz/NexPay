@@ -12,11 +12,16 @@ use app\service\system\JsonStoreService;
 use app\service\system\PluginService;
 use app\service\system\PluginRuntimeService;
 
-const SOURCE_ROOT = 'C:\\Users\\Administrator\\Desktop\\epay_pro\\plugins\\payment';
+$sourceRoot = trim((string)(getenv('PLUGIN_SOURCE_ROOT') ?: ''));
+foreach ($_SERVER['argv'] ?? [] as $argument) {
+    if (!is_string($argument) || !str_starts_with($argument, '--source=')) {
+        continue;
+    }
+    $sourceRoot = trim(substr($argument, 9));
+}
 
-$sourceRoot = SOURCE_ROOT;
-if (!is_dir($sourceRoot)) {
-    fwrite(STDERR, "Source path not found: {$sourceRoot}\n");
+if ($sourceRoot === '' || !is_dir($sourceRoot)) {
+    fwrite(STDERR, "Source path not found. Use --source=/path/to/plugins/payment or set PLUGIN_SOURCE_ROOT.\n");
     exit(1);
 }
 

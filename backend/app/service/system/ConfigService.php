@@ -17,7 +17,7 @@ class ConfigService
             'app_url' => env('APP_URL', 'http://127.0.0.1:5174'),
             'platform_public_key' => env('PLATFORM_PUBLIC_KEY', ''),
             'platform_private_key' => env('PLATFORM_PRIVATE_KEY', ''),
-            'internal_refund_secret' => env('INTERNAL_REFUND_SECRET', env('TOKEN_SECRET', 'epay-plus-secret')),
+            'internal_refund_secret' => env('INTERNAL_REFUND_SECRET', env('TOKEN_SECRET', 'change-this-token-secret')),
         ];
 
         if (database_available()) {
@@ -124,7 +124,7 @@ class ConfigService
     {
         return (string)self::get(
             'internal_refund_secret',
-            env('INTERNAL_REFUND_SECRET', env('TOKEN_SECRET', 'epay-plus-secret'))
+            env('INTERNAL_REFUND_SECRET', env('TOKEN_SECRET', 'change-this-token-secret'))
         );
     }
 

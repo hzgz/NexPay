@@ -1,6 +1,6 @@
 # NexPay
 
-NexPay 是一个基于 `Webman + Vue 3` 的聚合支付系统，提供：
+NexPay 是一套基于 `Webman + Vue 3 + MySQL + Redis` 的聚合支付系统，包含：
 
 - 管理员后台
 - 商户中心
@@ -8,53 +8,27 @@ NexPay 是一个基于 `Webman + Vue 3` 的聚合支付系统，提供：
 - 易支付 V1 / V2 兼容接口
 - 插件化支付扩展能力
 
+本公开仓库用于交付可部署源码，不包含运行期数据、上传文件、日志、默认管理员账号或演示商户数据。
+
 ## 系统优势
 
-- 单端口部署  
-  首页、商户中心、管理后台、支付接口可统一由 Webman 单端口对外提供，部署链路更简单。
+- 单入口部署  
+  首页、管理后台、商户中心、兼容接口统一由 Webman 对外提供服务，部署链路更直接。
+
+- 高并发友好  
+  基于 Workerman / Webman 常驻内存模型，适合高并发、I/O 密集型支付网关场景。实际吞吐能力取决于数据库、Redis、插件实现和服务器规格。
+
+- 低额外开销  
+  前后端分离，静态资源可直接发布到 `backend/public*`，运行期组件少，便于控制资源占用。
 
 - 易支付兼容接入  
-  同时保留 V1 / V2 兼容入口，便于对接已有商户系统与历史接入程序。
+  同时提供 V1 / V2 兼容接口，便于承接已有商户系统或历史接入程序。
 
 - 插件化支付架构  
   支付能力按插件组织，便于扩展不同通道、不同支付方式与差异化配置。
 
-- 双角色后台分离  
-  管理员后台与商户中心职责分开，方便平台运营、商户管理和渠道配置。
-
-- 前后端分离但可统一发布  
-  `frontend/home`、`frontend/admin`、`frontend/user` 构建后可统一发布到 `backend/public*`，兼顾开发效率与上线部署。
-
-- 业务服务层拆分清晰  
-  路由、控制器、支付服务、商户服务、系统服务、插件层分层处理，便于后续维护与扩展。
-
-## 功能模块
-
-- 商户管理  
-  支持商户账户、商户资料、商户认证、商户通道管理与商户侧接口信息维护。
-
-- 管理后台  
-  支持平台配置、商户审核、订单查看、插件管理、日志查看与运营管理。
-
-- 支付网关  
-  提供统一支付下单、订单查询、退款、代付及兼容网关接入能力。
-
-- 插件中心  
-  通过插件扩展支付方式、验证码、短信、邮件及第三方接入能力。
-
-- 回调处理  
-  支持支付结果通知、异步回调处理、状态同步与相关日志记录。
-
-- 单端口静态发布  
-  支持首页、后台、商户中心前端构建后统一发布到后端静态目录。
-
-## 适用场景
-
-- 聚合支付平台搭建
-- 易支付生态兼容迁移
-- 多商户收款系统
-- 通道中台与支付能力统一封装
-- 需要后台、商户中心、兼容接口一体化部署的项目
+- 管理端与商户端职责分离  
+  管理后台负责平台配置、商户审核、订单和插件管理；商户中心负责通道、订单、接口信息和资金视图。
 
 ## 架构图
 
@@ -67,7 +41,7 @@ flowchart LR
     Callback["支付回调 / 查询请求"] --> Webman
 
     Webman --> Router["路由与控制器层"]
-    Router --> Static["StaticAppController / 静态发布资源"]
+    Router --> Static["静态资源分发"]
     Router --> Api["API Controllers"]
 
     Api --> Payment["支付服务层"]
@@ -86,50 +60,6 @@ flowchart LR
     CallbackSvc --> Redis["Redis / Queue"]
     Payment --> Redis
 ```
-
-### 发布结构
-
-```mermaid
-flowchart TD
-    HomeSrc["frontend/home"] --> Build["scripts/build-release.ps1"]
-    AdminSrc["frontend/admin"] --> Build
-    UserSrc["frontend/user"] --> Build
-    Build --> PublicRoot["backend/public"]
-    Build --> PublicAdmin["backend/public/admin"]
-    Build --> PublicUser["backend/public/user"]
-    PublicRoot --> Runtime["Webman 单端口运行"]
-    PublicAdmin --> Runtime
-    PublicUser --> Runtime
-```
-
-## 部署流程
-
-```mermaid
-flowchart TD
-    Env["准备环境<br/>PHP / MySQL / Redis / Node.js"] --> Install["安装依赖<br/>composer install / npm install"]
-    Install --> Config["配置 .env<br/>数据库 / Redis / APP_URL / 端口"]
-    Config --> Build["执行构建<br/>scripts/build-release.ps1"]
-    Build --> Publish["生成静态资源<br/>backend/public*"]
-    Publish --> Start["启动 Webman<br/>php windows.php"]
-    Start --> Online["访问首页 / 管理后台 / 商户中心 / 支付接口"]
-```
-
-## 接口能力总览
-
-| 分类 | 接口/入口 | 说明 |
-| --- | --- | --- |
-| 首页 | `/` | 首页入口 |
-| 演示 | `/demo` | 支付演示页 |
-| 管理后台 | `/admin` | 管理员后台入口 |
-| 商户中心 | `/user` | 商户中心入口 |
-| 首页接口 | `/api/home/*` | 首页数据、演示配置等 |
-| 管理接口 | `/api/admin/*` | 平台配置、商户管理、订单管理等 |
-| 商户接口 | `/api/merchant/*` | 商户资料、通道、订单、资金等 |
-| 易支付 V1 | `/mapi.php`、`/api.php` | V1 兼容接口 |
-| 易支付 V1 页面 | `/submit.php`、`/submit2.php` | V1 页面兼容入口 |
-| 易支付 V2 | `/api/pay/create`、`/api/pay/query`、`/api/pay/refund` | V2 支付能力 |
-| 代付接口 | `/api/transfer/submit`、`/api/transfer/query`、`/api/transfer/balance` | 代付与余额查询 |
-| 支付页 | `/pay/checkout/{trade_no}` | 统一收银与支付页 |
 
 ## 技术栈
 
@@ -150,9 +80,7 @@ flowchart TD
 - Vue Router
 - ECharts
 
-## 运行环境要求
-
-建议环境：
+## 环境要求
 
 - Windows / Linux
 - PHP `8.1+`
@@ -162,7 +90,7 @@ flowchart TD
 - MySQL `5.7+` / `8.0+`
 - Redis `6+`
 
-建议 PHP 扩展：
+建议启用的 PHP 扩展：
 
 - `openssl`
 - `pdo_mysql`
@@ -172,7 +100,7 @@ flowchart TD
 - `json`
 - `fileinfo`
 
-## 目录结构
+## 目录说明
 
 ```text
 backend/                 Webman 后端主程序
@@ -180,52 +108,18 @@ backend/                 Webman 后端主程序
   config/                路由、进程、数据库、会话等配置
   database/              数据库结构
   plugins/               支付及扩展插件
-  public/                单端口静态发布目录
-  support/               启动与基础支持代码
+  public/                首页静态发布目录
+  public/admin/          管理后台静态发布目录
+  public/user/           商户中心静态发布目录
+  tools/                 运维与初始化脚本
 
 frontend/
-  home/                  首页与演示页前端源码
-  admin/                 管理员后台前端源码
+  home/                  首页前端源码
+  admin/                 管理后台前端源码
   user/                  商户中心前端源码
-
-scripts/                 构建与辅助脚本
 ```
 
-## 接口入口
-
-默认访问入口：
-
-- 首页：`/`
-- 演示：`/demo`
-- 管理后台：`/admin`
-- 商户中心：`/user`
-
-后端接口分组：
-
-- 管理后台：`/api/admin/*`
-- 商户中心：`/api/merchant/*`
-- 首页：`/api/home/*`
-
-### 易支付 V1
-
-- `POST /mapi.php`
-- `POST /api.php`
-- 页面兼容入口：
-  - `/submit.php`
-  - `/submit2.php`
-
-### 易支付 V2
-
-- `POST /api/pay/create`
-- `POST /api/pay/query`
-- `POST /api/pay/refund`
-- `POST /api/pay/refundquery`
-- `POST /api/pay/close`
-- `POST /api/transfer/submit`
-- `POST /api/transfer/query`
-- `POST /api/transfer/balance`
-
-## 安装与启动
+## 快速部署
 
 ### 1. 安装后端依赖
 
@@ -242,6 +136,7 @@ Copy-Item .env.example .env
 
 按实际环境修改：
 
+- `APP_NAME`
 - `APP_URL`
 - `HTTP_PORT`
 - `DB_HOST`
@@ -251,11 +146,28 @@ Copy-Item .env.example .env
 - `DB_PASSWORD`
 - `REDIS_HOST`
 - `REDIS_PORT`
+- `REDIS_PASSWORD`
 - `TOKEN_SECRET`
+- `INTERNAL_REFUND_SECRET`
 - `PLATFORM_PUBLIC_KEY`
 - `PLATFORM_PRIVATE_KEY`
 
-### 3. 安装前端依赖
+### 3. 初始化数据库
+
+将 `backend/database/schema.sql` 导入 MySQL。
+
+注意：公开仓库中的 `schema.sql` 仅包含表结构和基础通道类型，不包含默认管理员、演示商户、示例密钥或运行期数据。
+
+### 4. 创建首个管理员
+
+```powershell
+cd backend
+php .\tools\create_admin.php --username=admin --password=ChangeMe123! --nickname=PlatformAdmin --email=admin@example.com
+```
+
+脚本会优先写入数据库；如果当前数据库尚不可用，则回退写入本地运行存储。
+
+### 5. 安装前端依赖
 
 ```powershell
 cd frontend/home
@@ -268,45 +180,76 @@ cd ../user
 npm install
 ```
 
-### 4. 启动后端
+### 6. 构建前端
+
+```powershell
+cd frontend/home
+npm run build
+
+cd ../admin
+npm run build
+
+cd ../user
+npm run build
+```
+
+### 7. 发布静态资源
+
+将构建结果复制到后端静态目录：
+
+- `frontend/home/dist/*` -> `backend/public/`
+- `frontend/admin/dist/*` -> `backend/public/admin/`
+- `frontend/user/dist/*` -> `backend/public/user/`
+
+### 8. 启动服务
 
 ```powershell
 cd backend
 php windows.php
 ```
 
-## 单端口部署
+Linux 环境可按 Webman 标准方式启动。
 
-执行：
+## 默认入口
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
-```
+- 首页: `/`
+- 演示页: `/demo`
+- 管理后台: `/admin`
+- 商户中心: `/user`
 
-该脚本会构建：
+## 兼容接口
 
-- `frontend/home`
-- `frontend/admin`
-- `frontend/user`
+### 平台接口
 
-并发布到：
+- `GET /api/home/*`
+- `POST /api/admin/*`
+- `POST /api/merchant/*`
 
-- `backend/public`
-- `backend/public/admin`
-- `backend/public/user`
+### 易支付 V1
 
-部署后启动：
+- `POST /mapi.php`
+- `POST /api.php`
+- `GET /submit.php`
+- `GET /submit2.php`
 
-```powershell
-cd backend
-php windows.php
-```
+### 易支付 V2
 
-## 说明
+- `POST /api/pay/create`
+- `POST /api/pay/query`
+- `POST /api/pay/refund`
+- `POST /api/pay/refundquery`
+- `POST /api/pay/close`
+- `POST /api/transfer/submit`
+- `POST /api/transfer/query`
+- `POST /api/transfer/balance`
 
-- 本项目包含大量插件与兼容接口，实际投产前请按所需链路完成单独验收。
-- 请勿将本地密钥、运行日志、上传文件、依赖目录直接纳入公开仓库。
+## 安全说明
 
-## 仓库
+- 本仓库不提交 `.env`、运行日志、上传文件、运行期缓存和本地数据库文件。
+- 本仓库不内置默认管理员密码、演示商户密钥、示例 RSA 私钥或本地开发文档。
+- 支付回调、退款回调、代付回调应始终启用签名校验，生产环境不要使用兜底放行逻辑。
+- 上线前请替换 `TOKEN_SECRET`、`INTERNAL_REFUND_SECRET`、平台密钥和插件私有配置。
 
-- [hzgz/NexPay](https://github.com/hzgz/NexPay)
+## 许可证
+
+后端基础框架依赖遵循各自上游许可证；项目目录内附带的 `LICENSE` 请结合实际发布策略使用。

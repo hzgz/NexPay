@@ -10,7 +10,7 @@ return [
         'options' => [
             'auth' => env('REDIS_PASSWORD', null) ?: null,
             'db' => (int)env('REDIS_DB', 0),
-            'prefix' => env('QUEUE_PREFIX', 'epay_plus:'),
+            'prefix' => env('QUEUE_PREFIX', 'nexpay:'),
             'max_attempts' => 5,
             'retry_seconds' => 5,
         ],

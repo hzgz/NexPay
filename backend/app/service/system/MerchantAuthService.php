@@ -15,7 +15,6 @@ use think\facade\Db;
 class MerchantAuthService
 {
     private const STORE_KEY = 'merchant_auth_users';
-    private const DEMO_PASSWORD_HASH = '$2y$10$5OM95uHo.gfB6mp1B6NNMO7.u.J0ICK5geS94DDt.vAIGTlG6Ha46';
 
     public static function authSettings(): array
     {
@@ -104,6 +103,10 @@ class MerchantAuthService
         $phone = trim((string)($payload['phone'] ?? ''));
         $password = (string)($payload['password'] ?? '');
         $confirmPassword = (string)($payload['confirm_password'] ?? '');
+        $registerFeeMethodCode = SettingsService::resolveEnabledPaymentMethodCode(
+            'system_checkout',
+            (string)($payload['register_fee_method_code'] ?? '')
+        );
 
         AuthPolicyService::ensureMerchantRegisterAllowed($payload);
         self::validateRegistration($merchantName, $contactName, $username, $email, $phone, $password, $confirmPassword);
@@ -115,7 +118,7 @@ class MerchantAuthService
 
         if (database_available()) {
             try {
-                return Db::transaction(function () use ($merchantName, $contactName, $username, $email, $phone, $password, $ip, $merchantStatus, $auditStatus, $feeEnabled, $registerFee, $autoAudit) {
+                return Db::transaction(function () use ($merchantName, $contactName, $username, $email, $phone, $password, $ip, $merchantStatus, $auditStatus, $feeEnabled, $registerFee, $autoAudit, $registerFeeMethodCode) {
                     $merchant = new Merchant();
                     $merchant->uid = self::generateUid();
                     $merchant->appid = self::generateAppId();
@@ -172,6 +175,7 @@ class MerchantAuthService
                         'mch_key' => (string)$merchant->mch_key,
                         'register_fee_status' => $feeEnabled ? 'pending' : 'none',
                         'register_fee_amount' => $registerFee,
+                        'register_fee_method_code' => $registerFeeMethodCode,
                     ];
 
                     if ($feeEnabled) {
@@ -215,6 +219,7 @@ class MerchantAuthService
             'last_login_time' => date('Y-m-d H:i:s'),
             'register_fee_status' => $feeEnabled ? 'pending' : 'none',
             'register_fee_amount' => $registerFee,
+            'register_fee_method_code' => $registerFeeMethodCode,
         ];
         self::saveStorage($storage);
 
@@ -581,6 +586,7 @@ class MerchantAuthService
         $user['payment_order'] = [
             'trade_no' => (string)$order->trade_no,
             'amount' => $amount,
+            'channel_code' => (string)($order->channel_code ?? ''),
             'pay_url' => self::paymentUrl((string)$order->trade_no),
             'submit_url' => self::paymentUrl((string)$order->trade_no),
             'checkout_url' => SystemBusinessPaymentService::checkoutUrl((string)$order->trade_no),
@@ -733,10 +739,6 @@ class MerchantAuthService
             }
 
             $normalizedRow = AccountService::normalizeMerchantRuntimeRow($record);
-            if (self::isLegacyDemoAuthSeed($normalizedRow)) {
-                $changed = true;
-                continue;
-            }
 
             if ($normalizedRow !== $record) {
                 $changed = true;
@@ -750,15 +752,6 @@ class MerchantAuthService
         }
 
         return $normalized;
-    }
-
-    private static function isLegacyDemoAuthSeed(array $record): bool
-    {
-        return (int)($record['merchant_id'] ?? $record['id'] ?? 0) === 1
-            && trim((string)($record['username'] ?? '')) === 'merchant001'
-            && trim((string)($record['email'] ?? '')) === 'merchant@example.com'
-            && trim((string)($record['phone'] ?? '')) === '13800138000'
-            && trim((string)($record['mch_key'] ?? '')) === 'epay_v1_key_123456';
     }
 
     private static function registrationRecordFromDatabase(int $merchantId, string $username): ?array

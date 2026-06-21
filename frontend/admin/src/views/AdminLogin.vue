@@ -19,11 +19,6 @@ const form = reactive({
   password: '',
 })
 
-function fillDemoAccount() {
-  form.username = 'admin'
-  form.password = '12345678'
-}
-
 async function loadConfig() {
   const resp = await getAdminAuthConfig()
   if (resp.code === 0 && resp.data) {
@@ -118,10 +113,6 @@ onMounted(async () => {
           <span class="auth-hero__kicker">管理后台</span>
           <h2>进入管理后台</h2>
           <p>登录后继续处理商户、订单、插件、支付配置与系统安全。</p>
-        </div>
-
-        <div class="toolbar-actions">
-          <button class="ghost-btn" type="button" @click="fillDemoAccount">快速填充</button>
         </div>
 
         <div class="auth-fields">
