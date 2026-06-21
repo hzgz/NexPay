@@ -1,0 +1,60 @@
+{
+    "name": "cpcn",
+    "title": "中金支付",
+    "author": "官方",
+    "link": "https://www.cpcn.com.cn/",
+    "version": "1.1",
+    "icon": "cpcn.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "机构编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "中转API接口地址",
+            "type": "input",
+            "required": true,
+            "note": "必须以http://或https://开头，以/结尾"
+        },
+        "appmchid": {
+            "name": "渠道子商户号",
+            "type": "input",
+            "note": "可留空，多个商户号用,分隔，最多10个"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "生活号支付",
+        "3": "H5支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付",
+        "3": "H5支付"
+    },
+    "select_bank": {
+        "1": "银联支付",
+        "2": "快捷支付"
+    },
+    "note": "需自行搭建中金支付（国密证书）中转API接口站点，<a href=\"http://file.cccyun.cc/resource/%E4%B8%AD%E9%87%91%E6%94%AF%E4%BB%98%E4%B8%AD%E8%BD%ACAPI.zip\" target=\"_blank\" rel=\"noreferrer\">下载源码</a>",
+    "bindwxmp": true,
+    "bindwxa": true
+}

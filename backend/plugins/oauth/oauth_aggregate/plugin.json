@@ -1,0 +1,10 @@
+{
+  "code": "oauth-aggregate",
+  "name": "聚合登录插件",
+  "version": "1.0.0",
+  "description": "统一接入 QQ、微信、支付宝等第三方登录能力。",
+  "group": "oauth",
+  "kind": "oauth",
+  "capabilities": ["qq_login", "wechat_login", "alipay_login"],
+  "provider": "plugins\\oauth\\oauth_aggregate\\PluginProvider"
+}

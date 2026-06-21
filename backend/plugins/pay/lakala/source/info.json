@@ -1,0 +1,78 @@
+{
+    "name": "lakala",
+    "title": "拉卡拉",
+    "author": "官方",
+    "link": "https://www.lakala.com/",
+    "version": "1.1",
+    "icon": "lakala.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "mch_cert_path": {
+            "name": "商户证书",
+            "type": "upload",
+            "accept": ".cer",
+            "required": true,
+            "note": "上传商户证书文件api_cert.cer"
+        },
+        "mch_key_path": {
+            "name": "商户私钥",
+            "type": "upload",
+            "accept": ".pem,.key",
+            "required": true,
+            "note": "上传商户私钥文件api_private_key.pem"
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "终端号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appselect": {
+            "name": "接口类型",
+            "type": "select",
+            "options": [
+                "聚合扫码",
+                "聚合收银台"
+            ],
+            "value": "0"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

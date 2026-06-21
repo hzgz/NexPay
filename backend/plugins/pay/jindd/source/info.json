@@ -1,0 +1,58 @@
+{
+    "name": "jindd",
+    "title": "金多多支付",
+    "author": "官方",
+    "link": "https://www.jindd.com.cn/",
+    "version": "1.1",
+    "icon": "jindd.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "ISV机构号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "ISV私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "mch_id": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "sub_mchid": {
+            "name": "子商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "自有公众号/小程序支付",
+        "2": "收银台小程序支付"
+    },
+    "select": null,
+    "note": null,
+    "bindwxmp": true,
+    "bindwxa": true
+}

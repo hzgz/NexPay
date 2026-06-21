@@ -1,0 +1,50 @@
+{
+    "name": "easypay3",
+    "title": "易生易企通1.0",
+    "author": "官方",
+    "link": "https://www.easypay.com.cn/",
+    "version": "1.1",
+    "icon": "easypay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "机构号",
+            "type": "input",
+            "required": true,
+            "note": "orgId"
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": "orgMerCode"
+        },
+        "termno": {
+            "name": "设备号",
+            "type": "input",
+            "required": true,
+            "note": "orgTermNo"
+        },
+        "appkey": {
+            "name": "易生公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "不能有换行和标签"
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": "不能有换行和标签"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

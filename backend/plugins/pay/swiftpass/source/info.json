@@ -1,0 +1,70 @@
+{
+    "name": "swiftpass",
+    "title": "威富通",
+    "author": "官方",
+    "link": "https://www.swiftpass.cn/",
+    "version": "1.1",
+    "icon": "swiftpass.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank",
+        "jdpay"
+    ],
+    "inputs": {
+        "sign_type": {
+            "name": "签名方式",
+            "type": "radio",
+            "options": [
+                "RSA签名",
+                "MD5签名"
+            ],
+            "required": true,
+            "value": "0"
+        },
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true
+        },
+        "appkey": {
+            "name": "平台RSA公钥",
+            "type": "textarea",
+            "required": true,
+            "show": "sign_type=='0'"
+        },
+        "appsecret": {
+            "name": "商户RSA私钥",
+            "type": "textarea",
+            "required": true,
+            "show": "sign_type=='0'"
+        },
+        "md5_key": {
+            "name": "商户MD5密钥",
+            "type": "input",
+            "required": true,
+            "show": "sign_type=='1'"
+        },
+        "appurl": {
+            "name": "自定义网关URL",
+            "type": "input",
+            "note": "可不填，默认是https://pay.swiftpass.cn/pay/gateway"
+        },
+        "appswitch": {
+            "name": "微信是否支持H5",
+            "type": "select",
+            "options": [
+                "否",
+                "是"
+            ],
+            "value": "0",
+            "show": "wxpay"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

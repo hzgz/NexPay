@@ -1,0 +1,73 @@
+{
+    "name": "yinyingtong",
+    "title": "银盈通支付",
+    "author": "官方",
+    "link": "http://www.yinyingtong.com/",
+    "version": "1.1",
+    "icon": "yinyingtong.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用ID",
+            "type": "input",
+            "required": true
+        },
+        "appkey": {
+            "name": "应用KEY",
+            "type": "input",
+            "required": true,
+            "note": "同时是私钥证书密码"
+        },
+        "merchant_private_cert": {
+            "name": "商户私钥证书(应用ID.pfx)",
+            "type": "upload",
+            "note": "进件、代付、协议快捷支付需要"
+        },
+        "productkey": {
+            "name": "产品密钥",
+            "type": "input",
+            "note": "用于支付回调数据解密，填错将无法回调"
+        },
+        "appmchid": {
+            "name": "交易商户企业号",
+            "type": "input"
+        },
+        "trade_platform_no": {
+            "name": "平台商企业号(参考号)",
+            "type": "input",
+            "note": "仅分账需要填写"
+        },
+        "terminal_number": {
+            "name": "终端号",
+            "type": "input",
+            "note": "仅快捷支付填写"
+        },
+        "channel_merch_no": {
+            "name": "渠道商户号",
+            "type": "input",
+            "note": "可留空，多个渠道商户号可用,分隔"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "银盈通公众号",
+        "2": "银盈通小程序",
+        "3": "自有公众号/小程序"
+    },
+    "select_bank": {
+        "1": "H5快捷支付",
+        "2": "协议快捷支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,79 @@
+{
+    "name": "huifu",
+    "title": "汇付斗拱平台",
+    "author": "官方",
+    "link": "https://paas.huifu.com/",
+    "version": "1.1",
+    "icon": "huifu.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank",
+        "ecny",
+        "douyinpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "汇付系统号",
+            "type": "input",
+            "required": true,
+            "note": "当主体为渠道商时填写渠道商ID，主体为直连商户时填写商户ID"
+        },
+        "appurl": {
+            "name": "汇付产品号",
+            "type": "input",
+            "required": true,
+            "note": "product_id"
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "汇付公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "汇付子商户号",
+            "type": "input",
+            "note": "当主体为渠道商时需要填写，主体为直连商户时不需要填写"
+        },
+        "project_id": {
+            "name": "半支付托管项目号",
+            "type": "input",
+            "note": "仅托管H5/PC支付需要填写"
+        },
+        "seq_id": {
+            "name": "托管小程序应用ID",
+            "type": "input",
+            "note": "仅托管小程序支付可填写，不填默认使用斗拱收银台"
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "托管H5/PC支付",
+        "3": "托管小程序支付",
+        "4": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "自有公众号/小程序支付",
+        "2": "托管H5/PC支付",
+        "3": "托管小程序支付"
+    },
+    "select_bank": {
+        "1": "银联扫码支付",
+        "4": "银联JS支付",
+        "2": "快捷支付",
+        "3": "网银支付"
+    },
+    "select": null,
+    "note": null,
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

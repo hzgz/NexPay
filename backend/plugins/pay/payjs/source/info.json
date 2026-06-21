@@ -1,0 +1,41 @@
+{
+    "name": "payjs",
+    "title": "PAYJS",
+    "author": "官方",
+    "link": "https://payjs.cn/",
+    "version": "1.0",
+    "icon": "payjs.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "微信是否支持H5",
+            "type": "select",
+            "options": [
+                "否",
+                "是"
+            ],
+            "value": "0",
+            "show": "wxpay"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

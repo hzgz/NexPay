@@ -1,0 +1,62 @@
+{
+    "name": "passpay",
+    "title": "精秀支付",
+    "author": "官方",
+    "link": "https://www.jxpays.com/",
+    "version": "1.1",
+    "icon": "passpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "API接口地址",
+            "type": "input",
+            "required": true,
+            "note": "以http://或https://开头，以/结尾"
+        },
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "通道ID",
+            "type": "input",
+            "note": "不填写将进行子商户号轮训"
+        }
+    },
+    "select_alipay": {
+        "1": "支付宝当面付",
+        "2": "支付宝电脑",
+        "3": "支付宝H5",
+        "4": "支付宝生活号"
+    },
+    "select_wxpay": {
+        "1": "微信扫码",
+        "2": "微信公众号",
+        "3": "微信H5",
+        "4": "微信小程序H5"
+    },
+    "select": null,
+    "note": null,
+    "bindwxmp": true,
+    "bindwxa": true
+}

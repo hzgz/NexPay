@@ -1,0 +1,63 @@
+{
+    "name": "ysepay",
+    "title": "银盛支付",
+    "author": "官方",
+    "link": "https://www.ysepay.com/",
+    "version": "1.1",
+    "icon": "ysepay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "qqpay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "服务商商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "cert_pfx": {
+            "name": "商户私钥证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "pfx格式的商户私钥证书"
+        },
+        "appkey": {
+            "name": "私钥证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "收款商户号",
+            "type": "input",
+            "note": "不填写则和服务商商户号相同"
+        },
+        "appurl": {
+            "name": "业务代码",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "H5支付",
+        "3": "生活号支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select": null,
+    "note": "只能使用RSA证书！",
+    "bindwxmp": true,
+    "bindwxa": true
+}

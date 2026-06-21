@@ -1,0 +1,53 @@
+{
+    "name": "airwallex",
+    "title": "Airwallex",
+    "author": "官方",
+    "link": "https://www.airwallex.com/",
+    "version": "1.0",
+    "icon": "https://grw-landing.airwallex.com/favicon.ico",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "Client ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "API 密钥",
+            "type": "textarea",
+            "required": true,
+            "note": "Admin key"
+        },
+        "appsecret": {
+            "name": "Webhook Secret",
+            "type": "textarea",
+            "required": true,
+            "note": "用于验证Webhook回调签名"
+        },
+        "appurl": {
+            "name": "环境",
+            "type": "select",
+            "required": true,
+            "options": {
+                "0": "正式环境",
+                "1": "沙箱环境"
+            },
+            "value": "0"
+        }
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号支付",
+        "3": "小程序支付",
+        "4": "H5支付"
+    },
+    "select": null,
+    "note": "<p>Webhook配置方法：登录<a href=\"https://www.airwallex.com/app/\" target=\"_blank\" rel=\"noreferrer\">Airwallex控制台</a> → Settings → Developer → Webhooks → New webhook</p><p>Notification URL填写：<b>[siteurl]pay/webhook/[channel]/</b></p><p>侦听事件选择：<b>payment_intent.succeeded</b></p><p>创建后将Webhook的Secret Key填写到上方「Webhook Secret」中</p>",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,46 @@
+{
+    "name": "heepaybank",
+    "title": "汇付宝快捷",
+    "author": "官方",
+    "link": "https://www.heepay.com/",
+    "version": "1.0",
+    "icon": "heepay.png",
+    "desc": "",
+    "pay_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "汇付宝公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "退款密钥",
+            "type": "input",
+            "note": ""
+        },
+        "appmchid": {
+            "name": "子商户号",
+            "type": "input",
+            "note": "没有子商户号请留空"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

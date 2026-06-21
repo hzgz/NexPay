@@ -1,0 +1,71 @@
+{
+    "name": "easypay",
+    "title": "易生易企通2.0",
+    "author": "官方",
+    "link": "https://www.easypay.com.cn/",
+    "version": "1.2",
+    "icon": "easypay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "reqtype": {
+            "name": "接入模式",
+            "type": "select",
+            "options": {
+                "2": "机构模式",
+                "1": "商户模式"
+            },
+            "value": "1"
+        },
+        "appid": {
+            "name": "机构号/商户号",
+            "type": "input",
+            "required": true,
+            "note": "reqId"
+        },
+        "appmchid": {
+            "name": "子商户号",
+            "type": "input",
+            "note": "机构模式下填写子商户号，非机构模式请勿填写",
+            "show": "reqtype=='2'"
+        },
+        "appkey": {
+            "name": "易生公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "不能有换行和标签"
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": "不能有换行和标签"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "主扫支付",
+        "2": "JSAPI支付"
+    },
+    "select_bank": {
+        "1": "主扫支付",
+        "2": "JSAPI支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

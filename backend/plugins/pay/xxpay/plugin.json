@@ -1,0 +1,19 @@
+{
+    "code": "xxpay",
+    "name": "XxPay Pro",
+    "version": "1.0",
+    "description": "XxPay Pro，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\xxpay\\PluginProvider"
+}

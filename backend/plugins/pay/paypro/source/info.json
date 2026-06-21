@@ -1,0 +1,42 @@
+{
+    "name": "paypro",
+    "title": "超级支付",
+    "author": "官方",
+    "link": "",
+    "version": "1.0",
+    "icon": "paypro.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank",
+        "douyinpay",
+        "jdpay",
+        "paypal"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "网关地址",
+            "type": "input",
+            "required": true,
+            "note": "必须以http://或https://开头"
+        },
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "MD5密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

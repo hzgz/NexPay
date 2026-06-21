@@ -1,0 +1,61 @@
+{
+    "name": "yeepay",
+    "title": "易宝支付",
+    "author": "官方",
+    "link": "https://www.yeepay.com/",
+    "version": "1.1",
+    "icon": "yeepay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appkey": {
+            "name": "应用标识",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appid": {
+            "name": "发起方商户编号",
+            "type": "input",
+            "required": true,
+            "note": "标准商户则填写标准商户商编；平台商入驻商户，则填写平台商商编"
+        },
+        "appmchid": {
+            "name": "收款商户编号",
+            "type": "input",
+            "note": "留空则与发起方商户编号一致"
+        },
+        "appswitch": {
+            "name": "支付场景",
+            "type": "select",
+            "options": [
+                "线上",
+                "线下"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付",
+        "3": "托管支付"
+    },
+    "note": "密钥需要选RSA格式的",
+    "bindwxmp": true,
+    "bindwxa": true
+}

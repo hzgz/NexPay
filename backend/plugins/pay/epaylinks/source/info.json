@@ -1,0 +1,65 @@
+{
+    "name": "epaylinks",
+    "title": "易票联支付",
+    "author": "官方",
+    "link": "https://www.epaylinks.cn/",
+    "version": "1.1",
+    "icon": "epaylinks.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "证书序列号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "mch_key_path": {
+            "name": "商户私钥证书",
+            "type": "upload",
+            "accept": ".key,.pem",
+            "required": true,
+            "note": "上传key或pem格式的商户私钥"
+        },
+        "appmchid": {
+            "name": "子商户编号",
+            "type": "input",
+            "note": "非进件模式可留空"
+        },
+        "upmchid": {
+            "name": "上游商户号",
+            "type": "input",
+            "note": "可留空，留空使用默认上游商户号"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "生活号支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "银联扫码支付",
+        "2": "个人网银支付",
+        "3": "协议快捷支付"
+    },
+    "note": "--生成私钥mch.key<br/>openssl genrsa -out mch.key 2048<br/>--生成公钥证书public-rsa.cer<br/>openssl req -new -x509 -sha256 -key mch.key -days 3650 -out public-rsa.cer",
+    "bindwxmp": true,
+    "bindwxa": true
+}

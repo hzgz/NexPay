@@ -1,0 +1,59 @@
+{
+    "name": "douyinpay",
+    "title": "抖音支付",
+    "author": "官方",
+    "link": "https://pay.douyinpay.com/",
+    "version": "1.1",
+    "icon": "douyinpay.png",
+    "desc": "",
+    "pay_types": [
+        "douyinpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用ID",
+            "type": "input",
+            "required": true,
+            "note": "抖音开放平台网站应用Client Key"
+        },
+        "appsecret": {
+            "name": "应用Secret",
+            "type": "input",
+            "note": "对应应用的Client Secret，仅JSAPI支付需要填写"
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "apikey": {
+            "name": "接口加密密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "certserial": {
+            "name": "商户API证书序列号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "merchant_key_path": {
+            "name": "商户API私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "pem格式商户私钥文件"
+        }
+    },
+    "select": {
+        "1": "Native支付",
+        "2": "JSAPI支付",
+        "3": "H5支付",
+        "4": "APP支付"
+    },
+    "note": "<p>上方应用ID必须为网站应用，需要在抖音支付后台关联对应的应用才能使用。</p><p>若开启JSAPI支付，需在开放平台配置应用授权回调URL：[siteurl]user/oauth/douyin，以及JSBridge安全域名</p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

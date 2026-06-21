@@ -1,0 +1,60 @@
+{
+  "name": "ahrcuauto",
+  "title": "\u5b89\u5fbd\u519c\u91d1\u514d\u8f93\u5165\u91d1\u989d",
+  "author": "\u5b98\u65b9",
+  "link": "https://epay.ahrcu.com:1443/",
+  "version": "1.0",
+  "icon": "ahrcuauto.png",
+  "desc": "\u5b89\u5fbd\u519c\u91d1\u52a8\u6001\u91d1\u989d\u7801\uff08\u514d\u8f93\u5165\u91d1\u989d\uff09",
+  "pay_types": [
+    "alipay",
+    "wxpay",
+    "bank"
+  ],
+  "inputs": {
+    "token": {
+      "name": "\u5b89\u5fbd\u519c\u91d1Token",
+      "type": "textarea",
+      "required": true,
+      "note": "\u5b89\u5fbd\u519c\u91d1\u5546\u6237\u540e\u53f0\u767b\u5f55\u540e\u7684 token\uff1b\u63d2\u4ef6\u4f1a\u81ea\u52a8\u7eed\u671f\u5e76\u56de\u5199"
+    },
+    "mchid": {
+      "name": "\u5b89\u5fbd\u519c\u91d1\u5546\u6237\u53f7",
+      "type": "input",
+      "required": true,
+      "note": "\u7528\u4e8e\u52a8\u6001\u4e0b\u7801\u4e0e\u8865\u5355\u6821\u9a8c"
+    },
+    "shop_id": {
+      "name": "\u95e8\u5e97ID",
+      "type": "input",
+      "required": true,
+      "note": "\u52a8\u6001\u4e0b\u7801\u5fc5\u586b"
+    },
+    "staff_id": {
+      "name": "\u6536\u94f6ID",
+      "type": "input",
+      "required": true,
+      "note": "\u52a8\u6001\u4e0b\u7801\u5fc5\u586b\uff0c\u6765\u81ea\u5b89\u5fbd\u519c\u91d1\u5546\u6237\u540e\u53f0\u767b\u5f55\u8d26\u53f7"
+    },
+    "device_id": {
+      "name": "\u8bbe\u5907ID",
+      "type": "input",
+      "note": "\u9009\u586b\uff0c\u8865\u5355\u65f6\u53ef\u63d0\u9ad8\u67e5\u5355\u7cbe\u5ea6"
+    },
+    "order_valid_minutes": {
+      "name": "\u8ba2\u5355\u6709\u6548\u671f(\u5206\u949f)",
+      "type": "input",
+      "value": "3",
+      "note": "\u8865\u5355\u7a97\u53e3\uff0c\u9ed8\u8ba43\u5206\u949f"
+    },
+    "qrcode_timeout": {
+      "name": "\u4e8c\u7ef4\u7801\u6709\u6548\u79d2\u6570",
+      "type": "input",
+      "value": "60",
+      "note": "\u52a8\u6001\u4e0b\u7801\u6709\u6548\u671f\uff0c\u9ed8\u8ba460\u79d2"
+    }
+  },
+  "note": "<p>\u4ec5\u652f\u6301\u514d\u8f93\u5165\u91d1\u989d\u7248\uff08\u52a8\u6001\u91d1\u989d\u7801\uff09\u3002</p><p>\u5b88\u62a4\u8fdb\u7a0b\u8fd0\u884c\u76ee\u5f55\uff1a<u>[basedir]plugins/payment/ahrcuauto/</u></p><p>\u542f\u52a8\u547d\u4ee4\uff1a<u>php server.php [channel]</u></p>",
+  "bindwxmp": false,
+  "bindwxa": false
+}

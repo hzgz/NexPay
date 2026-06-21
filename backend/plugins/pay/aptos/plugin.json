@@ -1,0 +1,18 @@
+{
+    "code": "aptos",
+    "name": "Aptos USDT支付",
+    "version": "1.0.0",
+    "description": "Aptos 链上 USDT 收款插件，支持监控与自动补单。",
+    "group": "pay",
+    "kind": "chain",
+    "payment_methods": [
+        "aptos"
+    ],
+    "capabilities": [
+        "address_match",
+        "chain_confirm",
+        "notify",
+        "daemon"
+    ],
+    "provider": "plugins\\pay\\aptos\\PluginProvider"
+}

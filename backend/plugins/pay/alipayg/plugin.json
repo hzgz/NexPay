@@ -1,0 +1,17 @@
+{
+    "code": "alipayg",
+    "name": "支付宝国际版",
+    "version": "1.1",
+    "description": "支付宝国际版，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "international",
+    "payment_methods": [
+        "alipay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\alipayg\\PluginProvider"
+}

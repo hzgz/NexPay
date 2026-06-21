@@ -1,0 +1,38 @@
+{
+    "name": "togoodfin",
+    "title": "通莞金服",
+    "author": "官方",
+    "link": "http://www.togoodfin.com/",
+    "version": "1.0",
+    "icon": "togoodfin.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "account",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "key",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "渠道商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

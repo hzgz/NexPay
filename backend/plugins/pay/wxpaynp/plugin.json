@@ -1,0 +1,18 @@
+{
+    "code": "wxpaynp",
+    "name": "微信官方支付V3服务商版",
+    "version": "1.2",
+    "description": "微信官方支付V3服务商版，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "wechat",
+        "qqpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\wxpaynp\\PluginProvider"
+}

@@ -1,0 +1,89 @@
+{
+    "name": "alipay",
+    "title": "支付宝官方支付",
+    "author": "官方",
+    "link": "https://b.alipay.com/signing/productSetV2.htm",
+    "version": "1.3",
+    "icon": "alipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay"
+    ],
+    "trans_types": [
+        "alipay",
+        "bank"
+    ],
+    "inputs": {
+        "sign_type": {
+            "name": "接口加签方式",
+            "type": "radio",
+            "options": [
+                "RSA2密钥",
+                "RSA2证书"
+            ],
+            "required": true,
+            "value": "0"
+        },
+        "appid": {
+            "name": "应用APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "应用私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "支付宝公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "填错也可以支付成功但会无法回调",
+            "show": "sign_type=='0'"
+        },
+        "app_cert_path": {
+            "name": "应用公钥证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "appCertPublicKey开头的crt格式证书",
+            "show": "sign_type=='1'"
+        },
+        "alipay_cert_path": {
+            "name": "支付宝公钥证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "alipayCertPublicKey开头的crt格式证书",
+            "show": "sign_type=='1'"
+        },
+        "root_cert_path": {
+            "name": "支付宝根证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "alipayRootCert开头的crt格式证书",
+            "show": "sign_type=='1'"
+        },
+        "appmchid": {
+            "name": "卖家支付宝用户ID",
+            "type": "input",
+            "note": "可留空，默认为商户签约账号"
+        }
+    },
+    "select": {
+        "1": "电脑网站支付",
+        "2": "手机网站支付",
+        "3": "当面付扫码",
+        "4": "当面付JS",
+        "5": "预授权支付",
+        "6": "APP支付",
+        "7": "JSAPI支付",
+        "8": "订单码支付"
+    },
+    "note": "<p>选择可用的接口，只能选择已经签约的产品，否则会无法支付！</p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

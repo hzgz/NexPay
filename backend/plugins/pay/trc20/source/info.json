@@ -1,0 +1,49 @@
+{
+    "name": "trc20",
+    "title": "TRC20 USDT支付",
+    "author": "官方",
+    "link": "",
+    "version": "1.0.0",
+    "desc": "TRON 链上 TRC20 USDT 收款插件，支持监控与自动补单。",
+    "pay_types": [
+        "usdttrc20"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "收款地址",
+            "type": "input",
+            "required": true,
+            "note": "TRC20 钱包地址，必须以 T 开头。"
+        },
+        "appkey": {
+            "name": "USDT汇率(CNY)",
+            "type": "input",
+            "required": true,
+            "note": "1 USDT 对应的人民币汇率。"
+        },
+        "appurl": {
+            "name": "支付超时时间(秒)",
+            "type": "input",
+            "required": true,
+            "note": "建议 1200，即 20 分钟。"
+        },
+        "botid": {
+            "name": "Telegram用户ID",
+            "type": "input",
+            "note": "接收通知的 Telegram 用户ID。"
+        },
+        "bottoken": {
+            "name": "Telegram Bot Token",
+            "type": "input",
+            "note": "BotFather 创建的 Bot Token。"
+        },
+        "xiaoshu": {
+            "name": "USDT小数位数",
+            "type": "input",
+            "note": "建议 2，支持范围 2-6。"
+        }
+    },
+    "note": "<p>监控脚本目录：<u>[basedir]plugins/payment/trc20/</u></p><p>启动命令：<u>php server.php [channel]</u></p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

@@ -1,0 +1,56 @@
+{
+    "name": "xsy",
+    "title": "新生易",
+    "author": "官方",
+    "link": "https://www.hnapay.com/",
+    "version": "1.1",
+    "icon": "hnapay.png",
+    "desc": "",
+    "pay_types": [
+        "wxpay",
+        "alipay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "机构代码",
+            "required": true,
+            "type": "input"
+        },
+        "appkey": {
+            "name": "平台公钥",
+            "required": true,
+            "type": "textarea"
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "required": true,
+            "type": "textarea"
+        },
+        "appmchid": {
+            "name": "商户编号",
+            "required": true,
+            "type": "input"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

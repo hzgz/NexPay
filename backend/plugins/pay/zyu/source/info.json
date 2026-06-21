@@ -1,0 +1,55 @@
+{
+    "name": "zyu",
+    "title": "知宇支付",
+    "author": "官方",
+    "link": "",
+    "version": "1.0",
+    "icon": "zyu.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "qqpay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "支付网关地址",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "通道编码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "支付跳转模式",
+            "type": "select",
+            "options": [
+                "直接跳转接口（默认）",
+                "请求接口后跳转",
+                "请求接口后扫码"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

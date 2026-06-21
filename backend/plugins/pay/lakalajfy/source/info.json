@@ -1,0 +1,47 @@
+{
+    "name": "lakalajfy",
+    "title": "拉卡拉缴费易",
+    "author": "官方",
+    "link": "https://jfyui.lakala.com/",
+    "version": "1.1",
+    "icon": "lakala.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "商户ID",
+            "type": "input",
+            "required": true,
+            "note": "解码得收款链接中PID值"
+        },
+        "appid": {
+            "name": "店铺名",
+            "type": "input",
+            "required": true,
+            "note": "收银台店铺名"
+        },
+        "appkey": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": "拉卡拉商户号"
+        },
+        "appmchid": {
+            "name": "收款备注",
+            "type": "input",
+            "note": "备注"
+        },
+        "appsecret": {
+            "name": "指定IP",
+            "type": "input",
+            "note": "任意国内IP，多通道不可复用"
+        }
+    },
+    "note": "<p>需添加守护进程，运行目录：<u>[basedir]plugins/payment/lakalajfy/</u> 启动命令：<u>php server.php [channel]</u></p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

@@ -1,0 +1,31 @@
+{
+    "name": "xorpay",
+    "title": "XorPay",
+    "author": "官方",
+    "link": "https://xorpay.com/",
+    "version": "1.0",
+    "icon": "xorpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "AppId",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "AppSecret",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "点金计划商家小票链接（用于公众号支付跳转回网站）：[siteurl]gold",
+    "bindwxmp": false,
+    "bindwxa": false
+}

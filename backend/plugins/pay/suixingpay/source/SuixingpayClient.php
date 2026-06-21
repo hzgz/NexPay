@@ -1,0 +1,151 @@
+<?php
+
+declare(strict_types=1);
+
+namespace plugins\payment\suixingpay;
+
+use Exception;
+
+/**
+ * @see https://paas.tianquetech.com/
+ */
+class SuixingpayClient
+{
+    private string $gateway = 'https://openapi.tianquetech.com';
+    private string $sign_type = 'RSA';
+    private string $version = '1.0';
+    private string $org_id;
+    private string $platform_public_key;
+    private string $merchant_private_key;
+
+    public function __construct(string $org_id, string $platform_public_key, string $merchant_private_key)
+    {
+        $this->org_id = $org_id;
+        $this->platform_public_key = $platform_public_key;
+        $this->merchant_private_key = $merchant_private_key;
+    }
+
+    //发起API请求
+    public function submit(string $url, array $data): array
+    {
+        $apiurl = $this->gateway . $url;
+        $params = [
+            'orgId' => $this->org_id,
+            'reqId' => $this->getMillisecond(),
+            'reqData' => $data,
+            'timestamp' => date('YmdHis'),
+            'version' => $this->version,
+            'signType' => $this->sign_type,
+        ];
+
+        $params['sign'] = $this->generateSign($params);
+
+        $response = get_curl($apiurl, json_encode($params), 0, 0, 0, 0, 0, ['Content-Type: application/json; charset=utf-8']);
+        if (!$response) {
+            throw new Exception('请求接口失败');
+        }
+        $result = json_decode($response, true);
+        if (isset($result['code']) && $result['code'] == '0000') {
+            if (!$this->verifySign($result)) throw new Exception('返回数据验签失败');
+            return $result['respData'];
+        } elseif (isset($result['msg'])) {
+            throw new Exception($result['msg']);
+        } else {
+            throw new Exception('返回数据解析失败');
+        }
+    }
+
+    public function upload(string $picture_type, string $file_path, string $file_name): string
+    {
+        $apiurl = $this->gateway . '/merchant/uploadPicture';
+        $params = [
+            'orgId' => $this->org_id,
+            'reqId' => $this->getMillisecond(),
+            'pictureType' => $picture_type,
+            'file' => new \CURLFile($file_path, null, $file_name),
+        ];
+        $response = get_curl($apiurl, $params);
+        if (!$response) {
+            throw new Exception('请求接口失败');
+        }
+        $result = json_decode($response, true);
+        if (isset($result['code']) && $result['code'] == '0000') {
+            if ($result['respData']['bizCode'] == '0000') {
+                return $result['respData']['PhotoUrl'];
+            } else {
+                throw new Exception($result['respData']['bizMsg']);
+            }
+        } elseif (isset($result['msg'])) {
+            throw new Exception($result['msg']);
+        } else {
+            throw new Exception('返回数据解析失败');
+        }
+    }
+
+    //获取待签名字符串
+    private function getSignContent(array $param): string
+    {
+        ksort($param);
+        $signstr = '';
+
+        foreach ($param as $k => $v) {
+            if ($k != "sign") {
+                if (is_array($v)) {
+                    $signstr .= $k . '=' . json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '&';
+                } else {
+                    $signstr .= $k . '=' . $v . '&';
+                }
+            }
+        }
+        $signstr = substr($signstr, 0, -1);
+        return $signstr;
+    }
+
+    //请求参数签名
+    private function generateSign(array $param): string
+    {
+        return $this->rsaPrivateSign($this->getSignContent($param));
+    }
+
+    //验签方法
+    public function verifySign(array $param): bool
+    {
+        if (empty($param['sign'])) return false;
+        return $this->rsaPubilcSign($this->getSignContent($param), $param['sign']);
+    }
+
+    //商户私钥签名
+    private function rsaPrivateSign(string $data): string
+    {
+        $key = "-----BEGIN RSA PRIVATE KEY-----\n" .
+            wordwrap($this->merchant_private_key, 64, "\n", true) .
+            "\n-----END RSA PRIVATE KEY-----";
+        $res = openssl_pkey_get_private($key);
+        if (!$res) {
+            throw new Exception('签名失败，商户私钥错误');
+        }
+        openssl_sign($data, $sign, $res);
+        $sign = base64_encode($sign);
+        return $sign;
+    }
+
+    //平台公钥验签
+    private function rsaPubilcSign(string $data, string $sign): bool
+    {
+        $key = "-----BEGIN PUBLIC KEY-----\n" .
+            wordwrap($this->platform_public_key, 64, "\n", true) .
+            "\n-----END PUBLIC KEY-----";
+        $res = openssl_pkey_get_public($key);
+        if (!$res) {
+            throw new Exception('验签失败，平台公钥错误');
+        }
+        $result = openssl_verify($data, base64_decode($sign), $res);
+        return $result === 1;
+    }
+
+    private function getMillisecond(): string
+    {
+        [$s1, $s2] = explode(' ', microtime());
+        return sprintf('%.0f', (floatval($s1) + floatval($s2)) * 1000);
+    }
+}

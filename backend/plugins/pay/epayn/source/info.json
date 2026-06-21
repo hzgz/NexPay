@@ -1,0 +1,68 @@
+{
+    "name": "epayn",
+    "title": "彩虹易支付V2",
+    "author": "官方",
+    "link": "",
+    "version": "1.1",
+    "icon": "default.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "qqpay",
+        "wxpay",
+        "bank",
+        "jdpay",
+        "douyinpay"
+    ],
+    "trans_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "接口地址",
+            "type": "input",
+            "note": "必须以http://或https://开头，以/结尾"
+        },
+        "appid": {
+            "name": "商户ID",
+            "type": "input",
+            "note": ""
+        },
+        "appkey": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "note": ""
+        },
+        "appswitch": {
+            "name": "接口类型",
+            "type": "select",
+            "options": [
+                "页面跳转支付",
+                "统一下单接口"
+            ],
+            "value": "0"
+        },
+        "merchant_id": {
+            "name": "自定义进件商户ID",
+            "type": "input",
+            "note": "可留空，进件商户列表的ID"
+        },
+        "channel_id": {
+            "name": "自定义通道ID",
+            "type": "input",
+            "note": "可留空，自定义子通道的ID"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

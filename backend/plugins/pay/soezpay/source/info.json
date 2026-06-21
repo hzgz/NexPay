@@ -1,0 +1,36 @@
+{
+    "name": "soezpay",
+    "title": "乐收付",
+    "author": "官方",
+    "link": "http://www.soezpay.com/",
+    "version": "1.0",
+    "icon": "https://pay.cccyun.cc/assets/img/app/d09d5a598094208f4f60f505bf5d454c.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户Openid",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户Key",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select_wxpay": {
+        "1": "收银台支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

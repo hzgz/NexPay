@@ -1,0 +1,10 @@
+{
+  "code": "mail-smtp",
+  "name": "SMTP 邮件插件",
+  "version": "1.0.0",
+  "description": "提供注册、找回密码、通知消息等邮件发送能力。",
+  "group": "notify",
+  "kind": "notify",
+  "capabilities": ["send_mail", "verify_code"],
+  "provider": "plugins\\notify\\mail_smtp\\PluginProvider"
+}

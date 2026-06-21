@@ -1,0 +1,32 @@
+{
+    "name": "shouqianba",
+    "title": "收钱吧支付",
+    "author": "官方",
+    "link": "https://www.shouqianba.com/",
+    "version": "1.1",
+    "icon": "shouqianba.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "终端号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "终端密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "需要先<a href=\"./payapi/pluginPage?channel=[channel]&func=active\" target=\"_blank\">激活收钱吧终端</a>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

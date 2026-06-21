@@ -1,0 +1,10 @@
+{
+  "code": "payment-test",
+  "name": "支付测试插件",
+  "version": "1.0.0",
+  "description": "提供支付测试菜单、下单联调和回调验证能力。",
+  "group": "common",
+  "kind": "utility",
+  "capabilities": ["test_create_order", "test_mock_complete"],
+  "provider": "plugins\\common\\payment_test\\PluginProvider"
+}

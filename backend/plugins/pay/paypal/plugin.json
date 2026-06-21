@@ -1,0 +1,17 @@
+{
+    "code": "paypal",
+    "name": "PayPal",
+    "version": "1.0",
+    "description": "PayPal，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "international",
+    "payment_methods": [
+        "paypal"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\paypal\\PluginProvider"
+}

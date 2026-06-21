@@ -1,0 +1,48 @@
+{
+    "name": "haoshengyi",
+    "title": "好生意",
+    "author": "官方",
+    "link": "https://www.haoshengyi365.com/",
+    "version": "1.1",
+    "icon": "haoshengyi.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "代理商编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户编码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "验签公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "验签私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

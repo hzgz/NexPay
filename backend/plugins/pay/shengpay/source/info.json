@@ -1,0 +1,67 @@
+{
+    "name": "shengpay",
+    "title": "盛付通",
+    "author": "官方",
+    "link": "https://www.shengpay.com/",
+    "version": "1.1",
+    "icon": "shengpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "收单接口类型",
+            "type": "select",
+            "options": [
+                "线上",
+                "线下"
+            ],
+            "value": "0"
+        },
+        "appmchid": {
+            "name": "子商户号",
+            "type": "input",
+            "note": "非代理商户可留空"
+        },
+        "aeskey": {
+            "name": "AES加密密钥",
+            "type": "input",
+            "note": "用于投诉事件回调解密"
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "电脑网站支付",
+        "3": "手机网站支付",
+        "4": "服务窗支付"
+    },
+    "select_wxpay": {
+        "1": "JSAPI支付",
+        "2": "Native支付",
+        "3": "H5支付",
+        "4": "小程序收银台",
+        "5": "盛付通聚合码"
+    },
+    "select": null,
+    "note": "如果是微信支付，需要<a href=\"./payapi/pluginPage?channel=[channel]&func=wxconfig\" target=\"_blank\">配置绑定AppId和支付目录</a>",
+    "bindwxmp": true,
+    "bindwxa": false
+}

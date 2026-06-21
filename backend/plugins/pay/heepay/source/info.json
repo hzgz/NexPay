@@ -1,0 +1,77 @@
+{
+    "name": "heepay",
+    "title": "汇付宝",
+    "author": "官方",
+    "link": "https://www.heepay.com/",
+    "version": "1.1",
+    "icon": "heepay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "二级商户号",
+            "type": "input",
+            "note": "可留空，集团模式传参"
+        },
+        "bank_id": {
+            "name": "上游商户BankId",
+            "type": "input",
+            "note": "可留空，若需指定上游商户号可填写，多个用,隔开"
+        },
+        "appkey": {
+            "name": "支付密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "退款密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "transfer_key": {
+            "name": "付款密钥",
+            "type": "input",
+            "note": "不需要付款功能的可留空"
+        },
+        "transfer_des_key": {
+            "name": "付款3DES加密密钥",
+            "type": "input",
+            "note": "不需要付款功能的可留空"
+        },
+        "mch_private_key": {
+            "name": "常规业务RSA私钥",
+            "type": "textarea",
+            "note": "不需要投诉查询功能的可留空"
+        }
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "小程序H5支付"
+    },
+    "select_bank": {
+        "1": "网银支付",
+        "2": "银联支付",
+        "3": "云闪付H5"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": true
+}

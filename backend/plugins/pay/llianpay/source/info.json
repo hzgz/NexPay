@@ -1,0 +1,72 @@
+{
+    "name": "llianpay",
+    "title": "连连支付-聚合支付",
+    "author": "官方",
+    "link": "https://open.lianlianpay.com/",
+    "version": "1.1",
+    "icon": "llianpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "二级商户号",
+            "type": "input",
+            "note": "仅平台商模式需要填写"
+        },
+        "payee_uid": {
+            "name": "收款方用户ID",
+            "type": "input",
+            "note": "留空为商户自身"
+        },
+        "chnlmchid": {
+            "name": "渠道子商户号",
+            "type": "input",
+            "note": "可留空，支付宝/微信子商户号，多个用,分隔"
+        },
+        "busi_type": {
+            "name": "业务属性",
+            "type": "select",
+            "options": {
+                "100001": "虚拟商品购买",
+                "100002": "实物商品租购",
+                "100099": "其他商家消费",
+                "120001": "商业众筹",
+                "120002": "信贷偿还",
+                "130001": "支付账户充值"
+            }
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "银联支付",
+        "2": "快捷支付",
+        "3": "微企付"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

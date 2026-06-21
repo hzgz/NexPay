@@ -1,0 +1,19 @@
+{
+    "code": "fuiou3",
+    "name": "富友支付(互联网)",
+    "version": "1.1",
+    "description": "富友支付(互联网)，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\fuiou3\\PluginProvider"
+}

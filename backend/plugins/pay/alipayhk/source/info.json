@@ -1,0 +1,43 @@
+{
+    "name": "alipayhk",
+    "title": "AlipayHK",
+    "author": "官方",
+    "link": "https://global.alipay.com/",
+    "version": "1.1",
+    "icon": "alipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "Partner ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "MD5 Key",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "支付时选择钱包类型",
+            "type": "select",
+            "options": [
+                "否",
+                "是"
+            ],
+            "value": "0"
+        }
+    },
+    "select": {
+        "1": "PC支付",
+        "2": "WAP支付",
+        "3": "APP支付"
+    },
+    "note": "支付时选择钱包类型开启后，支付时可选择Alipay或AlipayHK，关闭则默认使用Alipay",
+    "bindwxmp": false,
+    "bindwxa": false
+}

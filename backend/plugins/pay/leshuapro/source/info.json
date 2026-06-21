@@ -1,0 +1,50 @@
+{
+  "name": "leshuapro",
+  "title": "\u4e50\u5237PRO",
+  "author": "\u5b98\u65b9",
+  "link": "",
+  "version": "1.0.3",
+  "icon": "/static/icon/leshua.png",
+  "desc": "\u4e50\u5237PRO\u8054\u5408\u652f\u4ed8\u63d2\u4ef6\uff08JSAPI + \u7b80\u6613\u652f\u4ed8\u8df3\u8f6c\uff09",
+  "pay_types": [
+    "alipay",
+    "wxpay"
+  ],
+  "inputs": {
+    "appurl": {
+      "name": "\u4e50\u5237\u5546\u6237\u53f7",
+      "type": "input",
+      "required": true,
+      "note": "merchant_id\uff08\u4e50\u5237\u5206\u914d\uff09"
+    },
+    "appkey": {
+      "name": "\u4ea4\u6613\u7b7e\u540dKey",
+      "type": "input",
+      "required": true,
+      "note": "\u7528\u4e8e\u4ea4\u6613\u8bf7\u6c42\u4e0e\u4ea4\u6613\u5e94\u7b54\u9a8c\u7b7e"
+    },
+    "appsecret": {
+      "name": "\u63a8\u9001\u9a8c\u7b7eKey",
+      "type": "input",
+      "required": true,
+      "note": "\u7528\u4e8e\u652f\u4ed8\u901a\u77e5\u56de\u8c03\u9a8c\u7b7e"
+    },
+    "appid": {
+      "name": "JSAPI AppID",
+      "type": "input",
+      "note": "\u5fae\u4fe1/\u652f\u4ed8\u5b9dJSAPI\u573a\u666f\u5efa\u8bae\u586b\u5199"
+    },
+    "appmchid": {
+      "name": "\u8ba2\u5355\u6709\u6548\u671f(\u79d2)",
+      "type": "input",
+      "note": "\u9ed8\u8ba4300\u79d2"
+    }
+  },
+  "select": {
+    "1": "\u7b80\u6613\u652f\u4ed8\uff08\u8df3\u6536\u94f6\u53f0\uff09",
+    "2": "JSAPI\u76f4\u8fde"
+  },
+  "note": "<p>\u901a\u9053\u63a5\u53e3\u7c7b\u578b\u5efa\u8bae\u9009\u62e92\uff1b\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u5185\u8d70JSAPI\uff0c\u975e\u5fae\u4fe1/\u975e\u652f\u4ed8\u5b9d\u73af\u5883\u81ea\u52a8\u8df3\u6536\u94f6\u53f0\u3002</p>",
+  "bindwxmp": false,
+  "bindwxa": false
+}

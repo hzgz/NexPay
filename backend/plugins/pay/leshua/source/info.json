@@ -1,0 +1,45 @@
+{
+    "name": "leshua",
+    "title": "乐刷聚合支付",
+    "author": "官方",
+    "link": "http://www.leshuazf.com/",
+    "version": "1.1",
+    "icon": "leshua.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "交易密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "异步通知密钥",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "Native支付",
+        "2": "JSAPI支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

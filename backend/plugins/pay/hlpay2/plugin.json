@@ -1,0 +1,20 @@
+{
+    "code": "hlpay2",
+    "name": "汇联支付V2",
+    "version": "1.1",
+    "description": "汇联支付V2，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay",
+        "douyin"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\hlpay2\\PluginProvider"
+}

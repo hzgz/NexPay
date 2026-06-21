@@ -1,0 +1,21 @@
+{
+    "code": "xingyifuyhkpro",
+    "name": "星驿付驿汇客Pro",
+    "version": "1.0",
+    "description": "支持代理API（可选）与全通道守护",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify",
+        "daemon",
+        "render"
+    ],
+    "provider": "plugins\\pay\\xingyifuyhkpro\\PluginProvider"
+}

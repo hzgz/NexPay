@@ -1,0 +1,42 @@
+{
+    "name": "shangfutong",
+    "title": "商福通",
+    "author": "官方",
+    "link": "https://pay.rscygroup.com/",
+    "version": "1.1",
+    "icon": "shangfutong.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "应用MD5密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "门店编号",
+            "type": "input",
+            "note": "和策略ID二选一"
+        },
+        "route_no": {
+            "name": "策略ID",
+            "type": "input",
+            "note": "和门店编号二选一"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

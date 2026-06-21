@@ -1,0 +1,55 @@
+{
+    "name": "easypay2",
+    "title": "易生支付",
+    "author": "官方",
+    "link": "https://www.easypay.com.cn/",
+    "version": "1.1",
+    "icon": "easypay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "合作伙伴ID",
+            "type": "input",
+            "required": true,
+            "note": "reqId"
+        },
+        "appkey": {
+            "name": "易生公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "不能有换行和标签"
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": "不能有换行和标签"
+        },
+        "appmchid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "主扫支付",
+        "2": "JSAPI支付"
+    },
+    "select_wxpay": {
+        "1": "主扫支付",
+        "2": "JSAPI支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,32 @@
+{
+    "name": "payssion",
+    "title": "Payssion",
+    "author": "官方",
+    "link": "https://www.payssion.com/",
+    "version": "1.1",
+    "icon": "payssion.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "api_key",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "secret_key",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

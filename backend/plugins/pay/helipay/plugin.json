@@ -1,0 +1,20 @@
+{
+    "code": "helipay",
+    "name": "合利宝",
+    "version": "1.2",
+    "description": "合利宝，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "qqpay",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\helipay\\PluginProvider"
+}

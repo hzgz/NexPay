@@ -1,0 +1,72 @@
+{
+    "name": "sandpay",
+    "title": "杉德支付",
+    "author": "官方",
+    "link": "https://www.sandpay.com.cn/",
+    "version": "1.1",
+    "icon": "sandpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "merchant_private_cert": {
+            "name": "商户私钥证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "pfx格式商户私钥证书"
+        },
+        "appkey": {
+            "name": "私钥证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        },
+        "product": {
+            "name": "市场产品",
+            "type": "select",
+            "options": {
+                "QZF": "标准线上收款",
+                "CSDB": "企业杉德宝"
+            },
+            "value": "QZF"
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "银联聚合码",
+        "2": "快捷支付"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

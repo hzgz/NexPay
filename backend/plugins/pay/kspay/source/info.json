@@ -1,0 +1,23 @@
+{
+    "name": "kspay",
+    "title": "快手支付",
+    "author": "官方",
+    "link": "",
+    "version": "1.0.0",
+    "desc": "快手收款通道，支持扫码下单与自动确认。",
+    "pay_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "快手ID",
+            "type": "input",
+            "required": true,
+            "note": "快手商户ID或收款账号标识"
+        }
+    },
+    "note": "<p>监控脚本目录：<u>[basedir]plugins/payment/kspay/</u></p><p>启动命令：<u>php server.php [channel]</u></p><p>注意：支付金额建议为 0.1 的倍数。</p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

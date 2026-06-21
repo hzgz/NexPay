@@ -1,0 +1,49 @@
+{
+    "name": "shouyinbei",
+    "title": "收银呗",
+    "author": "官方",
+    "link": "https://www.shouyinbei.com/",
+    "version": "1.1",
+    "icon": "shouyinbei.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "应用私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "机构号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "分账商户号",
+            "type": "input",
+            "note": "留空则不使用分账功能"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

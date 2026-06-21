@@ -1,0 +1,20 @@
+{
+    "code": "ahrcuauto",
+    "name": "安徽农金免输入金额",
+    "version": "1.0",
+    "description": "安徽农金动态金额码（免输入金额）",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify",
+        "daemon"
+    ],
+    "provider": "plugins\\pay\\ahrcuauto\\PluginProvider"
+}

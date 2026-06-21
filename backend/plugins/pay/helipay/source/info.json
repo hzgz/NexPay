@@ -1,0 +1,112 @@
+{
+    "name": "helipay",
+    "title": "合利宝",
+    "author": "官方",
+    "link": "http://www.helipay.com/",
+    "version": "1.2",
+    "icon": "helipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "扫码产品-签名密钥",
+            "type": "input",
+            "note": ""
+        },
+        "appsecret": {
+            "name": "扫码产品-加密密钥",
+            "type": "input",
+            "note": ""
+        },
+        "public_signkey": {
+            "name": "公共产品-签名密钥",
+            "type": "input",
+            "note": ""
+        },
+        "public_enckey": {
+            "name": "公共产品-加密密钥",
+            "type": "input",
+            "note": ""
+        },
+        "settle_signkey": {
+            "name": "结算产品-MD5签名密钥",
+            "type": "input",
+            "note": ""
+        },
+        "settle_signkey2": {
+            "name": "结算产品-RSA签名私钥",
+            "type": "textarea",
+            "note": ""
+        },
+        "accpay_signkey": {
+            "name": "虚拟账户支付-签名密钥",
+            "type": "input",
+            "note": ""
+        },
+        "accpay_enckey": {
+            "name": "虚拟账户支付-加密密钥",
+            "type": "input",
+            "note": ""
+        },
+        "appmchid": {
+            "name": "子商户号",
+            "type": "input",
+            "note": "留空为使用商户编号发起支付"
+        },
+        "reportid": {
+            "name": "扫码支付-报备ID",
+            "type": "input",
+            "note": "可留空，多个报备ID可用,隔开"
+        },
+        "reportid2": {
+            "name": "公众号支付-报备ID",
+            "type": "input",
+            "note": "可留空，多个报备ID可用,隔开"
+        },
+        "reportid3": {
+            "name": "H5支付-报备ID",
+            "type": "input",
+            "note": "可留空，多个报备ID可用,隔开"
+        },
+        "h5appid": {
+            "name": "H5支付-AppId",
+            "type": "input",
+            "note": "可留空"
+        },
+        "split_pubkey": {
+            "name": "分账产品-SM2平台公钥",
+            "type": "textarea",
+            "note": "hex格式"
+        },
+        "split_prikey": {
+            "name": "分账产品-SM2商户私钥",
+            "type": "textarea",
+            "note": "hex格式"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "生活号支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付",
+        "3": "H5支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

@@ -1,0 +1,20 @@
+{
+    "code": "woaizf",
+    "name": "我爱支付",
+    "version": "1.0",
+    "description": "我爱支付，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "qqpay",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\woaizf\\PluginProvider"
+}

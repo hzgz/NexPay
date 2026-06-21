@@ -1,0 +1,46 @@
+{
+    "name": "unionpay",
+    "title": "银联前置",
+    "author": "官方",
+    "link": "https://cn.unionpay.com/",
+    "version": "1.1",
+    "icon": "bank.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank",
+        "jdpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true
+        },
+        "appurl": {
+            "name": "自定义网关URL",
+            "type": "input",
+            "note": "可不填,默认是https://qra.95516.com/pay/gateway"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "服务窗支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付",
+        "3": "H5支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

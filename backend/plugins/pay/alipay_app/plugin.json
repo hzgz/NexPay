@@ -1,0 +1,11 @@
+{
+  "code": "alipay-app",
+  "name": "支付宝软件版支付插件",
+  "version": "1.0.0",
+  "description": "适配支付宝软件版支付通道，提供生码、状态解析与回调处理。",
+  "group": "pay",
+  "kind": "app",
+  "payment_methods": ["alipay"],
+  "capabilities": ["create", "query", "notify"],
+  "provider": "plugins\\pay\\alipay_app\\PluginProvider"
+}

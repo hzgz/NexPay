@@ -1,0 +1,64 @@
+{
+    "name": "alipayrp",
+    "title": "支付宝现金红包",
+    "author": "官方",
+    "link": "https://b.alipay.com/signing/productSetV2.htm",
+    "version": "1.1",
+    "icon": "alipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay"
+    ],
+    "inputs": {
+        "sign_type": {
+            "name": "接口加签方式",
+            "type": "hidden",
+            "options": {
+                "1": "RSA2证书"
+            },
+            "required": true,
+            "value": "1"
+        },
+        "appid": {
+            "name": "应用APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "应用私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "app_cert_path": {
+            "name": "应用公钥证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "appCertPublicKey开头的crt格式证书"
+        },
+        "alipay_cert_path": {
+            "name": "支付宝公钥证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "alipayCertPublicKey开头的crt格式证书"
+        },
+        "root_cert_path": {
+            "name": "支付宝根证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "alipayRootCert开头的crt格式证书"
+        },
+        "appmchid": {
+            "name": "收款方支付宝UID",
+            "type": "input",
+            "note": "留空则使用商户绑定的支付宝UID"
+        }
+    },
+    "note": "<p>需要签约支付宝现金红包才能使用！</p><p>订阅\"资金单据状态变更通知\"，应用网关地址：[siteurl]pay/notify/[channel]/</p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

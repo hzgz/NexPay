@@ -1,0 +1,71 @@
+{
+    "name": "jlpay",
+    "title": "嘉联支付",
+    "author": "官方",
+    "link": "https://www.jlpay.com/",
+    "version": "1.1",
+    "icon": "jlpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用appid",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": "SM2-Hex格式"
+        },
+        "appkey": {
+            "name": "嘉联公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "SM2-Hex格式"
+        },
+        "mch_id": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "term_no": {
+            "name": "终端号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "聚合扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

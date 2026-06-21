@@ -1,0 +1,18 @@
+{
+    "code": "trc20",
+    "name": "TRC20 USDT支付",
+    "version": "1.0.0",
+    "description": "TRON 链上 TRC20 USDT 收款插件，支持监控与自动补单。",
+    "group": "pay",
+    "kind": "chain",
+    "payment_methods": [
+        "trc20"
+    ],
+    "capabilities": [
+        "address_match",
+        "chain_confirm",
+        "notify",
+        "daemon"
+    ],
+    "provider": "plugins\\pay\\trc20\\PluginProvider"
+}

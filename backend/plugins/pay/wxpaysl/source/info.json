@@ -1,0 +1,58 @@
+{
+    "name": "wxpaysl",
+    "title": "微信官方支付服务商版",
+    "author": "官方",
+    "link": "https://pay.weixin.qq.com/partner/public/home",
+    "version": "1.2",
+    "icon": "wxpay.png",
+    "desc": "",
+    "pay_types": [
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "服务号/小程序/开放平台AppID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户API密钥",
+            "type": "input",
+            "required": true,
+            "note": "APIv2密钥"
+        },
+        "appurl": {
+            "name": "子商户号",
+            "type": "input",
+            "note": ""
+        },
+        "sslcert_path": {
+            "name": "商户证书",
+            "type": "upload",
+            "accept": ".pem",
+            "note": "apiclient_cert.pem，仅退款需要"
+        },
+        "sslkey_path": {
+            "name": "商户证书私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "note": "apiclient_key.pem，仅退款需要"
+        }
+    },
+    "select": {
+        "1": "Native支付",
+        "2": "JSAPI支付",
+        "3": "H5支付",
+        "5": "APP支付"
+    },
+    "note": "<p>上方AppID填写已认证的服务号/小程序/开放平台应用皆可，需要在微信支付后台关联对应的AppID账号才能使用。</p><p>如需资金下发（如退款）功能，请上传<a href=\"https://pay.weixin.qq.com/wiki/doc/api/tools/mch_pay.php?chapter=4_3\" target=\"_blank\" rel=\"noreferrer\">API证书</a>。</p><p>点金计划商家小票链接（用于公众号支付跳转回网站）：[siteurl]gold</p>",
+    "bindwxmp": true,
+    "bindwxa": true
+}

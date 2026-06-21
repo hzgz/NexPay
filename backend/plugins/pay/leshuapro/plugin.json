@@ -1,0 +1,18 @@
+{
+    "code": "leshuapro",
+    "name": "乐刷PRO",
+    "version": "1.0.3",
+    "description": "乐刷PRO联合支付插件（JSAPI + 简易支付跳转）",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\leshuapro\\PluginProvider"
+}

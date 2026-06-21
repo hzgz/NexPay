@@ -1,0 +1,54 @@
+{
+    "name": "polygon",
+    "title": "Polygon USDT支付",
+    "author": "官方",
+    "link": "",
+    "version": "1.0.0",
+    "desc": "Polygon 链上 USDT 收款插件，使用 Etherscan v2 API 监控。",
+    "pay_types": [
+        "usdtpolygon"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "收款地址",
+            "type": "input",
+            "required": true,
+            "note": "Polygon 钱包地址，必须以 0x 开头。"
+        },
+        "appkey": {
+            "name": "USDT汇率(CNY)",
+            "type": "input",
+            "required": true,
+            "note": "1 USDT 对应的人民币汇率。"
+        },
+        "appurl": {
+            "name": "支付超时时间(秒)",
+            "type": "input",
+            "required": true,
+            "note": "建议 1200，即 20 分钟。"
+        },
+        "botid": {
+            "name": "Telegram用户ID",
+            "type": "input",
+            "note": "接收通知的 Telegram 用户ID。"
+        },
+        "bottoken": {
+            "name": "Telegram Bot Token",
+            "type": "input",
+            "note": "BotFather 创建的 Bot Token。"
+        },
+        "xiaoshu": {
+            "name": "USDT小数位数",
+            "type": "input",
+            "note": "建议 2，支持范围 2-6。"
+        },
+        "apikey": {
+            "name": "Etherscan API Key",
+            "type": "input",
+            "note": "用于 Polygon USDT 交易监控的 API Key。"
+        }
+    },
+    "note": "<p>监控脚本目录：<u>[basedir]plugins/payment/polygon/</u></p><p>启动命令：<u>php server.php [channel]</u></p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

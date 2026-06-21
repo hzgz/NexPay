@@ -1,0 +1,48 @@
+{
+    "name": "zhangyishou",
+    "title": "掌易收聚合支付",
+    "author": "官方",
+    "link": "http://www.zhangyishou.com/",
+    "version": "1.1",
+    "icon": "zhangyishou.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "qqpay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "alipay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "登录账号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "通道ID",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "如果微信通道有扫码和小程序2种，直接在通道ID填写2个ID，用|隔开",
+    "bindwxmp": false,
+    "bindwxa": false
+}

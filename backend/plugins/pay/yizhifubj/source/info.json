@@ -1,0 +1,68 @@
+{
+    "name": "yizhifubj",
+    "title": "首信易支付",
+    "author": "官方",
+    "link": "http://www.payeasenet.com/",
+    "version": "1.1",
+    "icon": "yizhifubj.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "private_key_path": {
+            "name": "私钥证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "pfx格式的私钥证书文件"
+        },
+        "appkey": {
+            "name": "私钥证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "报备序列号",
+            "type": "input",
+            "note": "可留空"
+        },
+        "partnerid": {
+            "name": "服务端ID",
+            "type": "input",
+            "note": "可留空"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "易码付",
+        "2": "扫码支付",
+        "3": "生活号支付",
+        "4": "H5支付"
+    },
+    "select_wxpay": {
+        "1": "易码付",
+        "2": "扫码支付",
+        "3": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "易码付",
+        "2": "扫码支付",
+        "3": "快捷支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

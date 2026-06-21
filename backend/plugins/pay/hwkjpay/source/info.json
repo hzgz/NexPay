@@ -1,0 +1,38 @@
+{
+    "name": "hwkjpay",
+    "title": "鸿闻Pay",
+    "author": "官方",
+    "link": "http://www.hwkjpay.com/",
+    "version": "1.1",
+    "icon": "hwkjpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "private_key_path": {
+            "name": "商户私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "上传pem格式的商户私钥文件"
+        }
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号支付",
+        "3": "小程序支付"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,47 @@
+{
+    "name": "fubei",
+    "title": "付呗聚合支付",
+    "author": "官方",
+    "link": "https://www.51fubei.com/",
+    "version": "1.1",
+    "icon": "fubei.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "开放平台ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "接口密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "门店ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "mchid": {
+            "name": "商户ID",
+            "type": "input",
+            "note": "服务商模式时必填"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "生活号支付",
+        "2": "H5支付"
+    },
+    "note": "如果是微信支付，需要<a href=\"./payapi/pluginPage?channel=[channel]&func=wxconfig\" target=\"_blank\">配置绑定AppId和支付目录</a>",
+    "bindwxmp": true,
+    "bindwxa": false
+}

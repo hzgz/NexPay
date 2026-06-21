@@ -1,0 +1,95 @@
+(async () => {
+  const dumpStorage = (st) => {
+    const out = {};
+    for (let i = 0; i < st.length; i++) {
+      const k = st.key(i);
+      out[k] = st.getItem(k);
+    }
+    return out;
+  };
+
+  const tryParse = (v) => {
+    if (typeof v !== "string") return null;
+    try { return JSON.parse(v); } catch { return null; }
+  };
+
+  const walk = (obj, fn, seen = new Set()) => {
+    if (!obj || typeof obj !== "object" || seen.has(obj)) return;
+    seen.add(obj);
+    for (const [k, v] of Object.entries(obj)) {
+      fn(k, v);
+      if (v && typeof v === "object") walk(v, fn, seen);
+      const j = tryParse(v);
+      if (j) walk(j, fn, seen);
+    }
+  };
+
+  const ls = dumpStorage(localStorage);
+  const ss = dumpStorage(sessionStorage);
+
+  const tokenSet = new Set();
+
+  const addToken = (v) => {
+    if (typeof v !== "string") return;
+    const s = v.trim();
+    if (!s) return;
+    if (s.length >= 80 && /^[A-Za-z0-9%._/+=-]+$/.test(s)) tokenSet.add(s);
+  };
+
+  walk(ls, (k, v) => {
+    if (/token|authorization/i.test(k)) addToken(String(v));
+    addToken(v);
+  });
+  walk(ss, (k, v) => {
+    if (/token|authorization/i.test(k)) addToken(String(v));
+    addToken(v);
+  });
+
+  const cookieToken = (document.cookie.match(/(?:^|;\s*)token=([^;]+)/i) || [])[1];
+  if (cookieToken) tokenSet.add(cookieToken);
+
+  let token = [...tokenSet].sort((a, b) => b.length - a.length)[0] || "";
+  try { token = decodeURIComponent(token); } catch {}
+
+  let queryInfoResp = null;
+  if (token) {
+    try {
+      const r = await fetch(`${location.origin}/end/merchant/merchant/queryInfo`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json;charset=UTF-8",
+          token
+        },
+        body: "{}",
+        credentials: "include"
+      });
+      queryInfoResp = await r.json();
+    } catch (e) {
+      console.warn("queryInfo 请求失败:", e);
+    }
+  }
+
+  const findByKey = (obj, reg) => {
+    let found = "";
+    walk(obj, (k, v) => {
+      if (!found && reg.test(k) && (typeof v === "string" || typeof v === "number")) {
+        found = String(v);
+      }
+    });
+    return found;
+  };
+
+  const info = queryInfoResp?.data?.userInfo || queryInfoResp?.data || {};
+
+  const config = {
+    token,
+    token_channel: "/end/merchant",
+    mchnt_cd: findByKey(info, /^mchnt(cd)?$/i) || findByKey(ls, /mchnt.?cd/i) || findByKey(ss, /mchnt.?cd/i),
+    shop_id:  findByKey(info, /^shop(id)?$/i)  || findByKey(ls, /shop.?id/i)  || findByKey(ss, /shop.?id/i),
+    staff_id: findByKey(info, /^staff(id)?$/i) || findByKey(ls, /staff.?id/i) || findByKey(ss, /staff.?id/i)
+  };
+
+  console.log("queryInfo 原始响应:", queryInfoResp);
+  console.table(config);
+  if (typeof copy === "function") copy(JSON.stringify(config, null, 2));
+})();

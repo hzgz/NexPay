@@ -1,0 +1,61 @@
+{
+    "name": "yseqt",
+    "title": "银盛e企通",
+    "author": "官方",
+    "link": "https://www.ysepay.com/",
+    "version": "1.1",
+    "icon": "ysepay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "服务商商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "cert_pfx": {
+            "name": "商户私钥证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "pfx格式的商户私钥证书"
+        },
+        "appkey": {
+            "name": "私钥证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "收款商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "公众号支付",
+        "2": "小程序H5支付",
+        "3": "JS支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select": null,
+    "note": "只能使用RSA证书！",
+    "bindwxmp": true,
+    "bindwxa": false
+}

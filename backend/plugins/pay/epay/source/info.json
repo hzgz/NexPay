@@ -1,0 +1,47 @@
+{
+    "name": "epay",
+    "title": "彩虹易支付",
+    "author": "官方",
+    "link": "",
+    "version": "1.1",
+    "icon": "default.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "qqpay",
+        "wxpay",
+        "bank",
+        "jdpay",
+        "douyinpay"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "接口地址",
+            "type": "input",
+            "note": "必须以http://或https://开头，以/结尾"
+        },
+        "appid": {
+            "name": "商户ID",
+            "type": "input",
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "note": ""
+        },
+        "appswitch": {
+            "name": "是否使用mapi接口",
+            "type": "select",
+            "options": [
+                "否",
+                "是"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

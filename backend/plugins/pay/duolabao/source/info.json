@@ -1,0 +1,58 @@
+{
+    "name": "duolabao",
+    "title": "哆啦宝支付",
+    "author": "官方",
+    "link": "http://www.duolabao.com/",
+    "version": "1.1",
+    "icon": "duolabao.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank",
+        "jdpay"
+    ],
+    "inputs": {
+        "agentNum": {
+            "name": "代理商编号",
+            "type": "input",
+            "note": "非代理商不需要填写"
+        },
+        "customerNum": {
+            "name": "商户编号",
+            "type": "input",
+            "note": ""
+        },
+        "shopNum": {
+            "name": "店铺编号",
+            "type": "input",
+            "note": "此项可留空"
+        },
+        "accessKey": {
+            "name": "公钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "secretKey": {
+            "name": "私钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

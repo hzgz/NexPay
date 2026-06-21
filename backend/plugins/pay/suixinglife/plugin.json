@@ -1,0 +1,20 @@
+{
+    "code": "suixinglife",
+    "name": "随行付会生活",
+    "version": "1.1",
+    "description": "随行付会生活，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify",
+        "daemon"
+    ],
+    "provider": "plugins\\pay\\suixinglife\\PluginProvider"
+}

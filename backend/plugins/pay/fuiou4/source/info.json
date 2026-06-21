@@ -1,0 +1,47 @@
+{
+    "name": "fuiou4",
+    "title": "富友支付(H5支付)",
+    "author": "官方",
+    "link": "https://www.fuiou.com/",
+    "version": "1.1",
+    "icon": "fuiou.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "富友公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

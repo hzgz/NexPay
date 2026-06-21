@@ -1,0 +1,49 @@
+{
+    "name": "cloudpay",
+    "title": "支付宝云支付",
+    "author": "官方",
+    "link": "https://bpaas.alipay.com/portal/industry-bpaas/ability/list",
+    "version": "1.0",
+    "icon": "alipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "isv_app_id",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "云支付公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "企业私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "门店编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "需入驻行业云，并开通“云支付基础接口功能包”",
+    "bindwxmp": true,
+    "bindwxa": true
+}

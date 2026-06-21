@@ -1,0 +1,56 @@
+{
+    "name": "xhdpay",
+    "title": "红小点支付",
+    "author": "官方",
+    "link": "https://www.xhdpay.com/",
+    "version": "1.0",
+    "icon": "xhdpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "联合商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "联合设备号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "交易密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "complainmchid": {
+            "name": "消费者投诉商户号",
+            "type": "input",
+            "note": ""
+        },
+        "appsecret": {
+            "name": "消费者投诉签名密钥",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "生活号支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

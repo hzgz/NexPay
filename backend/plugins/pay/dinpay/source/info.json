@@ -1,0 +1,59 @@
+{
+    "name": "dinpay",
+    "title": "智付",
+    "author": "官方",
+    "link": "https://www.dinpay.com/",
+    "version": "1.1",
+    "icon": "dinpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": "SM2-Hex格式"
+        },
+        "appkey": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "SM2-Hex格式"
+        },
+        "appmchid": {
+            "name": "子商户号",
+            "type": "input",
+            "note": "可留空"
+        },
+        "reportid": {
+            "name": "渠道商户报备ID",
+            "type": "input",
+            "note": "可留空，多个报备ID可用,隔开"
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "H5支付",
+        "3": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "H5支付",
+        "3": "JS支付"
+    },
+    "select": null,
+    "note": "<a href=\"http://qqapi.cccyun.cc/dinpay.php\" target=\"_blank\" rel=\"noreferrer\">智付SM2公私钥提取</a>",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

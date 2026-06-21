@@ -1,0 +1,70 @@
+<?php
+
+return [
+    'kind' => 'qrcode',
+    'capabilities' => ['create', 'query', 'notify'],
+    'payment_methods' => ['wechat'],
+    'default_settings' => [
+        'enabled' => true,
+        'mode' => 'qrcode',
+        'device' => 'pc',
+        'notify_retry' => 5,
+        'qrcode_image' => '',
+        'payment_address' => '',
+        'display_value' => '',
+        'qrcode_url' => '',
+        'appreciate_image' => '',
+        'appreciate_qrcode_url' => '',
+    ],
+    'settings_schema' => [
+        [
+            'key' => 'mode',
+            'label' => '码类型',
+            'type' => 'select',
+            'required' => true,
+            'options' => [
+                ['label' => '微信收款码', 'value' => 'qrcode'],
+                ['label' => '微信赞赏码', 'value' => 'appreciate'],
+            ],
+        ],
+        [
+            'key' => 'qrcode_image',
+            'label' => '微信收款码图片',
+            'type' => 'image',
+            'required' => true,
+            'show' => 'mode==qrcode',
+            'upload_action' => 'merchant_channel_qrcode',
+            'accept' => '.jpg,.jpeg,.png,.gif,.webp,.bmp',
+            'note' => '上传后将调用后台解析二维码内容，并保存为发起支付时的生码地址。',
+        ],
+        [
+            'key' => 'payment_address',
+            'label' => '解析后的二维码地址',
+            'type' => 'text',
+            'required' => true,
+            'show' => 'mode==qrcode',
+            'readonly' => true,
+            'note' => '由后台解析二维码图片后自动回填。',
+        ],
+        [
+            'key' => 'appreciate_image',
+            'label' => '微信赞赏码图片',
+            'type' => 'image',
+            'required' => true,
+            'show' => 'mode==appreciate',
+            'upload_action' => 'merchant_channel_qrcode',
+            'accept' => '.jpg,.jpeg,.png,.gif,.webp,.bmp',
+            'note' => '赞赏码直接保存图片地址，不参与解析。',
+        ],
+        [
+            'key' => 'device',
+            'label' => '设备场景',
+            'type' => 'select',
+            'options' => [
+                ['label' => 'PC/网页', 'value' => 'pc'],
+                ['label' => '手机/H5', 'value' => 'mobile'],
+            ],
+        ],
+        ['key' => 'notify_retry', 'label' => '回调重试次数', 'type' => 'number'],
+    ],
+];

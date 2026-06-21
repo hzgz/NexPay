@@ -1,0 +1,49 @@
+{
+    "name": "xxpay",
+    "title": "XxPay Pro",
+    "author": "官方",
+    "link": "https://www.xxpay.vip/",
+    "version": "1.0",
+    "icon": "jeepay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "接口地址",
+            "type": "input",
+            "required": true,
+            "note": "必须以http://或https://开头，以/结尾"
+        },
+        "appmchid": {
+            "name": "商户ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appid": {
+            "name": "应用ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "密钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "product_id": {
+            "name": "支付产品ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

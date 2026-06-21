@@ -1,0 +1,55 @@
+{
+    "name": "haipay",
+    "title": "海科聚合支付",
+    "author": "官方",
+    "link": "https://www.hkrt.cn/",
+    "version": "1.1",
+    "icon": "haipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "accessid": {
+            "name": "accessid",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "accesskey": {
+            "name": "接入秘钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "agent_no": {
+            "name": "服务商编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "merch_no": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "pn": {
+            "name": "终端号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "note": "需要先加服务器IP白名单，否则无法调用支付！",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

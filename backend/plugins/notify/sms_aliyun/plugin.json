@@ -1,0 +1,10 @@
+{
+  "code": "sms-aliyun",
+  "name": "阿里云短信插件",
+  "version": "1.0.0",
+  "description": "提供注册、找回密码、通知消息等短信发送能力。",
+  "group": "notify",
+  "kind": "notify",
+  "capabilities": ["send_sms", "verify_code"],
+  "provider": "plugins\\notify\\sms_aliyun\\PluginProvider"
+}

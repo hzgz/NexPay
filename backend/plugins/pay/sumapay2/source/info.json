@@ -1,0 +1,46 @@
+{
+    "name": "sumapay2",
+    "title": "丰付企账宝",
+    "author": "官方",
+    "link": "https://www.sumapay.com/",
+    "version": "1.0",
+    "icon": "sumapay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "biztype": {
+            "name": "业务类型代码",
+            "type": "input",
+            "note": ""
+        },
+        "userid": {
+            "name": "子商户标识",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "H5支付"
+    },
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

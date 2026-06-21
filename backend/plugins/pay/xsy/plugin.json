@@ -1,0 +1,19 @@
+{
+    "code": "xsy",
+    "name": "新生易",
+    "version": "1.1",
+    "description": "新生易，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "wechat",
+        "alipay",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\xsy\\PluginProvider"
+}

@@ -1,0 +1,19 @@
+{
+    "code": "vmq",
+    "name": "V免签",
+    "version": "1.0",
+    "description": "V免签，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "qrcode",
+    "payment_methods": [
+        "alipay",
+        "qqpay",
+        "wechat"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\vmq\\PluginProvider"
+}

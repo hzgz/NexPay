@@ -1,0 +1,19 @@
+{
+    "code": "lakalamoss",
+    "name": "拉卡拉MOSS",
+    "version": "1.1",
+    "description": "拉卡拉MOSS，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\lakalamoss\\PluginProvider"
+}

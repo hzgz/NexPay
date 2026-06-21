@@ -1,0 +1,32 @@
+{
+    "name": "omipay",
+    "title": "O米支付",
+    "author": "官方",
+    "link": "https://www.omipay.net/",
+    "version": "1.0",
+    "icon": "omipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

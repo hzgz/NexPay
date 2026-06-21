@@ -1,0 +1,80 @@
+{
+    "name": "alipaycode",
+    "title": "支付宝免签约码支付",
+    "author": "官方",
+    "link": "https://open.alipay.com/",
+    "version": "1.2",
+    "icon": "alipay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay"
+    ],
+    "inputs": {
+        "sign_type": {
+            "name": "接口加签方式",
+            "type": "radio",
+            "options": [
+                "RSA2密钥",
+                "RSA2证书"
+            ],
+            "required": true,
+            "value": "0"
+        },
+        "appid": {
+            "name": "应用APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "应用私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "支付宝公钥",
+            "type": "textarea",
+            "required": true,
+            "note": "填错也可以支付成功但会无法回调",
+            "show": "sign_type=='0'"
+        },
+        "app_cert_path": {
+            "name": "应用公钥证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "appCertPublicKey开头的crt格式证书",
+            "show": "sign_type=='1'"
+        },
+        "alipay_cert_path": {
+            "name": "支付宝公钥证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "alipayCertPublicKey开头的crt格式证书",
+            "show": "sign_type=='1'"
+        },
+        "root_cert_path": {
+            "name": "支付宝根证书",
+            "type": "upload",
+            "accept": ".crt",
+            "required": true,
+            "note": "alipayRootCert开头的crt格式证书",
+            "show": "sign_type=='1'"
+        },
+        "appmchid": {
+            "name": "支付宝UID",
+            "type": "input",
+            "note": "2088开头的16位纯数字"
+        },
+        "apptoken": {
+            "name": "商户授权token",
+            "type": "input",
+            "note": "只有第三方应用需要填写，非第三方应用必须留空"
+        }
+    },
+    "note": "<p>可不签约支付产品，支付宝开放平台应用需要已上线，不能开启余额宝自动转入。如果是第三方应用类型，还需要填写商户授权token。</p><p>需添加守护进程，运行目录：<u>[basedir]plugins/payment/alipaycode/</u> 启动命令：<u>php server.php [channel]</u></p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

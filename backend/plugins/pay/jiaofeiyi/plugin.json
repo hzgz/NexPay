@@ -1,0 +1,20 @@
+{
+    "code": "jiaofeiyi",
+    "name": "拉卡拉缴费易PRO",
+    "version": "1.2.7",
+    "description": "适配 epay_pro 官方插件格式的拉卡拉缴费易插件。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify",
+        "daemon"
+    ],
+    "provider": "plugins\\pay\\jiaofeiyi\\PluginProvider"
+}

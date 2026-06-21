@@ -1,0 +1,74 @@
+{
+    "name": "chinaums",
+    "title": "银联商务",
+    "author": "官方",
+    "link": "https://open.chinaums.com/",
+    "version": "1.1",
+    "icon": "chinaums.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "AppId",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "AppKey",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户号mid",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "终端号tid",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "通讯密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "msgsrcid": {
+            "name": "来源编号",
+            "type": "input",
+            "note": "4位来源编号"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "H5支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "H5支付",
+        "3": "H5转小程序支付"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false,
+    "profit_sharing": true
+}

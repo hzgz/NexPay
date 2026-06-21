@@ -1,0 +1,56 @@
+{
+    "name": "hmpay",
+    "title": "杉德河马付",
+    "author": "官方",
+    "link": "https://www.sandpay.com.cn/",
+    "version": "1.1",
+    "icon": "sandpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "子商户号",
+            "type": "input",
+            "note": "仅代理商需要填写"
+        },
+        "appurl": {
+            "name": "门店号",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

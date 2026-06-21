@@ -1,0 +1,65 @@
+{
+    "name": "baofu",
+    "title": "宝付支付",
+    "author": "官方",
+    "link": "https://www.baofu.com/",
+    "version": "1.1",
+    "icon": "baofu.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "终端号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "pfx_cert_path": {
+            "name": "商户私钥证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": ".pfx格式证书"
+        },
+        "appkey": {
+            "name": "商户私钥证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "聚合交易商户号",
+            "type": "input",
+            "note": "在微信/支付宝报备的商户号"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "聚合码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

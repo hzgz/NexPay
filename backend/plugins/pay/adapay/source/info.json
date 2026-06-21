@@ -1,0 +1,59 @@
+{
+    "name": "adapay",
+    "title": "汇付AdaPay",
+    "author": "官方",
+    "link": "https://www.adapay.tech/",
+    "version": "1.1",
+    "icon": "adapay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用App_ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "prod模式API_KEY",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户RSA私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "子商户API_KEY",
+            "type": "input",
+            "note": "非进件模式请留空"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付",
+        "3": "托管小程序支付"
+    },
+    "select_wxpay": {
+        "1": "自有公众号/小程序支付",
+        "2": "动态二维码支付",
+        "3": "托管小程序支付"
+    },
+    "select_bank": {
+        "1": "银联支付",
+        "2": "快捷支付",
+        "3": "网银支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

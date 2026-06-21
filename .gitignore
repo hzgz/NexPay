@@ -1,0 +1,36 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local temp / Codex artifacts
+tmp/
+.codex-temp-*.png
+composer.phar
+
+# Environment / secrets
+**/.env
+!backend/.env.example
+*.local
+
+# Logs / runtime
+*.log
+backend/runtime/
+!backend/runtime/.gitignore
+!backend/runtime/logs/.gitignore
+backend/public/upload/
+backend/plugins/pay/ahrcuauto/source/ahtoken.json
+
+# PHP dependencies
+backend/vendor/
+
+# Node dependencies / build outputs
+frontend/**/node_modules/
+frontend/**/dist/
+frontend/**/dist-ssr/
+frontend/**/.vite/
+
+# Test caches
+backend/tests/tmp/
+backend/tests/.phpunit.result.cache

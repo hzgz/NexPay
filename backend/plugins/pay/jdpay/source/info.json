@@ -1,0 +1,37 @@
+{
+    "name": "jdpay",
+    "title": "京东支付",
+    "author": "官方",
+    "link": "https://www.jdpay.com/",
+    "version": "1.0",
+    "icon": "jdpay.png",
+    "desc": "",
+    "pay_types": [
+        "jdpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户DES密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "private_key_path": {
+            "name": "商户RSA私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "seller_rsa_private_key.pem"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

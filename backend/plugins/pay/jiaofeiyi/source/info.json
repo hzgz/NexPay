@@ -1,0 +1,66 @@
+{
+  "name": "jiaofeiyi",
+  "title": "拉卡拉缴费易PRO",
+  "author": "官方",
+  "link": "https://www.973700.xyz/",
+  "version": "1.2.7",
+  "icon": "lakala.png",
+  "desc": "适配 epay_pro 官方插件格式的拉卡拉缴费易插件。",
+  "pay_types": [
+    "alipay",
+    "wxpay",
+    "bank"
+  ],
+  "inputs": {
+    "appurl": {
+      "name": "商户ID",
+      "type": "input",
+      "required": true,
+      "note": "收款PID值，必填"
+    },
+    "appkey": {
+      "name": "商户号",
+      "type": "input",
+      "required": true,
+      "note": "拉卡拉商户号，必填"
+    },
+    "wxpay_type": {
+      "name": "微信支付模式",
+      "type": "select",
+      "options": {
+        "1": "H5支付",
+        "2": "二维码支付",
+        "3": "二维码链接"
+      },
+      "note": "微信支付展示方式，默认 1"
+    },
+    "appid": {
+      "name": "店铺名",
+      "type": "input",
+      "note": "收银台店铺名，选填"
+    },
+    "appmchid": {
+      "name": "收款备注",
+      "type": "input",
+      "note": "备注，选填"
+    },
+    "appsecret": {
+      "name": "指定IP",
+      "type": "input",
+      "note": "固定国内出口IP（仅本机模式生效）"
+    },
+    "remote_api": {
+      "name": "远程API",
+      "type": "input",
+      "note": "填写完整远程API地址"
+    },
+    "proxy_api": {
+      "name": "代理IP API",
+      "type": "input",
+      "note": "填写代理IP提取接口"
+    }
+  },
+  "note": "<p>需要添加监控进程：</p><p>运行目录：<u>[basedir]plugins/payment/jiaofeiyi/</u></p><p>启动命令：<u>php server.php [channel]</u></p><p>全插件通道：<u>php server.php all</u></p>",
+  "bindwxmp": false,
+  "bindwxa": false
+}

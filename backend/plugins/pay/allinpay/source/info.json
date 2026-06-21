@@ -1,0 +1,63 @@
+{
+    "name": "allinpay",
+    "title": "通联支付",
+    "author": "官方",
+    "link": "https://www.allinpay.com/",
+    "version": "1.1",
+    "icon": "allinpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "inputs": {
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appid": {
+            "name": "应用ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "通联公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "orgid": {
+            "name": "代理商商户号",
+            "type": "input",
+            "note": "仅代理商需要填写"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "select_bank": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "profit_sharing": true
+}

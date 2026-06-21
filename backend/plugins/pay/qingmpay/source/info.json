@@ -1,0 +1,44 @@
+{
+    "name": "qingmpay",
+    "title": "清麦支付",
+    "author": "清麦支付",
+    "link": "http://www.qingmpay.com/",
+    "version": "1.0",
+    "icon": "https://pay.cccyun.cc/assets/img/app/9601fac43ee55c0b6de56023b891cd16.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用APPID",
+            "type": "input",
+            "note": ""
+        },
+        "appkey": {
+            "name": "应用密钥",
+            "type": "input",
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "WAP支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付",
+        "3": "WAP支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

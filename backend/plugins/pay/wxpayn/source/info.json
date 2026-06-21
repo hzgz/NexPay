@@ -1,0 +1,76 @@
+{
+    "name": "wxpayn",
+    "title": "微信官方支付V3",
+    "author": "官方",
+    "link": "https://pay.weixin.qq.com/",
+    "version": "1.2",
+    "icon": "wxpay.png",
+    "desc": "",
+    "pay_types": [
+        "wxpay",
+        "qqpay"
+    ],
+    "trans_types": [
+        "wxpay",
+        "qqpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "服务号/小程序/开放平台AppID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户APIv3密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户API证书序列号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "publickeyid": {
+            "name": "微信支付公钥ID",
+            "type": "input",
+            "note": "平台证书模式需要留空"
+        },
+        "merchant_key_path": {
+            "name": "商户API私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "apiclient_key.pem"
+        },
+        "platform_pubkey_path": {
+            "name": "微信支付公钥",
+            "type": "upload",
+            "accept": ".pem",
+            "note": "pub_key.pem，使用平台证书模式时留空"
+        },
+        "apiv2key": {
+            "name": "商户APIv2密钥",
+            "type": "input",
+            "note": "非必填，仅付款码支付需要填写"
+        }
+    },
+    "select": {
+        "1": "Native支付",
+        "2": "JSAPI支付",
+        "3": "H5支付",
+        "5": "APP支付"
+    },
+    "note": "<p>上方AppID填写已认证的服务号/小程序/开放平台应用皆可，需要在微信支付后台关联对应的AppID账号才能使用。</p>",
+    "bindwxmp": true,
+    "bindwxa": true,
+    "bindqqapp": true
+}

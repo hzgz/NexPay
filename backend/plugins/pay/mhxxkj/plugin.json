@@ -1,0 +1,21 @@
+{
+    "code": "mhxxkj",
+    "name": "米花科技",
+    "version": "1.2",
+    "description": "米花科技，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "qqpay",
+        "unionpay",
+        "douyin"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\mhxxkj\\PluginProvider"
+}

@@ -1,0 +1,11 @@
+{
+  "code": "qq-app",
+  "name": "QQ 软件版支付插件",
+  "version": "1.0.0",
+  "description": "适配 QQ 软件版支付通道，提供生码、状态解析与回调处理。",
+  "group": "pay",
+  "kind": "app",
+  "payment_methods": ["qqpay"],
+  "capabilities": ["create", "query", "notify"],
+  "provider": "plugins\\pay\\qq_app\\PluginProvider"
+}

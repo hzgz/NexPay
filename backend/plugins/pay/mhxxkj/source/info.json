@@ -1,0 +1,50 @@
+{
+    "name": "mhxxkj",
+    "title": "米花科技",
+    "author": "米花科技",
+    "link": "http://www.mhxxkj.cn/",
+    "version": "1.2",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank",
+        "douyinpay"
+    ],
+    "inputs": {
+        "appmchid": {
+            "name": "商户编号",
+            "type": "input",
+            "note": ""
+        },
+        "appid": {
+            "name": "商户标识",
+            "type": "input",
+            "note": ""
+        },
+        "appkey": {
+            "name": "公钥",
+            "type": "textarea",
+            "note": ""
+        },
+        "appsecret": {
+            "name": "私钥",
+            "type": "textarea",
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "生活号支付",
+        "3": "H5支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号&小程序支付",
+        "3": "H5支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,11 @@
+{
+  "code": "wechat-qrcode",
+  "name": "微信码支付插件",
+  "version": "1.0.0",
+  "description": "适配微信码支付通道，提供生码、状态解析与回调处理。",
+  "group": "pay",
+  "kind": "qrcode",
+  "payment_methods": ["wechat"],
+  "capabilities": ["create", "query", "notify"],
+  "provider": "plugins\\pay\\wechat_qrcode\\PluginProvider"
+}

@@ -1,0 +1,47 @@
+{
+    "name": "liantuofu",
+    "title": "联拓支付",
+    "author": "官方",
+    "link": "http://www.liantuofu.com/",
+    "version": "1.0",
+    "icon": "liantuofu.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "KEY",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "门店ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "生活号支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付",
+        "3": "H5跳转小程序"
+    },
+    "note": "在商户后台配置异步通知地址：[siteurl]pay/notifyn/[channel]/",
+    "bindwxmp": true,
+    "bindwxa": true
+}

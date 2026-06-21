@@ -1,0 +1,53 @@
+{
+    "name": "huolian",
+    "title": "火脸支付",
+    "author": "官方",
+    "link": "https://www.lianok.com/",
+    "version": "1.1",
+    "icon": "huolian.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "对接商授权编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "对接商MD5加密盐",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "收银员手机号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "退款密码（管理密码）",
+            "type": "input",
+            "note": "如不需要退款功能可留空"
+        }
+    },
+    "select": null,
+    "select_wxpay": {
+        "1": "聚合支付",
+        "2": "H5预下单"
+    },
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": true
+}

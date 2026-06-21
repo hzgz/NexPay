@@ -1,0 +1,80 @@
+{
+    "name": "stripe",
+    "title": "Stripe",
+    "author": "官方",
+    "link": "https://stripe.com/",
+    "version": "1.1",
+    "icon": "stripe.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank",
+        "paypal"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "API密钥",
+            "type": "textarea",
+            "required": true,
+            "note": "sk_live_开头的密钥"
+        },
+        "appkey": {
+            "name": "Webhook密钥",
+            "type": "textarea",
+            "required": true,
+            "note": "whsec_开头的密钥"
+        },
+        "appswitch": {
+            "name": "支付模式",
+            "type": "select",
+            "options": [
+                "跳转收银台",
+                "直接支付(仅限支付宝/微信)"
+            ],
+            "value": "0"
+        },
+        "currency_code": {
+            "name": "结算货币",
+            "type": "select",
+            "options": {
+                "CNY": "人民币 (CNY)",
+                "HKD": "港币 (HKD)",
+                "EUR": "欧元 (EUR)",
+                "USD": "美元 (USD)",
+                "AUD": "澳元 (AUD)",
+                "CAD": "加拿大元 (CAD)",
+                "GBP": "英镑 (GBP)",
+                "BRL": "巴西雷亚尔 (BRL)",
+                "CZK": "克朗 (CZK)",
+                "DKK": "丹麦克朗(DKK)",
+                "HUF": "匈牙利福林 (HUF)",
+                "INR": "印度卢比 (INR)",
+                "ILS": "以色列新谢克尔 (ILS)",
+                "JPY": "日元 (JPY)",
+                "MYR": "马来西亚林吉特 (MYR)",
+                "MXN": "墨西哥比索 (MXN)",
+                "TWD": "新台币 (TWD)",
+                "NZD": "新西兰元 (NZD)",
+                "NOK": "挪威克朗 (NOK)",
+                "PHP": "菲律宾比索 (PHP)",
+                "PLN": "波兰兹罗提 (PLN)",
+                "RUB": "俄罗斯卢布 (RUB)",
+                "SGD": "新加坡元 (SGD)",
+                "SEK": "瑞典克朗 (SEK)",
+                "CHF": "瑞士法郎 (CHF)",
+                "THB": "泰铢 (THB)"
+            },
+            "value": "CNY"
+        },
+        "currency_rate": {
+            "name": "货币汇率",
+            "type": "input",
+            "note": "例如1元人民币兑换0.137美元(USD)，则此处填0.137"
+        }
+    },
+    "select": null,
+    "note": "需设置WebHook地址：[siteurl]pay/webhook/[channel]/ <br/>侦听的事件，直接支付用: payment_intent.succeeded，跳转收银台用：checkout.session.completed、checkout.session.async_payment_succeeded",
+    "bindwxmp": false,
+    "bindwxa": false
+}

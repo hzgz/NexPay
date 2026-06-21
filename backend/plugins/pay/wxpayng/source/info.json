@@ -1,0 +1,70 @@
+{
+    "name": "wxpayng",
+    "title": "微信支付国际版V3",
+    "author": "官方",
+    "link": "https://pay.weixin.qq.com/",
+    "version": "1.1",
+    "icon": "wxpay.png",
+    "desc": "",
+    "pay_types": [
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "公众号或小程序APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户APIv3密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户API证书序列号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "publickeyid": {
+            "name": "微信支付公钥ID",
+            "type": "input",
+            "note": "平台证书模式需要留空"
+        },
+        "appurl": {
+            "name": "商户行业编码",
+            "type": "input",
+            "note": ""
+        },
+        "merchant_key_path": {
+            "name": "商户API私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "apiclient_key.pem"
+        },
+        "platform_pubkey_path": {
+            "name": "微信支付公钥",
+            "type": "upload",
+            "accept": ".pem",
+            "note": "pub_key.pem，使用平台证书模式时留空"
+        }
+    },
+    "select": {
+        "1": "Native支付",
+        "2": "JSAPI支付",
+        "3": "H5支付",
+        "5": "APP支付"
+    },
+    "note": "<p>上方APPID填写公众号或小程序的皆可，需要在微信支付后台关联对应的公众号或小程序才能使用。无认证的公众号或小程序无法发起支付！</p><p><a href=\"https://pay.weixin.qq.com/wiki/doc/api_external/ch/terms_definition/chapter1_1_1.shtml#part-7\" target=\"_blank\">商户行业编码表</a></p>",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,71 @@
+{
+    "name": "fuiou2",
+    "title": "富友支付(合作方)",
+    "author": "官方",
+    "link": "https://www.fuiou.com/",
+    "version": "1.1",
+    "icon": "fuiou.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "机构号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "富友公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "订单号前缀",
+            "type": "input",
+            "note": ""
+        },
+        "entrykey": {
+            "name": "代理进件密钥",
+            "type": "input",
+            "note": "不使用进件或投诉接口可不填写"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,19 @@
+{
+    "code": "hwkjpay",
+    "name": "鸿闻Pay",
+    "version": "1.1",
+    "description": "鸿闻Pay，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\hwkjpay\\PluginProvider"
+}

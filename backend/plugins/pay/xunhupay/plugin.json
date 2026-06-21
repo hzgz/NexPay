@@ -1,0 +1,18 @@
+{
+    "code": "xunhupay",
+    "name": "虎皮椒支付",
+    "version": "1.1",
+    "description": "虎皮椒支付，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\xunhupay\\PluginProvider"
+}

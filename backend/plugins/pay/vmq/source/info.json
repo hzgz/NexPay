@@ -1,0 +1,38 @@
+{
+    "name": "vmq",
+    "title": "V免签",
+    "author": "官方",
+    "link": "https://github.com/szvone/vmqphp",
+    "version": "1.0",
+    "icon": "vmq.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "qqpay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "接口地址",
+            "type": "input",
+            "required": true,
+            "note": "必须以http://或https://开头，以/结尾"
+        },
+        "appid": {
+            "name": "商户ID",
+            "type": "input",
+            "required": true,
+            "note": "如果不需要商户ID，随便填写即可"
+        },
+        "appkey": {
+            "name": "通讯密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

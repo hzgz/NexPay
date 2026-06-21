@@ -1,0 +1,11 @@
+{
+  "code": "qqpay-qrcode",
+  "name": "QQ 码支付插件",
+  "version": "1.0.0",
+  "description": "适配 QQ 码支付通道，提供生码、状态解析与回调处理。",
+  "group": "pay",
+  "kind": "qrcode",
+  "payment_methods": ["qqpay"],
+  "capabilities": ["create", "query", "notify"],
+  "provider": "plugins\\pay\\qq_qrcode\\PluginProvider"
+}

@@ -1,0 +1,54 @@
+{
+    "name": "lakalamoss",
+    "title": "拉卡拉MOSS",
+    "author": "官方",
+    "link": "https://moss.lakala.com/",
+    "version": "1.1",
+    "icon": "lakala.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "APPID",
+            "type": "input",
+            "required": true,
+            "note": "reqId"
+        },
+        "appsecret": {
+            "name": "客户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appmchid": {
+            "name": "商户ID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "splitmchid": {
+            "name": "合单支付商户ID",
+            "type": "input",
+            "note": "不使用合单支付请留空"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "主扫支付",
+        "2": "JSAPI支付"
+    },
+    "select_wxpay": {
+        "1": "主扫支付",
+        "2": "JSAPI支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

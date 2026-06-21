@@ -1,0 +1,50 @@
+{
+    "name": "hxtpay",
+    "title": "恒信通易付通",
+    "author": "官方",
+    "link": "https://www.chinaepay.com/",
+    "version": "1.0",
+    "icon": "hxtpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "渠道ID",
+            "type": "input",
+            "required": true,
+            "note": "channel_id"
+        },
+        "appkey": {
+            "name": "签名KEY",
+            "type": "input",
+            "required": true
+        },
+        "appsecret": {
+            "name": "加密公钥",
+            "type": "textarea",
+            "required": true
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "主扫支付",
+        "2": "生活号支付"
+    },
+    "select_wxpay": {
+        "1": "主扫支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

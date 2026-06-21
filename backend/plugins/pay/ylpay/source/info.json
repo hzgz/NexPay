@@ -1,0 +1,32 @@
+{
+    "name": "ylpay",
+    "title": "移领支付",
+    "author": "官方",
+    "link": "https://www.020leader.com/",
+    "version": "1.1",
+    "icon": "ylpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "门店编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "接口密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

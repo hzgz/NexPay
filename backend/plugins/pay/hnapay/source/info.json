@@ -1,0 +1,72 @@
+{
+    "name": "hnapay",
+    "title": "新生支付",
+    "author": "官方",
+    "link": "https://www.hnapay.com/",
+    "version": "1.1",
+    "icon": "hnapay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appswitch": {
+            "name": "接口类型",
+            "type": "select",
+            "options": [
+                "公众号/生活号支付",
+                "支付宝H5/快捷支付",
+                "扫码支付"
+            ],
+            "value": "0"
+        },
+        "appid": {
+            "name": "商户ID",
+            "type": "input",
+            "required": true,
+            "note": "新生用户ID"
+        },
+        "appkey": {
+            "name": "新收款密钥-新生公钥",
+            "type": "textarea",
+            "note": "不能带有标签和换行，文件名类似HnapayExpPublicKey.pem"
+        },
+        "appsecret": {
+            "name": "新收款密钥-商户私钥",
+            "type": "textarea",
+            "note": "不能带有标签和换行，文件名类似PrivateKey_10.pem"
+        },
+        "appmchid": {
+            "name": "报备编号",
+            "type": "input",
+            "note": "仅支付宝&微信需要填写"
+        },
+        "mch_key_path": {
+            "name": "收款密钥-商户私钥",
+            "type": "upload",
+            "accept": ".key,.pem",
+            "note": "仅扫码支付需要上传，需要转换为pem格式"
+        },
+        "pay_key_path": {
+            "name": "付款密钥-商户私钥",
+            "type": "upload",
+            "accept": ".key,.pem",
+            "note": "仅付款功能需要上传，需要转换为pem格式"
+        },
+        "wxmchid": {
+            "name": "微信服务商商户号",
+            "type": "input",
+            "note": "用于获取微信支付投诉",
+            "show": "wxpay"
+        }
+    },
+    "select": null,
+    "note": "需要使用RSA格式密钥！公众号/生活号支付、支付宝H5、退款使用<b>新收款密钥</b>，扫码支付使用<b>收款密钥</b>。收款密钥和付款密钥需要用KeyStore Explorer将jks格式转换成pem格式",
+    "bindwxmp": true,
+    "bindwxa": true
+}

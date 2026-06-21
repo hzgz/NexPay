@@ -1,0 +1,25 @@
+{
+    "name": "xingyifuyhk",
+    "title": "星驿付驿汇客",
+    "author": "官方",
+    "link": "https://yhk.postar.cn/",
+    "version": "1.1",
+    "icon": "xingyifu.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appsession": {
+            "name": "登录令牌",
+            "type": "input",
+            "required": true,
+            "note": ""
+        }
+    },
+    "note": "<p>登录令牌获取方法：微信小程序“驿收款商户助手”，登录后，抓包header里面appsession的值。</p><p>需添加守护进程，运行目录：<u>[basedir]plugins/payment/xingyifuyhk/</u> 启动命令：<u>php server.php</u></p>",
+    "bindwxmp": false,
+    "bindwxa": false
+}

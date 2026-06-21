@@ -1,0 +1,72 @@
+{
+    "name": "hlpay2",
+    "title": "汇联支付V2",
+    "author": "官方",
+    "link": "https://www.huilianlink.com/",
+    "version": "1.1",
+    "icon": "hlpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank",
+        "douyinpay"
+    ],
+    "trans_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用APPID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户私钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "appsecret": {
+            "name": "平台公钥",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        },
+        "channelcode": {
+            "name": "通道编码",
+            "type": "input",
+            "note": "可留空，留空为随机路由"
+        },
+        "appmchid": {
+            "name": "子商户编码",
+            "type": "input",
+            "note": "仅服务商可传，普通商户请勿填写"
+        },
+        "appswitch": {
+            "name": "场景类型",
+            "type": "select",
+            "options": {
+                "1": "线下",
+                "2": "线上"
+            },
+            "value": "1"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付",
+        "3": "PC支付",
+        "4": "H5支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": null,
+    "bindwxmp": true,
+    "bindwxa": true
+}

@@ -1,0 +1,10 @@
+{
+  "code": "geetest",
+  "name": "极验验证插件",
+  "version": "1.0.0",
+  "description": "提供极验人机校验能力，可用于登录、注册和敏感操作。",
+  "group": "verify",
+  "kind": "verify",
+  "capabilities": ["login_verify", "register_verify", "forgot_verify", "admin_verify"],
+  "provider": "plugins\\verify\\geetest\\PluginProvider"
+}

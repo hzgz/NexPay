@@ -1,0 +1,17 @@
+{
+    "code": "qqpay",
+    "name": "QQ钱包官方支付",
+    "version": "1.1",
+    "description": "QQ钱包官方支付，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "qqpay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\qqpay\\PluginProvider"
+}

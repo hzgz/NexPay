@@ -1,0 +1,19 @@
+{
+    "code": "alipaycode",
+    "name": "支付宝免签约码支付",
+    "version": "1.2",
+    "description": "支付宝免签约码支付，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "qrcode",
+    "payment_methods": [
+        "alipay"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify",
+        "daemon",
+        "render"
+    ],
+    "provider": "plugins\\pay\\alipaycode\\PluginProvider"
+}

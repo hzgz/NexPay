@@ -1,0 +1,19 @@
+{
+    "code": "kspay",
+    "name": "快手支付",
+    "version": "1.0.0",
+    "description": "快手收款通道，支持扫码下单与自动确认。",
+    "group": "pay",
+    "kind": "gateway",
+    "payment_methods": [
+        "alipay",
+        "wechat"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify",
+        "daemon"
+    ],
+    "provider": "plugins\\pay\\kspay\\PluginProvider"
+}

@@ -1,0 +1,46 @@
+{
+    "name": "umfpay",
+    "title": "联动优势",
+    "author": "官方",
+    "link": "https://www.umfintech.com/",
+    "version": "1.0",
+    "icon": "umfpay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户编号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "商户密钥",
+            "type": "input",
+            "required": true,
+            "note": "此项随便填写"
+        },
+        "platform_public_cert": {
+            "name": "平台公钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "pem格式平台公钥文件"
+        },
+        "merchant_private_cert": {
+            "name": "商户私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "pem格式商户私钥文件"
+        }
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

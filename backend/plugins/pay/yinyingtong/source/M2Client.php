@@ -1,0 +1,236 @@
+<?php
+
+declare(strict_types=1);
+
+namespace plugins\payment\yinyingtong;
+
+use Exception;
+
+/**
+ * @see https://ecn6ul7ztz1a.feishu.cn/docx/N236dMmCJommkJxWcxzcFwiRnAg
+ * @see https://ecn6ul7ztz1a.feishu.cn/wiki/LcfZwESIRiwPOtkTzgCcON50nST
+ */
+class M2Client
+{
+    private static string $url_ca = 'https://api.gomepay.com/CoreCaServlet';
+
+    private static string $url_upload = 'https://res.gomepay.com/yyt/upload_internet';
+
+    //应用ID
+    private string $aid;
+
+    //应用KEY
+    private string $app_key;
+
+    //私钥证书文件
+    private string $private_key_file;
+
+    //公钥证书文件
+    private string $public_key_file;
+
+    private bool $debug = false;
+
+    public function __construct(string $aid, string $app_key, string $public_key_file, string $private_key_file, bool $debug = false)
+    {
+        $this->aid = $aid;
+        $this->app_key = $app_key;
+        $this->public_key_file = $public_key_file;
+        $this->private_key_file = $private_key_file;
+        if (!file_exists($this->public_key_file)) {
+            throw new Exception('平台公钥证书文件不存在');
+        }
+        if (!file_exists($this->private_key_file)) {
+            throw new Exception('商户私钥证书文件不存在');
+        }
+        $this->debug = $debug;
+    }
+
+    /**
+     * @param string $api_code 接口编码
+     * @param array $params 请求参数
+     * @param string|null $random_key 随机密钥
+     * @param int $all_encrypt 加密范围 0 不加密 1 部分加密 2 全报文加密
+     */
+    public function execute(string $api_code, array $params, ?string $random_key = null, int $all_encrypt = 0): array
+    {
+        $timestamp = (string)time();
+        $nonce = (string)rand(000000, 999999);
+        $data = json_encode($params, JSON_UNESCAPED_SLASHES);
+        $sign = $this->generateSign($api_code, $timestamp, $nonce, $data);
+
+        $query = [
+            'aid' => $this->aid,
+            'api_id' => $api_code,
+            'signature' => $sign,
+            'timestamp' => $timestamp,
+            'nonce' => $nonce,
+        ];
+        if ($this->debug) {
+            $query['debug'] = 'true';
+        }
+        if (!empty($random_key)) {
+            $rc4_key = $this->get_rc4_key();
+            $encryptedKey = $this->rc4Encrypt($random_key, $rc4_key);
+            $query['random_key'] = $encryptedKey;
+        }
+        if ($all_encrypt > 0) {
+            $query['all_encrypt'] = $all_encrypt;
+        }
+        $url = self::$url_ca . '?' . http_build_query($query);
+
+        $data = urlencode($data);
+        $response = get_curl($url, $data, 0, 0, 0, 0, 0, ['Content-Type: application/json']);
+        if (!$response) throw new Exception('接口请求失败');
+        $result = json_decode($response, true);
+        if (isset($result['op_ret_code']) && $result['op_ret_code'] == '000') {
+            return $result;
+        } elseif (isset($result['op_ret_subcode'])) {
+            throw new Exception('[' . $result['op_ret_subcode'] . ']' . $result['op_err_submsg']);
+        } elseif (isset($result['op_err_msg'])) {
+            throw new Exception($result['op_err_msg']);
+        } else {
+            throw new Exception($result['err_msg'] ?? '返回数据解析失败');
+        }
+    }
+
+    //文件上传接口
+    public function upload(string $file_path, string $file_name): string
+    {
+        $params = [
+            'aid' => $this->aid,
+            $file_name => new \CURLFile($file_path, null, $file_name),
+        ];
+        $response = get_curl(self::$url_upload, $params);
+        $result = json_decode($response, true);
+        if (isset($result['err_code']) && $result['err_code'] == '000') {
+            return $result['image_url'];
+        } else {
+            throw new Exception($result['err_msg'] ?? '返回数据解析失败');
+        }
+    }
+
+    //异步通知回调验签
+    public function verify(string $dstbdata, string $dstbdatasign): bool
+    {
+        $sign = md5($dstbdata . $this->app_key);
+        return $sign === $dstbdatasign;
+    }
+
+    private function generateSign(string $api_code, string $timestamp, string $nonce, string $data): string
+    {
+        $argList = [$this->aid, $api_code, $timestamp, $nonce];
+        sort($argList, SORT_STRING);
+        $content = implode('', $argList) . $data;
+        return $this->rsaPrivateSign($content);
+    }
+
+    //平台公钥
+    private function getPublicKey(): \OpenSSLAsymmetricKey
+    {
+        $file = file_get_contents($this->public_key_file);
+        $cert = chunk_split($file, 64, "\n");
+        $cert = "-----BEGIN CERTIFICATE-----\n" . $cert . "-----END CERTIFICATE-----\n";
+        $res = openssl_pkey_get_public($cert);
+        if (!$res) {
+            throw new Exception('平台公钥证书解析失败');
+        }
+        return $res;
+    }
+
+    //商户私钥
+    private function getPrivateKey(): \OpenSSLAsymmetricKey
+    {
+        $file = file_get_contents($this->private_key_file);
+        if (!openssl_pkcs12_read($file, $cert, $this->app_key)) {
+            throw new Exception('商户私钥证书解析失败');
+        }
+        return openssl_pkey_get_private($cert['pkey']);
+    }
+
+    //私钥加签
+    private function rsaPrivateSign(string $data): string
+    {
+        $prikey = $this->getPrivateKey();
+        $result = openssl_sign($data, $sign, $prikey);
+        if (!$result) throw new Exception('sign error');
+        return base64_encode($sign);
+    }
+
+    //公钥验签
+    public function rsaPubilcVerify(string $data, string $sign): bool
+    {
+        $pubkey = $this->getPublicKey();
+        $result = openssl_verify($data, base64_decode($sign), $pubkey);
+        return $result === 1;
+    }
+
+    private function get_rc4_key(): string
+    {
+        $pubkey = $this->getPublicKey();
+        $details = openssl_pkey_get_details($pubkey);
+        if ($details && isset($details['key'])) {
+            $pem = $details['key'];
+            $pem = str_replace("-----BEGIN PUBLIC KEY-----", "", $pem);
+            $pem = str_replace("-----END PUBLIC KEY-----", "", $pem);
+            $pem = str_replace("\n", "", $pem);
+            return base64_decode($pem);
+        }
+        throw new Exception('从平台公钥解析公钥失败');
+    }
+
+    private function rc4(string $data, string $key): string
+    {
+        $keyLength = strlen($key);
+        $dataLength = strlen($data);
+
+        $S = range(0, 255);
+        $j = 0;
+
+        for ($i = 0; $i < 256; $i++) {
+            $j = ($j + $S[$i] + ord($key[$i % $keyLength])) % 256;
+            $temp = $S[$i];
+            $S[$i] = $S[$j];
+            $S[$j] = $temp;
+        }
+
+        $i = $j = 0;
+        $result = '';
+        for ($k = 0; $k < $dataLength; $k++) {
+            $i = ($i + 1) % 256;
+            $j = ($j + $S[$i]) % 256;
+
+            $temp = $S[$i];
+            $S[$i] = $S[$j];
+            $S[$j] = $temp;
+
+            $K = $S[($S[$i] + $S[$j]) % 256];
+            $result .= chr(ord($data[$k]) ^ $K);
+        }
+
+        return $result;
+    }
+
+    private function rc4Encrypt(string $data, string $key): string
+    {
+        return base64_encode($this->rc4($data, $key));
+    }
+
+    private function rc4Decrypt(string $data, string $key): string
+    {
+        return $this->rc4(base64_decode($data), $key);
+    }
+
+    //sm4加密
+    public function sm4Encrypt(string $plaintext, string $key): string
+    {
+        $sm4 = new \Rtgm\sm\RtSm4($key);
+        return $sm4->encrypt($plaintext, 'sm4-ecb', '', 'base64');
+    }
+
+    //sm4解密
+    public function sm4Decrypt(string $data, string $key): string
+    {
+        $sm4 = new \Rtgm\sm\RtSm4($key);
+        return $sm4->decrypt($data, 'sm4-ecb', '', 'base64');
+    }
+}

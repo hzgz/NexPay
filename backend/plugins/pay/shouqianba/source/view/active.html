@@ -1,0 +1,47 @@
+{extend name="common/plugin_page" /}
+{block name="main"}
+<div class="panel panel-primary">
+    <div class="panel-heading"><h3 class="panel-title">收钱吧终端激活</h3></div>
+    <div class="panel-body">
+        <form action="?channel={$channel.id}&func=active" method="POST" role="form">
+            <div class="form-group">
+                <div class="input-group"><div class="input-group-addon">开发者序列号</div>
+                <input type="text" name="vendor_sn" value="" class="form-control" required placeholder="vendor_sn"/>
+            </div></div>
+            <div class="form-group">
+                <div class="input-group"><div class="input-group-addon">开发者密钥</div>
+                <input type="text" name="vendor_key" value="" class="form-control" required placeholder="vendor_key"/>
+            </div></div>
+            <div class="form-group">
+                <div class="input-group"><div class="input-group-addon">应用ID</div>
+                <input type="text" name="app_id" value="" class="form-control" required placeholder="app_id"/>
+            </div></div>
+            <div class="form-group">
+                <div class="input-group"><div class="input-group-addon">自定义设备ID</div>
+                <input type="text" name="device_id" value="" class="form-control" required placeholder="在同一个应用下唯一，建议具有一定的格式，例：品牌名称+支付场景"/>
+            </div></div>
+            <div class="form-group">
+                <div class="input-group"><div class="input-group-addon">商户激活码</div>
+                <input type="text" name="code" value="" class="form-control" required placeholder="code"/>
+            </div></div>
+            <p><input type="submit" name="submit" value="立即激活" class="btn btn-primary form-control"/></p>
+        </form>
+    </div>
+    <div class="panel-footer">
+        <span class="glyphicon glyphicon-info-sign"></span> 用于获取收钱吧交易所需要的参数（终端号和终端密钥）
+    </div>
+</div>
+<div class="panel panel-success">
+    <div class="panel-heading"><h3 class="panel-title">已激活终端</h3></div>
+    <div class="panel-body">
+        <table class="table table-bordered">
+        <thead><tr><th>开发者序列号</th><th>自定义设备ID</th><th>终端号</th><th>终端密钥</th></tr></thead>
+        <tbody>
+        {volist name="list" id="row"}
+        <tr><td>{$row.vendor_sn}</td><td>{$row.device_id}</td><td>{$row.terminal_sn}</td><td>{$row.terminal_key}</td></tr>
+        {/volist}
+        </tbody>
+        </table>
+    </div>
+</div>
+{/block}

@@ -1,0 +1,20 @@
+{
+    "code": "stripe",
+    "name": "Stripe",
+    "version": "1.1",
+    "description": "Stripe，已从 epay_pro 支付插件目录迁移至 NexPay 插件体系。",
+    "group": "pay",
+    "kind": "international",
+    "payment_methods": [
+        "alipay",
+        "wechat",
+        "unionpay",
+        "paypal"
+    ],
+    "capabilities": [
+        "create",
+        "query",
+        "notify"
+    ],
+    "provider": "plugins\\pay\\stripe\\PluginProvider"
+}

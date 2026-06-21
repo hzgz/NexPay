@@ -1,0 +1,10 @@
+{
+  "code": "captcha-slider",
+  "name": "滑块验证码插件",
+  "version": "1.0.0",
+  "description": "提供商户登录、注册和找回密码场景的验证码能力。",
+  "group": "verify",
+  "kind": "verify",
+  "capabilities": ["login_verify", "register_verify", "forgot_verify"],
+  "provider": "plugins\\verify\\captcha_slider\\PluginProvider"
+}

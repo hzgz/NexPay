@@ -1,0 +1,48 @@
+{
+    "name": "woaizf",
+    "title": "我爱支付",
+    "author": "官方",
+    "link": "https://www.52zhifu.com/",
+    "version": "1.0",
+    "icon": "woaizf.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "qqpay",
+        "bank"
+    ],
+    "trans_types": [
+        "alipay",
+        "wxpay"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "应用AppID",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "应用MD5密钥",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appurl": {
+            "name": "自定义接口地址",
+            "type": "input",
+            "note": "可不填,默认是https://payapi.52zhifu.com/"
+        }
+    },
+    "select_wxpay": {
+        "4": "微信扫码",
+        "5": "微信H5",
+        "6": "微信公众号",
+        "7": "微信小程序"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": false,
+    "bindwxa": false
+}

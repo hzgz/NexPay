@@ -1,0 +1,69 @@
+{
+    "name": "huishouqian",
+    "title": "慧收钱",
+    "author": "官方",
+    "link": "https://www.huishouqian.com/",
+    "version": "1.1",
+    "icon": "huishouqian.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "签名KEY",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "private_key_path": {
+            "name": "商户私钥",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "上传pfx格式的商户私钥文件"
+        },
+        "appsecret": {
+            "name": "私钥密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "cert_path": {
+            "name": "平台公钥证书",
+            "type": "upload",
+            "accept": ".cer",
+            "required": true,
+            "note": "上传cer格式的平台公钥证书文件"
+        },
+        "appswitch": {
+            "name": "环境选择",
+            "type": "select",
+            "options": [
+                "生产环境",
+                "测试环境"
+            ],
+            "value": "0"
+        }
+    },
+    "select": null,
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select_wxpay": {
+        "1": "扫码支付",
+        "2": "公众号/小程序支付"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

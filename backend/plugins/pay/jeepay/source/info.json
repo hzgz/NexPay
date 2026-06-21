@@ -1,0 +1,71 @@
+{
+    "name": "jeepay",
+    "title": "Jeepay计全支付",
+    "author": "官方",
+    "link": "https://www.jeequan.com/",
+    "version": "1.1",
+    "icon": "jeepay.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appurl": {
+            "name": "接口地址",
+            "type": "input",
+            "required": true,
+            "note": "必须以http://或https://开头，以/结尾"
+        },
+        "appmchid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appid": {
+            "name": "应用AppId",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "appkey": {
+            "name": "私钥AppSecret",
+            "type": "textarea",
+            "required": true,
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "支付宝扫码",
+        "2": "支付宝PC网站",
+        "3": "支付宝WAP",
+        "7": "支付宝APP",
+        "4": "支付宝生活号",
+        "5": "聚合扫码",
+        "6": "WEB收银台"
+    },
+    "select_wxpay": {
+        "1": "微信扫码",
+        "2": "微信H5",
+        "7": "微信APP",
+        "3": "微信公众号",
+        "4": "微信小程序",
+        "5": "聚合扫码",
+        "6": "WEB收银台"
+    },
+    "select_bank": {
+        "1": "云闪付扫码",
+        "5": "聚合扫码",
+        "6": "WEB收银台"
+    },
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

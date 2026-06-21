@@ -1,0 +1,42 @@
+{
+    "name": "kunpeng",
+    "title": "鲲鹏支付",
+    "author": "官方",
+    "link": "https://www.globebill.com/",
+    "version": "1.1",
+    "icon": "kunpeng.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "商户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "private_key_path": {
+            "name": "商户私钥",
+            "type": "upload",
+            "accept": ".pem",
+            "required": true,
+            "note": "上传pem格式商户私钥文件"
+        },
+        "appmchid": {
+            "name": "渠道子商户号",
+            "type": "input",
+            "note": ""
+        }
+    },
+    "select_alipay": {
+        "1": "扫码支付",
+        "2": "JS支付"
+    },
+    "select": null,
+    "note": "",
+    "bindwxmp": true,
+    "bindwxa": true
+}

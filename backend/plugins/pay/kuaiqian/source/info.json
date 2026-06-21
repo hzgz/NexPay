@@ -1,0 +1,98 @@
+{
+    "name": "kuaiqian",
+    "title": "快钱支付",
+    "author": "官方",
+    "link": "https://www.99bill.com/",
+    "version": "1.2",
+    "icon": "kuaiqian.png",
+    "desc": "",
+    "pay_types": [
+        "alipay",
+        "wxpay",
+        "bank"
+    ],
+    "trans_types": [
+        "bank"
+    ],
+    "inputs": {
+        "appid": {
+            "name": "快钱账户号",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "platform_cert_path": {
+            "name": "快钱证书",
+            "type": "upload",
+            "accept": ".cer",
+            "required": true,
+            "note": "cer格式快钱证书"
+        },
+        "merchant_key_path": {
+            "name": "商户证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "pfx(PKCS12)格式商户证书"
+        },
+        "appkey": {
+            "name": "商户证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "ssl_cert_path": {
+            "name": "SSL客户端证书",
+            "type": "upload",
+            "accept": ".pfx",
+            "required": true,
+            "note": "pfx格式SSL客户端证书"
+        },
+        "appsecret": {
+            "name": "SSL客户端证书密码",
+            "type": "input",
+            "required": true,
+            "note": ""
+        },
+        "merchant_id": {
+            "name": "当面付-商户号",
+            "type": "input",
+            "note": "仅当面付需要填写"
+        },
+        "terminal_id": {
+            "name": "当面付-终端号",
+            "type": "input",
+            "note": "仅当面付需要填写"
+        },
+        "appmchid": {
+            "name": "服务商-快钱子账户号",
+            "type": "input",
+            "note": "仅服务商需要填写"
+        },
+        "own_channel": {
+            "name": "是否自有渠道",
+            "type": "select",
+            "options": [
+                "否",
+                "是"
+            ],
+            "value": "0"
+        }
+    },
+    "select_alipay": {
+        "1": "H5支付",
+        "2": "当面付"
+    },
+    "select_wxpay": {
+        "1": "H5支付",
+        "2": "当面付"
+    },
+    "select_bank": {
+        "1": "网银支付",
+        "2": "快捷支付",
+        "3": "云闪付扫码"
+    },
+    "note": "证书类型均为RSA，需要在商户证书配置页面，添加人民币网关功能，并选中你正在使用的商户证书。",
+    "bindwxmp": true,
+    "bindwxa": false
+}
