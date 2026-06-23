@@ -635,6 +635,55 @@ class OrderService
         return $order;
     }
 
+    public static function syncHomepageTestOrder(object $order, int $minIntervalSeconds = 2): object
+    {
+        $order = self::repairHomepageTestOrderMerchant($order);
+        if ((int)($order->status ?? 0) !== self::STATUS_PENDING) {
+            return $order;
+        }
+
+        $requestPayload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+        if (($meta['business'] ?? '') !== 'homepage_payment_test') {
+            return $order;
+        }
+
+        $notifyPayload = is_array($order->notify_payload ?? null) ? $order->notify_payload : [];
+        $pluginQuery = is_array($notifyPayload['plugin_query'] ?? null) ? $notifyPayload['plugin_query'] : [];
+        $checkedAt = trim((string)($pluginQuery['checked_at'] ?? ''));
+        if ($checkedAt !== '') {
+            $timestamp = strtotime($checkedAt);
+            if ($timestamp !== false && (time() - $timestamp) < max(1, $minIntervalSeconds)) {
+                return $order;
+            }
+        }
+
+        $result = PluginExecutorService::query($order);
+        $order = self::recordPluginQueryResult($order, $result);
+
+        if (!(bool)($result['ok'] ?? false) || (int)($result['status'] ?? 0) !== 1) {
+            return $order;
+        }
+
+        try {
+            return self::completeOrder($order, [
+                'source' => 'homepage-test-query',
+                'txid' => (string)($result['api_trade_no'] ?? ''),
+                'paid_at' => (string)($result['paid_at'] ?? ''),
+                'confirmations' => 1,
+                'buyer' => (string)($result['buyer'] ?? ''),
+                'bill_trade_no' => (string)($result['bill_trade_no'] ?? ''),
+                'bill_mch_trade_no' => (string)($result['bill_mch_trade_no'] ?? ''),
+            ]);
+        } catch (Throwable $exception) {
+            return self::recordPluginQueryResult($order, array_replace($result, [
+                'ok' => false,
+                'result' => 'plugin_complete_failed',
+                'errmsg' => $exception->getMessage(),
+            ]));
+        }
+    }
+
     public static function protocolForOrder(object $order): string
     {
         $payload = is_array($order->request_payload) ? $order->request_payload : [];
@@ -851,7 +900,9 @@ class OrderService
 
         if (self::canUseDatabase()) {
             $merchant = Merchant::find($merchantId);
-            return $merchant ? self::hydrateGatewayMerchantCredentials($merchant, $merchantId) : null;
+            if ($merchant) {
+                return self::hydrateGatewayMerchantCredentials($merchant, $merchantId);
+            }
         }
 
         $localMerchant = AccountService::merchantCredentialById($merchantId);

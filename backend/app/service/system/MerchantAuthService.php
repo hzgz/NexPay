@@ -519,6 +519,7 @@ class MerchantAuthService
             'out_trade_no' => 'REG-' . date('YmdHis') . '-' . preg_replace('/[^a-zA-Z0-9_-]/', '', $username),
             'channel_code' => $methodCode,
             'channel_category' => 2,
+            'force_configured_gateway' => true,
             'subject' => '商户注册费',
             'amount' => $amount,
             'notify_url' => '',
@@ -538,46 +539,6 @@ class MerchantAuthService
                 ],
             ],
         ]);
-        $createdAt = date('Y-m-d H:i:s');
-        $payload = [
-            'trade_no' => $tradeNo,
-            'out_trade_no' => 'REG-' . date('YmdHis') . '-' . preg_replace('/[^a-zA-Z0-9_-]/', '', $username),
-            'merchant_id' => $merchantId,
-            'merchant_channel_id' => 0,
-            'channel_code' => 'register_fee',
-            'channel_category' => 2,
-            'subject' => '商户注册费',
-            'amount' => $amount,
-            'payable_amount' => $amount,
-            'status' => 0,
-            'notify_url' => '',
-            'return_url' => '/user/login',
-            'client_ip' => $ip,
-            'param' => 'merchant-register-fee',
-            'expire_time' => date('Y-m-d H:i:s', time() + 86400),
-            'request_payload' => [
-                '_meta' => [
-                    'business' => 'merchant_register_fee',
-                    'username' => $username,
-                    'merchant_id' => $merchantId,
-                    'user_id' => (int)($record['id'] ?? 0),
-                    'next_status' => $autoAudit ? 1 : 0,
-                    'next_audit_status' => $autoAudit ? 'approved' : 'pending',
-                ],
-            ],
-            'notify_payload' => [],
-            'payment_address' => '/assets/logo-home.png',
-            'created_at' => $createdAt,
-            'updated_at' => $createdAt,
-        ];
-
-        if (database_available()) {
-            $order = new Order();
-            $order->save($payload);
-            return $order;
-        }
-
-        return LocalOrderStore::createOrder($payload);
     }
 
     private static function attachRegistrationPayment(array $user, object $order, string $amount): array

@@ -232,6 +232,7 @@ class PackageService
             'out_trade_no' => self::generatePurchaseOutTradeNo($merchantId, $packageId),
             'channel_code' => $methodCode,
             'channel_category' => 2,
+            'force_configured_gateway' => true,
             'subject' => '套餐购买 - ' . (string)($package['name'] ?? '商户套餐'),
             'amount' => $price,
             'notify_url' => '',

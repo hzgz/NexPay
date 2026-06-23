@@ -21,8 +21,8 @@ class MerchantFundService
             }
 
             $context = SystemBusinessPaymentService::inspectContext('system_checkout', [
-                'merchant_id' => $merchantId,
                 'channel_code' => $methodCode,
+                'force_configured_gateway' => true,
             ]);
 
             if (!(bool)($context['ok'] ?? false)) {
@@ -103,6 +103,7 @@ class MerchantFundService
             'out_trade_no' => self::generateOutTradeNo($merchantId),
             'channel_code' => $method,
             'channel_category' => 2,
+            'force_configured_gateway' => true,
             'notify_url' => '',
             'return_url' => '/user/funds/flows',
             'subject' => '商户余额充值',

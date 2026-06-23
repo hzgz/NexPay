@@ -130,7 +130,7 @@ class SystemBusinessPaymentService
 
     public static function paymentResult(string $tradeNo): array
     {
-        $order = OrderService::findByTradeNo($tradeNo);
+        $order = OrderService::syncHomepageTestOrder(OrderService::findByTradeNo($tradeNo));
         $status = (int)($order->status ?? OrderService::STATUS_PENDING);
         $statusMap = [
             OrderService::STATUS_PENDING => ['key' => 'pending', 'label' => '待支付'],
@@ -166,6 +166,9 @@ class SystemBusinessPaymentService
         $settings = SettingsService::all(false);
         $payment = is_array($settings['payment'] ?? null) ? $settings['payment'] : [];
         $config = is_array($payment[$configKey] ?? null) ? $payment[$configKey] : [];
+        if ($configKey === 'system_checkout') {
+            $config = self::inheritSystemCheckoutGatewayConfig($config, $payment);
+        }
 
         $provider = self::provider((string)($payload['provider'] ?? $config['provider'] ?? self::PROVIDER_SYSTEM));
         $mode = self::mode((string)($payload['mode'] ?? $config['mode'] ?? self::MODE_V2));
@@ -177,6 +180,50 @@ class SystemBusinessPaymentService
         $merchantPrivateKey = trim((string)($config['merchant_private_key'] ?? ''));
         $requestedMethod = self::requestedMethodCode($payload);
         $amount = (float)($payload['amount'] ?? 0);
+
+        if ($configKey === 'system_checkout') {
+            if (
+                self::configuredGatewayReady(
+                    $paymentUrl,
+                    $merchantId,
+                    $merchantMd5,
+                    $platformPublicKey,
+                    $merchantPrivateKey,
+                    $mode
+                )
+            ) {
+                return self::configuredGatewayConfig(
+                    $config,
+                    $provider,
+                    $mode,
+                    $minAmount,
+                    $paymentUrl,
+                    $merchantId,
+                    $merchantMd5,
+                    $platformPublicKey,
+                    $merchantPrivateKey
+                );
+            }
+
+            if (self::hasConfiguredCarrierRoute($config, $payload)) {
+                $resolved = self::configuredCarrierGatewayConfig(
+                    $config,
+                    $payload,
+                    $provider,
+                    $mode,
+                    $requestedMethod,
+                    $amount,
+                    $minAmount
+                );
+                if ($resolved !== null) {
+                    return $resolved;
+                }
+
+                throw new BusinessException('当前系统业务支付配置无效，请检查后台支付参数或指定的后台通道', StatusCode::BUSINESS_ERROR);
+            }
+
+            throw new BusinessException('请先在后台系统业务支付配置中填写可用支付参数或指定后台通道', StatusCode::BUSINESS_ERROR);
+        }
 
         if (
             $configKey === 'frontend_test'
@@ -266,6 +313,33 @@ class SystemBusinessPaymentService
             : '当前没有可自动绑定的商户支付通道';
 
         throw new BusinessException($message, StatusCode::BUSINESS_ERROR);
+    }
+
+    private static function inheritSystemCheckoutGatewayConfig(array $config, array $payment): array
+    {
+        if (self::configuredGatewayReadyFromConfig($config) || self::hasConfiguredCarrierRoute($config, [])) {
+            return $config;
+        }
+
+        $frontend = is_array($payment['frontend_test'] ?? null) ? $payment['frontend_test'] : [];
+        if (!self::configuredGatewayReadyFromConfig($frontend)) {
+            return $config;
+        }
+
+        foreach ([
+            'provider',
+            'mode',
+            'appswitch',
+            'payment_url',
+            'merchant_id',
+            'merchant_md5',
+            'platform_public_key',
+            'merchant_private_key',
+        ] as $field) {
+            $config[$field] = $frontend[$field] ?? ($config[$field] ?? '');
+        }
+
+        return $config;
     }
 
     private static function configuredGatewayConfig(
@@ -363,6 +437,20 @@ class SystemBusinessPaymentService
         }
 
         return $platformPublicKey !== '' && $merchantPrivateKey !== '';
+    }
+
+    private static function configuredGatewayReadyFromConfig(array $config): bool
+    {
+        $mode = self::mode((string)($config['mode'] ?? self::MODE_V2));
+
+        return self::configuredGatewayReady(
+            self::normalizeGatewayBaseUrl((string)($config['payment_url'] ?? ''), $mode),
+            trim((string)($config['merchant_id'] ?? '')),
+            trim((string)($config['merchant_md5'] ?? '')),
+            trim((string)($config['platform_public_key'] ?? '')),
+            trim((string)($config['merchant_private_key'] ?? '')),
+            $mode
+        );
     }
 
     private static function configuredGatewayExplicitlyRequested(array $config, array $payload): bool

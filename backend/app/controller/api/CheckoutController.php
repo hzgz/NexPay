@@ -754,6 +754,7 @@ HTML;
 
     private function normalizeCheckoutOrderState(object $order): object
     {
+        $order = OrderService::syncHomepageTestOrder($order);
         if (
             (int) ($order->status ?? 0) === OrderService::STATUS_PENDING
             && $this->isOrderExpired($order)

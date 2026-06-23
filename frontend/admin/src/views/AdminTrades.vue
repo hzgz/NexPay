@@ -572,7 +572,8 @@ onMounted(loadData)
           <div class="table-wrap trade-table">
             <template v-if="activeSection === 'orders'">
               <div class="table-head order-grid">
-                <span>订单信息</span>
+                <span>订单号</span>
+                <span>商品名称</span>
                 <span>商户 / 来源</span>
                 <span>支付方式</span>
                 <span>金额</span>
@@ -583,9 +584,6 @@ onMounted(loadData)
               </div>
               <div v-for="item in currentRows" :key="item.trade_no" class="table-row order-grid">
                 <div class="order-summary">
-                  <strong class="order-subject ellipsis-text" :title="displayText(item.subject)">
-                    {{ displayText(item.subject) }}
-                  </strong>
                   <div class="order-pair-stack">
                     <div class="order-pair-row">
                       <button
@@ -609,6 +607,7 @@ onMounted(loadData)
                     </div>
                   </div>
                 </div>
+                <span class="ellipsis-text" :title="displayText(item.subject)">{{ displayText(item.subject) }}</span>
                 <div class="stacked-cell compact-cell">
                   <span class="ellipsis-text" :title="displayText(item.merchant)">{{ displayText(item.merchant) }}</span>
                   <span class="meta-text ellipsis-text" :title="displayText(item.source_label)">{{ displayText(item.source_label) }}</span>
@@ -915,7 +914,7 @@ onMounted(loadData)
 
 .order-grid {
   display: grid;
-  grid-template-columns: 2.2fr 0.92fr 0.86fr 0.56fr 0.72fr 0.86fr 0.98fr 0.54fr;
+  grid-template-columns: 1.6fr 1.1fr 0.92fr 0.86fr 0.56fr 0.72fr 0.86fr 0.98fr 0.54fr;
   gap: 12px;
   align-items: center;
   min-width: 0;

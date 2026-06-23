@@ -356,7 +356,8 @@ class EpayPlugin extends BasePayment
     {
         $epay = new EpayCore($this->epayConfig);
         $result = $epay->queryOrderByOutTradeNo($order['trade_no']);
-        if ((int) ($result['code'] ?? -1) === 0) {
+        $code = array_key_exists('code', $result) ? (int) $result['code'] : 1;
+        if (in_array($code, [0, 1], true)) {
             return [
                 'api_trade_no' => $result['trade_no'],
                 'status' => $result['status'],

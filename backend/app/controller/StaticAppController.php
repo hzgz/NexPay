@@ -44,6 +44,11 @@ class StaticAppController
             return new Response(503, ['Content-Type' => 'text/plain; charset=utf-8'], $message);
         }
 
-        return new Response(200, ['Content-Type' => 'text/html; charset=utf-8'], file_get_contents($path));
+        return new Response(200, [
+            'Content-Type' => 'text/html; charset=utf-8',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ], file_get_contents($path));
     }
 }
