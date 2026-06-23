@@ -197,35 +197,8 @@ class DashboardDataService
         });
 
         return array_map(
-            static fn(array $row): array => [
-                'trade_no' => (string)($row['trade_no'] ?? ''),
-                'out_trade_no' => (string)($row['out_trade_no'] ?? ''),
-                'merchant' => self::merchantNameForOrder($row),
-                'channel_code' => (string)($row['channel_code'] ?? ''),
-                'amount' => self::formatMoney($row['amount'] ?? 0),
-                'status' => self::orderStatusLabel((int)($row['status'] ?? 0)),
-                'created_at' => (string)($row['created_at'] ?? ''),
-            ],
+            static fn(array $row): array => ResourceDataService::dashboardLatestOrderRow($row),
             array_slice($orders, 0, max(1, $limit))
-        );
-    }
-
-    private static function merchantNameForOrder(array $row): string
-    {
-        $merchantId = (int)($row['merchant_id'] ?? 0);
-        $credential = $merchantId > 0 ? AccountService::merchantCredentialById($merchantId) : null;
-        if (is_array($credential)) {
-            return AccountService::cleanMerchantDisplayName(
-                (string)($credential['name'] ?? $credential['merchant_name'] ?? ''),
-                (string)($credential['username'] ?? ''),
-                $merchantId
-            );
-        }
-
-        return AccountService::cleanMerchantDisplayName(
-            (string)($row['merchant_name'] ?? ''),
-            '',
-            $merchantId
         );
     }
 
@@ -262,11 +235,39 @@ class DashboardDataService
             'merchant_id' => (int)($row['merchant_id'] ?? 0),
             'merchant_name' => (string)($row['merchant_name'] ?? ''),
             'channel_code' => (string)($row['channel_code'] ?? ''),
+            'channel_name' => (string)($row['channel_name'] ?? ''),
+            'method_name' => (string)($row['method_name'] ?? ''),
+            'subject' => (string)($row['subject'] ?? ''),
             'amount' => self::formatMoney($row['amount'] ?? $row['realmoney'] ?? 0),
             'status' => (int)($row['status'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? $row['addtime'] ?? ''),
             'pay_time' => (string)($row['pay_time'] ?? $row['endtime'] ?? ''),
+            'request_payload' => self::normalizeRequestPayload($row['request_payload'] ?? []),
         ];
+    }
+
+    private static function normalizeRequestPayload(mixed $payload): array
+    {
+        if (is_array($payload)) {
+            return $payload;
+        }
+
+        if (is_string($payload) && trim($payload) !== '') {
+            $decoded = json_decode($payload, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        if (is_object($payload) && method_exists($payload, 'toArray')) {
+            $array = $payload->toArray();
+            return is_array($array) ? $array : [];
+        }
+
+        if (is_object($payload)) {
+            $decoded = json_decode((string)json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
     }
 
     private static function sumAmount(array $orders): float
@@ -277,17 +278,6 @@ class DashboardDataService
         }
 
         return $amount;
-    }
-
-    private static function orderStatusLabel(int $status): string
-    {
-        return match ($status) {
-            1 => '成功',
-            2 => '失败',
-            3 => '已过期',
-            4 => '已关闭',
-            default => '待支付',
-        };
     }
 
     private static function formatMoney(mixed $amount): string

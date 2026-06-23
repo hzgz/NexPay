@@ -58,7 +58,7 @@ import { docErrorRows, docMenus, docRequestRows, docResponseRows } from '../cont
           <h2>请求示例</h2>
           <pre class="code-block">{
   "merchant_id": "170000000001",
-  "out_trade_no": "TEST20250620000001",
+  "out_trade_no": "ORDER_202606220001",
   "amount": 10000,
   "currency": "CNY",
   "subject": "NexPay 测试商品",

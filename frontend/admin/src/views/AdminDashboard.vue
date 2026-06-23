@@ -226,21 +226,31 @@ onMounted(async () => {
           </div>
           <div class="table-wrap">
             <div class="table-head order-grid">
-              <span>平台单号</span>
-              <span>商户单号</span>
+              <div class="order-no-head">
+                <span>平台单号</span>
+                <span>商户单号</span>
+              </div>
+              <span>商品名称</span>
               <span>商户</span>
-              <span>通道</span>
+              <span>支付方式</span>
               <span>金额</span>
               <span>状态</span>
               <span>时间</span>
             </div>
             <div v-for="item in data.latest_orders || []" :key="item.trade_no" class="table-row order-grid">
-              <strong>{{ item.trade_no }}</strong>
-              <span>{{ item.out_trade_no }}</span>
+              <div class="order-no-stack order-no-stack--plain">
+                <div class="order-meta-line">
+                  <strong>{{ item.trade_no || '-' }}</strong>
+                </div>
+                <div class="order-meta-line">
+                  <span>{{ item.out_trade_no || '-' }}</span>
+                </div>
+              </div>
+              <span class="order-subject">{{ item.subject || '-' }}</span>
               <span>{{ item.merchant }}</span>
-              <span>{{ item.channel_code }}</span>
+              <span>{{ item.method_name || item.channel_code || '-' }}</span>
               <span>{{ item.amount }}</span>
-              <span>{{ item.status }}</span>
+              <span><span class="status-chip">{{ item.status }}</span></span>
               <span>{{ item.created_at }}</span>
             </div>
           </div>
@@ -328,16 +338,60 @@ onMounted(async () => {
 
 .order-grid {
   display: grid;
-  grid-template-columns: 1.15fr 1.1fr 1fr 0.8fr 0.7fr 0.7fr 1fr;
+  grid-template-columns: 1.85fr 1fr 0.8fr 0.85fr 0.6fr 0.75fr 1fr;
   gap: 12px;
   align-items: center;
   min-width: 0;
+}
+
+.order-no-head {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.order-no-head span {
+  color: inherit;
+  line-height: 1.4;
+}
+
+.order-no-stack {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.order-no-stack--plain {
+  gap: 6px;
+}
+
+.order-meta-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: center;
+  min-width: 0;
+}
+
+.order-no-stack--plain strong,
+.order-no-stack--plain span:last-child,
+.order-subject {
+  min-width: 0;
+  word-break: break-all;
+}
+
+.order-no-stack--plain span:last-child {
+  color: var(--brand-text-soft);
 }
 
 @media (max-width: 1180px) {
   .dashboard-main {
     grid-template-columns: 1fr;
     padding: 16px;
+  }
+
+  .order-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

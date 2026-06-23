@@ -191,9 +191,10 @@ onMounted(load)
 
 .file-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.8fr 0.6fr 0.7fr 1fr 1fr;
+  grid-template-columns: minmax(240px, 1.3fr) minmax(120px, 0.9fr) minmax(110px, 0.8fr) minmax(90px, 0.6fr) minmax(90px, 0.7fr) minmax(160px, 1fr) minmax(120px, auto);
   gap: 12px;
   align-items: center;
+  min-width: 1060px;
 }
 
 .file-preview-block {
@@ -231,7 +232,7 @@ onMounted(load)
   cursor: pointer;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 760px) {
   .settings-block-head--split {
     flex-direction: column;
     align-items: stretch;
@@ -246,6 +247,7 @@ onMounted(load)
   }
 
   .file-grid {
+    min-width: 0;
     grid-template-columns: 1fr;
   }
 

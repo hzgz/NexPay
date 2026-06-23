@@ -16,6 +16,7 @@ class SettingsService
     private const PAYMENT_MODE_V2 = 'v2';
     private const PAYMENT_APPSWITCH_V1_DEFAULT = '0';
     private const PAYMENT_APPSWITCH_V2_DEFAULT = '1';
+    private const PAYMENT_MIN_AMOUNT_DEFAULT = '0.10';
     private const PAYMENT_METHOD_PRESETS = [
         ['key' => 'alipay', 'code' => 'alipay', 'name' => '支付宝', 'icon' => 'payment-icons/alipay.png'],
         ['key' => 'wxpay', 'code' => 'wxpay', 'name' => '微信支付', 'icon' => 'payment-icons/wechat.png'],
@@ -498,6 +499,7 @@ class SettingsService
             'provider' => self::PAYMENT_PROVIDER_SYSTEM,
             'mode' => $normalizedMode,
             'appswitch' => self::paymentAppswitchDefault($normalizedMode),
+            'min_amount' => self::PAYMENT_MIN_AMOUNT_DEFAULT,
             'payment_url' => self::paymentUrlForMode($siteUrl, $normalizedMode),
             'merchant_id' => '',
             'merchant_md5' => '',
@@ -525,6 +527,7 @@ class SettingsService
         $config['provider'] = self::normalizePaymentProvider((string)($config['provider'] ?? self::PAYMENT_PROVIDER_SYSTEM));
         $config['mode'] = self::normalizePaymentMode((string)($config['mode'] ?? self::PAYMENT_MODE_V2));
         $config['appswitch'] = self::normalizePaymentAppswitch((string)($config['appswitch'] ?? ''), $config['mode']);
+        $config['min_amount'] = self::normalizePaymentMinAmount((string)($config['min_amount'] ?? self::PAYMENT_MIN_AMOUNT_DEFAULT));
         $config['payment_url'] = trim((string)($config['payment_url'] ?? ''));
         $config['merchant_id'] = trim((string)($config['merchant_id'] ?? ''));
         $config['merchant_md5'] = trim((string)($config['merchant_md5'] ?? ''));
@@ -546,6 +549,21 @@ class SettingsService
         }
 
         return $config;
+    }
+
+    private static function normalizePaymentMinAmount(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '' || !is_numeric($trimmed)) {
+            return self::PAYMENT_MIN_AMOUNT_DEFAULT;
+        }
+
+        $amount = (float)$trimmed;
+        if ($amount <= 0) {
+            return self::PAYMENT_MIN_AMOUNT_DEFAULT;
+        }
+
+        return number_format($amount, 2, '.', '');
     }
 
     public static function paymentMethodConfigs(string $configKey): array

@@ -167,19 +167,28 @@ onMounted(async () => {
           </div>
           <div class="table-wrap">
             <div class="table-head order-grid">
-              <span>平台单号</span>
-              <span>商户单号</span>
-              <span>通道</span>
+              <span>订单号</span>
+              <span>商品名称</span>
+              <span>支付方式</span>
               <span>金额</span>
               <span>状态</span>
               <span>创建时间</span>
             </div>
             <div v-for="item in data.latest_orders || []" :key="item.trade_no" class="table-row order-grid">
-              <strong>{{ item.trade_no }}</strong>
-              <span>{{ item.out_trade_no }}</span>
-              <span>{{ item.channel_code }}</span>
+              <div class="order-no-stack">
+                <div class="order-no-line">
+                  <span class="order-no-label">平台单号</span>
+                  <strong>{{ item.trade_no || '-' }}</strong>
+                </div>
+                <div class="order-no-line">
+                  <span class="order-no-label">商户单号</span>
+                  <span>{{ item.out_trade_no || '-' }}</span>
+                </div>
+              </div>
+              <span class="order-subject">{{ item.subject || '-' }}</span>
+              <span>{{ item.method_name || item.channel_code || '-' }}</span>
               <span>{{ item.amount }}</span>
-              <span>{{ item.status }}</span>
+              <span><span class="status-chip">{{ item.status }}</span></span>
               <span>{{ item.created_at }}</span>
             </div>
           </div>
@@ -249,16 +258,47 @@ onMounted(async () => {
 
 .order-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1.1fr 0.8fr 0.7fr 0.7fr 1fr;
+  grid-template-columns: 1.85fr 1fr 0.85fr 0.6fr 0.75fr 1fr;
   gap: 12px;
   align-items: center;
   min-width: 0;
+}
+
+.order-no-stack {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.order-no-line {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.order-no-label {
+  color: var(--brand-subtle);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.order-no-line > strong,
+.order-no-line > span:last-child,
+.order-subject {
+  min-width: 0;
+  word-break: break-all;
 }
 
 @media (max-width: 1180px) {
   .dashboard-main {
     grid-template-columns: 1fr;
     padding: 16px;
+  }
+
+  .order-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -1,7 +1,56 @@
 import { authHeaders as createAuthHeaders, request, type ApiResponse } from './request'
 
+export const ADMIN_SESSION_UPDATED_EVENT = 'admin-user-updated'
+
 function authHeaders(): Record<string, string> {
   return createAuthHeaders('admin:token')
+}
+
+function normalizeAvatarValue(value: unknown): string {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw
+  return raw.startsWith('/') ? raw : `/${raw}`
+}
+
+function withVersion(url: string, version: unknown): string {
+  const stamp = String(version || '').trim()
+  if (!url || !stamp || url.startsWith('data:')) {
+    return url
+  }
+
+  const [base, hash = ''] = url.split('#', 2)
+  const separator = base.includes('?') ? '&' : '?'
+  const next = `${base}${separator}v=${encodeURIComponent(stamp)}`
+  return hash ? `${next}#${hash}` : next
+}
+
+export function resolveAdminAvatarUrl(value: unknown, version?: unknown): string {
+  return withVersion(normalizeAvatarValue(value), version)
+}
+
+export function setAdminSessionUser(
+  payload: Record<string, any>,
+  options: { merge?: boolean; bumpAvatarVersion?: boolean } = {},
+) {
+  const current = getAdminSessionUser()
+  const merge = options.merge !== false
+  const next = merge ? { ...current, ...(payload || {}) } : { ...(payload || {}) }
+  const avatarChanged = Object.prototype.hasOwnProperty.call(payload || {}, 'avatar')
+    && String(payload?.avatar || '').trim() !== String(current.avatar || '').trim()
+
+  if (options.bumpAvatarVersion || avatarChanged) {
+    next.avatar_version = Date.now()
+  } else if (current.avatar_version && !Object.prototype.hasOwnProperty.call(next, 'avatar_version')) {
+    next.avatar_version = current.avatar_version
+  }
+
+  sessionStorage.setItem('admin:user', JSON.stringify(next))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(ADMIN_SESSION_UPDATED_EVENT))
+  }
+
+  return next
 }
 
 export async function loginAdmin(payload: Record<string, any>) {
@@ -12,7 +61,7 @@ export async function loginAdmin(payload: Record<string, any>) {
 
   if (resp.code === 0 && resp.data?.token) {
     sessionStorage.setItem('admin:token', resp.data.token)
-    sessionStorage.setItem('admin:user', JSON.stringify(resp.data.user || {}))
+    setAdminSessionUser(resp.data.user || {}, { merge: false })
   }
 
   return resp
@@ -89,6 +138,22 @@ export async function getAdminOrders() {
 
 export async function confirmAdminOrderPayment(payload: Record<string, any>) {
   return request<ApiResponse<Record<string, any>>>('/api/admin/orders/manual-confirm', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function retryAdminOrderCallback(payload: Record<string, any>) {
+  return request<ApiResponse<Record<string, any>>>('/api/admin/orders/callback-retry', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteAdminOrder(payload: Record<string, any>) {
+  return request<ApiResponse<Record<string, any>>>('/api/admin/orders/delete', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -230,6 +295,10 @@ export async function getAdminTickets() {
   return request<ApiResponse<Record<string, any>>>('/api/admin/tickets', { headers: authHeaders() })
 }
 
+export async function getAdminTicketDetail(id: number) {
+  return request<ApiResponse<Record<string, any>>>(`/api/admin/tickets/detail?id=${id}`, { headers: authHeaders() })
+}
+
 export async function createAdminTicket(payload: Record<string, any>) {
   return request<ApiResponse<Record<string, any>>>('/api/admin/tickets/create', {
     method: 'POST',
@@ -240,6 +309,14 @@ export async function createAdminTicket(payload: Record<string, any>) {
 
 export async function updateAdminTicket(payload: Record<string, any>) {
   return request<ApiResponse<Record<string, any>>>('/api/admin/tickets/update', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function replyAdminTicket(payload: Record<string, any>) {
+  return request<ApiResponse<Record<string, any>>>('/api/admin/tickets/reply', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -380,6 +457,17 @@ export async function saveAdminProfile(payload: Record<string, any>) {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(payload),
+  })
+}
+
+export async function uploadAdminAvatar(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+
+  return request<ApiResponse<Record<string, any>>>('/api/admin/profile/avatar/upload', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
   })
 }
 

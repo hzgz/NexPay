@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { setUserSessionUser } from '../lib/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,7 +45,7 @@ onMounted(() => {
   try {
     const user = JSON.parse(decodeBase64Url(userPayload))
     sessionStorage.setItem('user:token', token)
-    sessionStorage.setItem('user:user', JSON.stringify(user || {}))
+    setUserSessionUser(user || {}, { merge: false })
     statusText.value = message || '聚合登录成功'
     window.setTimeout(() => router.replace('/dashboard'), 600)
   } catch {

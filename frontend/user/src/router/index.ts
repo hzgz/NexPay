@@ -166,7 +166,8 @@ const router = createRouter({
           meta: { title: '文件管理' },
         },
         {
-          path: 'api',
+          path: 'api-info',
+          alias: 'api',
           name: 'user-api',
           component: UserApiInfo,
           meta: { title: 'API 接口' },

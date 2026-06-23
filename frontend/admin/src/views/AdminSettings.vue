@@ -86,6 +86,11 @@ const cleanupWorkspace = reactive<CleanupWorkspace>({
   stores: [],
 })
 
+const paymentMethodPanels = reactive({
+  system_checkout: false,
+  frontend_test: false,
+})
+
 const cleanupDays = reactive<Record<string, number>>({})
 const cleanupPending = reactive<Record<string, boolean>>({})
 
@@ -301,11 +306,15 @@ function buildPaymentGatewayForm(source: Record<string, any> | undefined, extra:
     provider: normalizePaymentProvider(source?.provider),
     mode,
     appswitch: normalizePaymentAppswitch(source?.appswitch, mode),
+    min_amount: String(source?.min_amount ?? '0.10'),
     payment_url: String(source?.payment_url ?? ''),
     merchant_id: String(source?.merchant_id ?? ''),
     merchant_md5: String(source?.merchant_md5 ?? ''),
     platform_public_key: String(source?.platform_public_key ?? ''),
     merchant_private_key: String(source?.merchant_private_key ?? ''),
+    carrier_merchant_id: String(source?.carrier_merchant_id ?? ''),
+    carrier_channel_id: String(source?.carrier_channel_id ?? ''),
+    carrier_channel_code: String(source?.carrier_channel_code ?? ''),
     methods: buildPaymentMethodFormList(source?.methods),
     ...extra,
   }
@@ -375,6 +384,22 @@ function removePaymentMethod(target: PaymentMethodFormItem[], key: string) {
 
 function paymentMethodRows(source: Record<string, any> | undefined): PaymentMethodFormItem[] {
   return Array.isArray(source?.methods) ? source.methods : []
+}
+
+function togglePaymentMethodPanel(key: 'system_checkout' | 'frontend_test') {
+  paymentMethodPanels[key] = !paymentMethodPanels[key]
+}
+
+function enabledPaymentMethodCount(source: Record<string, any> | undefined): number {
+  return paymentMethodRows(source).filter((item) => item.enabled).length
+}
+
+function paymentMethodSummary(source: Record<string, any> | undefined): string {
+  const rows = paymentMethodRows(source)
+  const enabledCount = rows.filter((item) => item.enabled).length
+  const customCount = rows.filter((item) => !item.builtin).length
+
+  return `已启用 ${enabledCount} 个方式，合计 ${rows.length} 个，其中自定义 ${customCount} 个`
 }
 
 function paymentUsesV2(source: Record<string, any> | undefined): boolean {
@@ -927,9 +952,16 @@ onMounted(load)
                   <option v-for="item in paymentV2AppswitchOptions" :key="`system-v2-appswitch-${item.value}`" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
+              <label class="field">
+                <span class="field-label">最小起付金额</span>
+                <input v-model="form.payment.system_checkout.min_amount" type="number" min="0.1" step="0.01" />
+              </label>
               <label class="field field-span-2"><span class="field-label">支付 URL</span><input v-model="form.payment.system_checkout.payment_url" type="text" /></label>
               <label class="field"><span class="field-label">商户 ID</span><input v-model="form.payment.system_checkout.merchant_id" type="text" /></label>
               <label class="field"><span class="field-label">商户 MD5</span><input v-model="form.payment.system_checkout.merchant_md5" type="text" autocomplete="off" /></label>
+              <label class="field"><span class="field-label">上游商户 ID</span><input v-model="form.payment.system_checkout.carrier_merchant_id" type="text" placeholder="可选，指定上游商户" /></label>
+              <label class="field"><span class="field-label">上游通道 ID</span><input v-model="form.payment.system_checkout.carrier_channel_id" type="text" placeholder="可选，对应 channel_id" /></label>
+              <label class="field"><span class="field-label">上游方式代码</span><input v-model="form.payment.system_checkout.carrier_channel_code" type="text" placeholder="例如 alipay / wxpay" /></label>
               <template v-if="paymentUsesV2(form.payment.system_checkout)">
                 <label class="field field-span-2">
                   <span class="field-label">平台公钥</span>
@@ -941,33 +973,44 @@ onMounted(load)
                 </label>
               </template>
             </div>
-            <div class="payment-method-editor">
-              <div class="payment-method-editor__head">
-                <strong>前台支付方式</strong>
-                <button class="ghost-btn" type="button" @click="addPaymentMethod(paymentMethodRows(form.payment.system_checkout))">新增自定义方式</button>
-              </div>
-              <div class="payment-method-table">
-                <div class="payment-method-table__head">
-                  <span>启用</span>
-                  <span>显示名称</span>
-                  <span>图标</span>
-                  <span>提交值</span>
-                  <span>操作</span>
+            <div class="payment-method-editor" :class="{ 'payment-method-editor--collapsed': !paymentMethodPanels.system_checkout }">
+              <button class="payment-method-editor__head payment-method-editor__head--button" type="button" @click="togglePaymentMethodPanel('system_checkout')">
+                <span class="payment-method-editor__title">
+                  <strong>前台支付方式</strong>
+                  <em>{{ paymentMethodSummary(form.payment.system_checkout) }}</em>
+                </span>
+                <span class="payment-method-editor__meta">
+                  <span class="payment-method-editor__badge">{{ enabledPaymentMethodCount(form.payment.system_checkout) }} 已启用</span>
+                  <span class="payment-method-editor__toggle">{{ paymentMethodPanels.system_checkout ? '收起' : '展开' }}</span>
+                </span>
+              </button>
+              <div v-if="paymentMethodPanels.system_checkout" class="payment-method-editor__body">
+                <div class="payment-method-editor__actions">
+                  <button class="ghost-btn" type="button" @click="addPaymentMethod(paymentMethodRows(form.payment.system_checkout))">新增自定义方式</button>
                 </div>
-                <div
-                  v-for="item in paymentMethodRows(form.payment.system_checkout)"
-                  :key="`system-method-${item.key}`"
-                  class="payment-method-table__row"
-                >
-                  <label class="payment-switch">
-                    <input v-model="item.enabled" type="checkbox" />
-                    <span>{{ item.enabled ? '开启' : '关闭' }}</span>
-                  </label>
-                  <input v-model="item.name" type="text" placeholder="前台显示名称" />
-                  <input v-model="item.icon" type="text" placeholder="图标路径，例如 payment-icons/alipay.png" />
-                  <input v-model="item.code" type="text" placeholder="实际提交值，例如 alipay" />
-                  <button v-if="!item.builtin" class="link-action" type="button" @click="removePaymentMethod(paymentMethodRows(form.payment.system_checkout), item.key)">删除</button>
-                  <span v-else class="minor-copy">内置方式</span>
+                <div class="payment-method-table">
+                  <div class="payment-method-table__head">
+                    <span>启用</span>
+                    <span>显示名称</span>
+                    <span>图标</span>
+                    <span>提交值</span>
+                    <span>操作</span>
+                  </div>
+                  <div
+                    v-for="item in paymentMethodRows(form.payment.system_checkout)"
+                    :key="`system-method-${item.key}`"
+                    class="payment-method-table__row"
+                  >
+                    <label class="payment-switch">
+                      <input v-model="item.enabled" type="checkbox" />
+                      <span>{{ item.enabled ? '开启' : '关闭' }}</span>
+                    </label>
+                    <input v-model="item.name" type="text" placeholder="前台显示名称" />
+                    <input v-model="item.icon" type="text" placeholder="图标路径，例如 payment-icons/alipay.png" />
+                    <input v-model="item.code" type="text" placeholder="实际提交值，例如 alipay" />
+                    <button v-if="!item.builtin" class="link-action" type="button" @click="removePaymentMethod(paymentMethodRows(form.payment.system_checkout), item.key)">删除</button>
+                    <span v-else class="minor-copy">内置方式</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1003,9 +1046,16 @@ onMounted(load)
                   <option v-for="item in paymentV2AppswitchOptions" :key="`frontend-v2-appswitch-${item.value}`" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
+              <label class="field">
+                <span class="field-label">最小起付金额</span>
+                <input v-model="form.payment.frontend_test.min_amount" type="number" min="0.1" step="0.01" />
+              </label>
               <label class="field field-span-2"><span class="field-label">支付 URL</span><input v-model="form.payment.frontend_test.payment_url" type="text" /></label>
               <label class="field"><span class="field-label">商户 ID</span><input v-model="form.payment.frontend_test.merchant_id" type="text" /></label>
               <label class="field"><span class="field-label">商户 MD5</span><input v-model="form.payment.frontend_test.merchant_md5" type="text" autocomplete="off" /></label>
+              <label class="field"><span class="field-label">上游商户 ID</span><input v-model="form.payment.frontend_test.carrier_merchant_id" type="text" placeholder="可选，指定上游商户" /></label>
+              <label class="field"><span class="field-label">上游通道 ID</span><input v-model="form.payment.frontend_test.carrier_channel_id" type="text" placeholder="可选，对应 channel_id" /></label>
+              <label class="field"><span class="field-label">上游方式代码</span><input v-model="form.payment.frontend_test.carrier_channel_code" type="text" placeholder="例如 alipay / wxpay" /></label>
               <template v-if="paymentUsesV2(form.payment.frontend_test)">
                 <label class="field field-span-2">
                   <span class="field-label">平台公钥</span>
@@ -1028,33 +1078,44 @@ onMounted(load)
                 <input v-model="form.payment.frontend_test.amount" type="text" placeholder="留空则随机" />
               </label>
             </div>
-            <div class="payment-method-editor">
-              <div class="payment-method-editor__head">
-                <strong>首页可选支付方式</strong>
-                <button class="ghost-btn" type="button" @click="addPaymentMethod(paymentMethodRows(form.payment.frontend_test))">新增自定义方式</button>
-              </div>
-              <div class="payment-method-table">
-                <div class="payment-method-table__head">
-                  <span>启用</span>
-                  <span>显示名称</span>
-                  <span>图标</span>
-                  <span>提交值</span>
-                  <span>操作</span>
+            <div class="payment-method-editor" :class="{ 'payment-method-editor--collapsed': !paymentMethodPanels.frontend_test }">
+              <button class="payment-method-editor__head payment-method-editor__head--button" type="button" @click="togglePaymentMethodPanel('frontend_test')">
+                <span class="payment-method-editor__title">
+                  <strong>首页可选支付方式</strong>
+                  <em>{{ paymentMethodSummary(form.payment.frontend_test) }}</em>
+                </span>
+                <span class="payment-method-editor__meta">
+                  <span class="payment-method-editor__badge">{{ enabledPaymentMethodCount(form.payment.frontend_test) }} 已启用</span>
+                  <span class="payment-method-editor__toggle">{{ paymentMethodPanels.frontend_test ? '收起' : '展开' }}</span>
+                </span>
+              </button>
+              <div v-if="paymentMethodPanels.frontend_test" class="payment-method-editor__body">
+                <div class="payment-method-editor__actions">
+                  <button class="ghost-btn" type="button" @click="addPaymentMethod(paymentMethodRows(form.payment.frontend_test))">新增自定义方式</button>
                 </div>
-                <div
-                  v-for="item in paymentMethodRows(form.payment.frontend_test)"
-                  :key="`frontend-method-${item.key}`"
-                  class="payment-method-table__row"
-                >
-                  <label class="payment-switch">
-                    <input v-model="item.enabled" type="checkbox" />
-                    <span>{{ item.enabled ? '开启' : '关闭' }}</span>
-                  </label>
-                  <input v-model="item.name" type="text" placeholder="前台显示名称" />
-                  <input v-model="item.icon" type="text" placeholder="图标路径，例如 payment-icons/wechat.png" />
-                  <input v-model="item.code" type="text" placeholder="实际提交值，例如 wxpay" />
-                  <button v-if="!item.builtin" class="link-action" type="button" @click="removePaymentMethod(paymentMethodRows(form.payment.frontend_test), item.key)">删除</button>
-                  <span v-else class="minor-copy">内置方式</span>
+                <div class="payment-method-table">
+                  <div class="payment-method-table__head">
+                    <span>启用</span>
+                    <span>显示名称</span>
+                    <span>图标</span>
+                    <span>提交值</span>
+                    <span>操作</span>
+                  </div>
+                  <div
+                    v-for="item in paymentMethodRows(form.payment.frontend_test)"
+                    :key="`frontend-method-${item.key}`"
+                    class="payment-method-table__row"
+                  >
+                    <label class="payment-switch">
+                      <input v-model="item.enabled" type="checkbox" />
+                      <span>{{ item.enabled ? '开启' : '关闭' }}</span>
+                    </label>
+                    <input v-model="item.name" type="text" placeholder="前台显示名称" />
+                    <input v-model="item.icon" type="text" placeholder="图标路径，例如 payment-icons/wechat.png" />
+                    <input v-model="item.code" type="text" placeholder="实际提交值，例如 wxpay" />
+                    <button v-if="!item.builtin" class="link-action" type="button" @click="removePaymentMethod(paymentMethodRows(form.payment.frontend_test), item.key)">删除</button>
+                    <span v-else class="minor-copy">内置方式</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1800,8 +1861,8 @@ onMounted(load)
 }
 
 .admin-settings-page .payment-config-group .field {
-  padding: 12px 14px 10px;
-  gap: 6px;
+  padding: 10px 12px 8px;
+  gap: 5px;
 }
 
 .admin-settings-page .payment-config-group .field-label {
@@ -1810,13 +1871,13 @@ onMounted(load)
 
 .admin-settings-page .payment-config-group input,
 .admin-settings-page .payment-config-group select {
-  min-height: 38px;
-  border-radius: 9px;
+  min-height: 34px;
+  border-radius: 8px;
 }
 
 .admin-settings-page .payment-config-group textarea {
-  min-height: 108px;
-  border-radius: 9px;
+  min-height: 92px;
+  border-radius: 8px;
 }
 
 .admin-settings-page .payment-config-tip {
@@ -1837,16 +1898,79 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px 10px;
+  gap: 10px;
+  padding: 10px 14px;
 }
 
 .payment-method-editor__head strong {
   color: #1a2842;
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.payment-method-editor__head--button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.payment-method-editor__title {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.payment-method-editor__title em {
+  color: #6f829d;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.payment-method-editor__meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.payment-method-editor__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef5ff;
+  color: #2159d6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.payment-method-editor__toggle {
+  color: #5d7391;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.payment-method-editor__body {
+  border-top: 1px solid #edf3fa;
+}
+
+.payment-method-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 0;
+}
+
+.payment-method-editor--collapsed .payment-method-editor__head {
+  padding-bottom: 11px;
 }
 
 .payment-method-table {
+  margin-top: 8px;
   border-top: 1px solid #edf3fa;
 }
 
@@ -1854,14 +1978,14 @@ onMounted(load)
 .payment-method-table__row {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 88px;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  padding: 12px 16px;
+  padding: 10px 14px;
 }
 
 .payment-method-table__head {
   color: #6f829d;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .payment-method-table__row {
@@ -1869,18 +1993,59 @@ onMounted(load)
 }
 
 .payment-method-table__row input {
-  min-height: 36px;
+  min-height: 32px;
   border: 1px solid #d8e3f2;
-  border-radius: 8px;
-  padding: 0 12px;
+  border-radius: 7px;
+  padding: 0 10px;
 }
 
 .payment-switch {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: #30445f;
   font-size: 12px;
+}
+
+@media (max-width: 1200px) {
+  .payment-method-table__head,
+  .payment-method-table__row {
+    grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .payment-method-table__head span:nth-child(4),
+  .payment-method-table__head span:nth-child(5) {
+    display: none;
+  }
+
+  .payment-method-table__row > :nth-child(4),
+  .payment-method-table__row > :nth-child(5) {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 860px) {
+  .payment-method-editor__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .payment-method-editor__meta {
+    justify-content: flex-start;
+  }
+
+  .payment-method-editor__actions {
+    justify-content: flex-start;
+  }
+
+  .payment-method-table__head {
+    display: none;
+  }
+
+  .payment-method-table__row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }
 
 .cleanup-panel {

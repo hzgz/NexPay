@@ -2,7 +2,7 @@
   "code": "alipay-ck",
   "name": "支付宝 CK 版支付插件",
   "version": "1.0.0",
-  "description": "适配支付宝 CK 版支付通道，提供生码、状态解析与回调处理。",
+  "description": "适配支付宝 CK 版支付通道，提供登录二维码、状态查询与通知能力。",
   "group": "pay",
   "kind": "ck",
   "payment_methods": ["alipay"],

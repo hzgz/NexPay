@@ -32,9 +32,11 @@ function handleUnauthorized(): void {
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(init?.headers || {}),
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) || {}) }
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
+
+  if (!isFormData && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
+    headers['Content-Type'] = 'application/json'
   }
 
   const response = await fetch(path, {

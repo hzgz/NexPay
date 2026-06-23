@@ -2,8 +2,8 @@
 
 namespace app\controller\api;
 
-use app\service\payment\LegacyPaymentGatewayService;
 use app\service\payment\GatewayCompatService;
+use app\service\payment\LegacyPaymentGatewayService;
 use support\Request;
 use support\Response;
 use Throwable;
@@ -14,7 +14,7 @@ class EpayV1Controller
     {
         try {
             $result = GatewayCompatService::createForV1(array_merge($request->get(), $request->post()));
-            return redirect(LegacyPaymentGatewayService::entryUrl((string)$result['trade_no'], 'submit'));
+            return redirect(LegacyPaymentGatewayService::entryUrl((string) $result['trade_no'], 'submit'));
         } catch (Throwable $exception) {
             return $this->errorResponse($exception);
         }
@@ -24,7 +24,7 @@ class EpayV1Controller
     {
         try {
             $result = GatewayCompatService::createForV1Fallback(array_merge($request->get(), $request->post()));
-            return redirect(LegacyPaymentGatewayService::entryUrl((string)$result['trade_no'], 'submit', ['retry' => 1]));
+            return redirect(LegacyPaymentGatewayService::entryUrl((string) $result['trade_no'], 'submit', ['retry' => 1]));
         } catch (Throwable $exception) {
             return $this->errorResponse($exception);
         }
@@ -35,9 +35,9 @@ class EpayV1Controller
         try {
             $payload = array_merge($request->get(), $request->post());
             $result = GatewayCompatService::createForV1($payload);
-            $method = trim((string)($payload['type'] ?? ''));
-            $legacy = LegacyPaymentGatewayService::run((string)$result['trade_no'], 'mapi', $request, $method);
-            return $this->jsonResponse($this->formatMapiResponse((string)$result['trade_no'], $legacy));
+            $method = trim((string) ($payload['type'] ?? ''));
+            $legacy = LegacyPaymentGatewayService::run((string) $result['trade_no'], 'mapi', $request, $method);
+            return $this->jsonResponse($this->formatMapiResponse((string) $result['trade_no'], $legacy));
         } catch (Throwable $exception) {
             return $this->errorResponse($exception);
         }
@@ -56,7 +56,7 @@ class EpayV1Controller
     {
         return $this->jsonResponse([
             'code' => -1,
-            'msg' => $exception->getMessage(),
+            'msg' => GatewayCompatService::normalizeGatewayErrorMessageSafe($exception->getMessage()),
         ]);
     }
 
@@ -67,7 +67,7 @@ class EpayV1Controller
 
     private function formatMapiResponse(string $tradeNo, array $legacy): array
     {
-        $type = strtolower(trim((string)($legacy['type'] ?? '')));
+        $type = strtolower(trim((string) ($legacy['type'] ?? '')));
         $response = [
             'code' => 1,
             'msg' => 'success',
@@ -76,20 +76,20 @@ class EpayV1Controller
 
         return match ($type) {
             'jump', 'redirect', 'return' => $response + [
-                'payurl' => (string)($legacy['url'] ?? LegacyPaymentGatewayService::entryUrl($tradeNo, 'submit')),
+                'payurl' => (string) ($legacy['url'] ?? LegacyPaymentGatewayService::entryUrl($tradeNo, 'submit')),
             ],
             'qrcode' => $response + [
-                'qrcode' => (string)($legacy['url'] ?? ''),
+                'qrcode' => (string) ($legacy['url'] ?? ''),
             ],
             'scheme' => $response + [
-                'urlscheme' => (string)($legacy['url'] ?? ''),
+                'urlscheme' => (string) ($legacy['url'] ?? ''),
             ],
             'html' => $response + [
-                'html' => (string)($legacy['data'] ?? ''),
+                'html' => (string) ($legacy['data'] ?? ''),
             ],
             default => [
                 'code' => -2,
-                'msg' => (string)($legacy['msg'] ?? '支付插件执行失败'),
+                'msg' => GatewayCompatService::normalizeGatewayErrorMessageSafe((string) ($legacy['msg'] ?? '支付插件执行失败')),
                 'trade_no' => $tradeNo,
             ],
         };

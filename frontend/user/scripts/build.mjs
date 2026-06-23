@@ -1,16 +1,18 @@
 import { spawn } from 'node:child_process'
-import { cp, mkdir, rm } from 'node:fs/promises'
+import { cp, mkdir, readdir, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(scriptDir, '..')
+const workspaceRoot = path.resolve(projectRoot, '..', '..')
 const nodeBin = process.execPath
 
 const vueTscBin = path.join(projectRoot, 'node_modules', 'vue-tsc', 'bin', 'vue-tsc.js')
 const tempRoot = path.join(os.tmpdir(), `xapay-user-build-${process.pid}`)
 const tempProjectRoot = path.join(tempRoot, 'workspace')
+const staticOutputRoot = path.join(workspaceRoot, 'backend', 'public', 'user')
 
 function isAsciiOnly(value) {
   return /^[\x00-\x7F]*$/.test(value)
@@ -58,6 +60,20 @@ async function copyDistBack() {
   })
 }
 
+async function syncStaticOutput() {
+  const distRoot = path.join(projectRoot, 'dist')
+
+  await rm(staticOutputRoot, { recursive: true, force: true })
+  await mkdir(staticOutputRoot, { recursive: true })
+
+  for (const entry of await readdir(distRoot)) {
+    await cp(path.join(distRoot, entry), path.join(staticOutputRoot, entry), {
+      recursive: true,
+      force: true,
+    })
+  }
+}
+
 async function buildInPlace(root) {
   const targetViteBin = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js')
   await run(nodeBin, [targetViteBin, 'build'], root)
@@ -68,6 +84,7 @@ async function main() {
 
   if (isAsciiOnly(projectRoot)) {
     await buildInPlace(projectRoot)
+    await syncStaticOutput()
     return
   }
 
@@ -77,6 +94,7 @@ async function main() {
   try {
     await buildInPlace(tempProjectRoot)
     await copyDistBack()
+    await syncStaticOutput()
   } finally {
     await rm(tempRoot, { recursive: true, force: true })
   }

@@ -16,6 +16,22 @@ class MerchantGroupService
         ];
     }
 
+    public static function existsName(string $name): bool
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return false;
+        }
+
+        foreach (self::all()['items'] as $item) {
+            if (trim((string)($item['name'] ?? '')) === $name) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function save(array $payload): array
     {
         $name = trim((string)($payload['name'] ?? ''));

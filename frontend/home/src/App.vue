@@ -49,7 +49,10 @@ function resolveAsset(path: string) {
 }
 
 const siteLogo = computed(() => resolveAsset('brand/logo-light.png'))
-const heroVisual = computed(() => resolveAsset('brand/hero-arch-light-clean.png'))
+const legacyHeroVisual = computed(() => resolveAsset('theme-index4/bg-uaspay5.jpg'))
+const legacySceneOne = computed(() => resolveAsset('theme-index4/landing-1.jpg'))
+const legacySceneTwo = computed(() => resolveAsset('theme-index4/landing-2.jpg'))
+const legacySceneThree = computed(() => resolveAsset('theme-index4/landing-3.jpg'))
 
 const demoMethods = computed(() => {
   const iconMap: Record<string, string> = {
@@ -64,7 +67,7 @@ const demoMethods = computed(() => {
 
   return demoConfig.methods.map((item) => ({
     ...item,
-    icon: resolveAsset(iconMap[item.code] || 'payment-icons/alipay.png'),
+    icon: resolveAsset(item.icon || iconMap[item.code] || 'payment-icons/alipay.png'),
   }))
 })
 
@@ -238,11 +241,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="public-shell">
-    <div class="white-stage">
+  <div class="public-shell" :class="`public-shell--${pageKind}`">
+    <div class="white-stage" :class="{ 'white-stage--home': pageKind === 'home' }">
       <PublicHeader :page-kind="pageKind" :logo-src="siteLogo" :home-anchor="homeAnchor" />
 
-      <HomePage v-if="pageKind === 'home'" :hero-visual="heroVisual" :resolve-asset="resolveAsset" />
+      <HomePage
+        v-if="pageKind === 'home'"
+        :legacy-hero-visual="legacyHeroVisual"
+        :legacy-scene-one="legacySceneOne"
+        :legacy-scene-two="legacySceneTwo"
+        :legacy-scene-three="legacySceneThree"
+        :resolve-asset="resolveAsset"
+      />
       <DemoPage
         v-else-if="pageKind === 'demo'"
         :demo-config="demoConfig"

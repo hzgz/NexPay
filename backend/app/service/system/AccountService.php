@@ -19,7 +19,7 @@ class AccountService
             try {
                 $admin = AdminUser::where('username', $username)->where('status', 1)->find();
                 if ($admin && password_verify($password, (string)$admin->password_hash)) {
-                    return self::sanitize(self::row($admin));
+                    return self::sanitize(self::hydrateAdminAccount(self::row($admin)));
                 }
             } catch (Throwable) {
             }
@@ -51,7 +51,7 @@ class AccountService
             try {
                 $admin = AdminUser::find($id);
                 if ($admin) {
-                    return self::sanitize(self::row($admin));
+                    return self::sanitize(self::hydrateAdminAccount(self::row($admin)));
                 }
             } catch (Throwable) {
             }
@@ -64,6 +64,43 @@ class AccountService
         }
 
         throw new BusinessException('管理员资料不存在', StatusCode::NOT_FOUND);
+    }
+
+    public static function adminIdentity(int $id = 0, string $fallbackName = ''): array
+    {
+        $name = trim($fallbackName);
+        $avatar = '';
+
+        if ($id > 0) {
+            try {
+                $profile = self::adminProfile($id);
+                $name = trim((string)($profile['nickname'] ?? $profile['username'] ?? $name));
+                $avatar = trim((string)($profile['avatar'] ?? ''));
+            } catch (BusinessException) {
+            }
+        }
+
+        foreach (self::admins() as $admin) {
+            if ($id > 0 && (int)($admin['id'] ?? 0) !== $id) {
+                continue;
+            }
+
+            if ($name === '') {
+                $name = trim((string)($admin['nickname'] ?? $admin['username'] ?? ''));
+            }
+            if ($avatar === '') {
+                $avatar = trim((string)($admin['avatar'] ?? ''));
+            }
+
+            if ($name !== '' || $avatar !== '') {
+                break;
+            }
+        }
+
+        return [
+            'name' => $name !== '' ? $name : '系统管理员',
+            'avatar' => $avatar,
+        ];
     }
 
     public static function merchantProfile(int $id): array
@@ -138,8 +175,22 @@ class AccountService
             $name = trim($repaired);
         }
 
+        if (preg_match('/^verify merchant(?:\s+(\d+))?$/i', $name, $matches) === 1) {
+            $suffix = trim((string)($matches[1] ?? ''));
+            return $suffix !== '' ? '测试商户 ' . $suffix : '测试商户';
+        }
+
+        if (preg_match('/^verify user(?:\s+(\d+))?$/i', $name, $matches) === 1) {
+            $suffix = trim((string)($matches[1] ?? ''));
+            return $suffix !== '' ? '测试用户 ' . $suffix : '测试用户';
+        }
+
         if ($name !== '' && !self::looksLikeBrokenDisplayName($name)) {
             return $name;
+        }
+
+        if (preg_match('/^softcompat(\d+)$/i', $fallbackUsername, $matches) === 1) {
+            return '测试商户 ' . trim((string)($matches[1] ?? ''));
         }
 
         if ($fallbackUsername !== '') {
@@ -205,6 +256,7 @@ class AccountService
             'platform_rate' => (float)($merged['platform_rate'] ?? 0.8),
             'daily_limit' => (float)($merged['daily_limit'] ?? 0),
             'balance' => (string)($merged['balance'] ?? '0.00'),
+            'avatar' => (string)($merged['avatar'] ?? ''),
         ];
     }
 
@@ -235,7 +287,11 @@ class AccountService
                     $admin->nickname = trim((string)($payload['nickname'] ?? $admin->nickname));
                     $admin->email = trim((string)($payload['email'] ?? ($admin->email ?? '')));
                     $admin->save();
-                    return self::sanitize(self::row($admin));
+                    $profile = self::row($admin);
+                    $profile['phone'] = trim((string)($payload['phone'] ?? ($profile['phone'] ?? '')));
+                    $profile['avatar'] = trim((string)($payload['avatar'] ?? ($profile['avatar'] ?? '')));
+                    self::syncAdminShadowProfile($profile);
+                    return self::sanitize(self::hydrateAdminAccount($profile));
                 }
             } catch (Throwable) {
             }
@@ -286,6 +342,7 @@ class AccountService
                 }
                 $merchant['notifications'] = self::mergeArray($merchant['notifications'] ?? [], (array)($payload['notifications'] ?? []));
                 self::saveMerchants($merchants);
+                self::syncMerchantAuthProfile($merchant);
                 return self::sanitize($merchant);
             }
         }
@@ -396,6 +453,91 @@ class AccountService
         throw new BusinessException('商户资料不存在', StatusCode::NOT_FOUND);
     }
 
+    private static function hydrateAdminAccount(array $account): array
+    {
+        $shadow = self::findAdminShadow(
+            (int)($account['id'] ?? 0),
+            trim((string)($account['username'] ?? ''))
+        );
+
+        if ($shadow === null) {
+            return $account;
+        }
+
+        $merged = array_replace($shadow, $account);
+        $merged['avatar'] = trim((string)($account['avatar'] ?? ($shadow['avatar'] ?? '')));
+        $merged['phone'] = trim((string)($account['phone'] ?? ($shadow['phone'] ?? '')));
+
+        return $merged;
+    }
+
+    private static function findAdminShadow(int $id, string $username): ?array
+    {
+        foreach (self::admins() as $admin) {
+            if (!is_array($admin)) {
+                continue;
+            }
+
+            if ($id > 0 && (int)($admin['id'] ?? 0) === $id) {
+                return $admin;
+            }
+
+            if ($username !== '' && (string)($admin['username'] ?? '') === $username) {
+                return $admin;
+            }
+        }
+
+        return null;
+    }
+
+    private static function syncAdminShadowProfile(array $profile): void
+    {
+        $admins = self::admins();
+        $id = (int)($profile['id'] ?? 0);
+        $username = trim((string)($profile['username'] ?? ''));
+        $updated = false;
+
+        foreach ($admins as &$admin) {
+            if (!is_array($admin)) {
+                continue;
+            }
+
+            $sameId = $id > 0 && (int)($admin['id'] ?? 0) === $id;
+            $sameUsername = $username !== '' && (string)($admin['username'] ?? '') === $username;
+            if (!$sameId && !$sameUsername) {
+                continue;
+            }
+
+            $admin = array_replace($admin, [
+                'id' => $id > 0 ? $id : (int)($admin['id'] ?? 0),
+                'username' => $username !== '' ? $username : (string)($admin['username'] ?? ''),
+                'nickname' => trim((string)($profile['nickname'] ?? ($admin['nickname'] ?? ''))),
+                'email' => trim((string)($profile['email'] ?? ($admin['email'] ?? ''))),
+                'phone' => trim((string)($profile['phone'] ?? ($admin['phone'] ?? ''))),
+                'avatar' => trim((string)($profile['avatar'] ?? ($admin['avatar'] ?? ''))),
+            ]);
+            $updated = true;
+            break;
+        }
+        unset($admin);
+
+        if (!$updated) {
+            $admins[] = [
+                'id' => $id,
+                'username' => $username,
+                'nickname' => trim((string)($profile['nickname'] ?? $username)),
+                'email' => trim((string)($profile['email'] ?? '')),
+                'phone' => trim((string)($profile['phone'] ?? '')),
+                'avatar' => trim((string)($profile['avatar'] ?? '')),
+                'role' => (string)($profile['role'] ?? 'super_admin'),
+                'status' => (int)($profile['status'] ?? 1),
+                'password_hash' => (string)($profile['password_hash'] ?? ''),
+            ];
+        }
+
+        self::saveAdmins($admins);
+    }
+
     private static function admins(): array
     {
         return JsonStoreService::load(self::ADMIN_STORE, []);
@@ -446,6 +588,86 @@ class AccountService
         }
 
         JsonStoreService::save(self::MERCHANT_STORE, $normalized);
+    }
+
+    private static function syncMerchantAuthProfile(array $merchant): void
+    {
+        $merchantId = (int)($merchant['merchant_id'] ?? $merchant['id'] ?? 0);
+        $userId = (int)($merchant['id'] ?? 0);
+        $username = trim((string)($merchant['username'] ?? ''));
+        $users = JsonStoreService::load(self::MERCHANT_AUTH_STORE, []);
+        $updated = false;
+
+        foreach ($users as $key => $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+
+            $recordMerchantId = (int)($record['merchant_id'] ?? $record['id'] ?? 0);
+            $recordUserId = (int)($record['id'] ?? 0);
+            $recordUsername = trim((string)($record['username'] ?? $key));
+            $matched = ($merchantId > 0 && $recordMerchantId === $merchantId)
+                || ($userId > 0 && $recordUserId === $userId)
+                || ($username !== '' && $recordUsername === $username);
+            if (!$matched) {
+                continue;
+            }
+
+            $users[$key] = array_replace($record, [
+                'id' => $userId > 0 ? $userId : $recordUserId,
+                'uid' => (int)($merchant['uid'] ?? ($record['uid'] ?? $merchantId)),
+                'merchant_id' => $merchantId > 0 ? $merchantId : $recordMerchantId,
+                'username' => $username !== '' ? $username : $recordUsername,
+                'nickname' => (string)($merchant['nickname'] ?? ($record['nickname'] ?? '')),
+                'email' => (string)($merchant['email'] ?? ($record['email'] ?? '')),
+                'phone' => (string)($merchant['phone'] ?? ($record['phone'] ?? '')),
+                'merchant_name' => (string)($merchant['merchant_name'] ?? ($record['merchant_name'] ?? $recordUsername)),
+                'avatar' => (string)($merchant['avatar'] ?? ($record['avatar'] ?? '')),
+                'status' => (int)($merchant['status'] ?? ($record['status'] ?? 0)),
+                'appid' => self::canonicalAppId($merchantId, $merchant['appid'] ?? ($record['appid'] ?? '')),
+                'mch_key' => (string)($merchant['mch_key'] ?? ($record['mch_key'] ?? '')),
+                'notify_url' => (string)($merchant['notify_url'] ?? ($record['notify_url'] ?? '')),
+                'return_url' => (string)($merchant['return_url'] ?? ($record['return_url'] ?? '')),
+            ]);
+
+            if (array_key_exists('white_ip', $merchant)) {
+                $users[$key]['white_ip'] = $merchant['white_ip'];
+            }
+            if (array_key_exists('notifications', $merchant)) {
+                $users[$key]['notifications'] = $merchant['notifications'];
+            }
+
+            $updated = true;
+            break;
+        }
+        unset($record);
+
+        if (!$updated && $username !== '') {
+            $users[$username] = [
+                'id' => $userId,
+                'uid' => (int)($merchant['uid'] ?? $merchantId),
+                'merchant_id' => $merchantId,
+                'username' => $username,
+                'nickname' => (string)($merchant['nickname'] ?? ($merchant['merchant_name'] ?? $username)),
+                'email' => (string)($merchant['email'] ?? ''),
+                'phone' => (string)($merchant['phone'] ?? ''),
+                'merchant_name' => (string)($merchant['merchant_name'] ?? ($merchant['nickname'] ?? $username)),
+                'avatar' => (string)($merchant['avatar'] ?? ''),
+                'status' => (int)($merchant['status'] ?? 0),
+                'appid' => self::canonicalAppId($merchantId, $merchant['appid'] ?? ''),
+                'mch_key' => (string)($merchant['mch_key'] ?? ''),
+                'notify_url' => (string)($merchant['notify_url'] ?? ''),
+                'return_url' => (string)($merchant['return_url'] ?? ''),
+                'white_ip' => $merchant['white_ip'] ?? [],
+                'notifications' => $merchant['notifications'] ?? [],
+                'password_hash' => (string)($merchant['password_hash'] ?? ''),
+            ];
+            $updated = true;
+        }
+
+        if ($updated) {
+            JsonStoreService::save(self::MERCHANT_AUTH_STORE, $users);
+        }
     }
 
     private static function syncMerchantAuthRealnameSummary(array $merchant, array $realname): void
@@ -499,6 +721,20 @@ class AccountService
             'realname_reviewed_by' => (string)($realname['reviewed_by'] ?? ''),
         ];
         JsonStoreService::save(self::MERCHANT_AUTH_STORE, $users);
+    }
+
+    private static function row(mixed $record): array
+    {
+        if (is_array($record)) {
+            return $record;
+        }
+
+        if (is_object($record) && method_exists($record, 'toArray')) {
+            $data = $record->toArray();
+            return is_array($data) ? $data : [];
+        }
+
+        return is_object($record) ? get_object_vars($record) : (array)$record;
     }
 
     private static function sanitize(array $account): array

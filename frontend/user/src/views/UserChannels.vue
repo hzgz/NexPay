@@ -1,14 +1,16 @@
 ﻿<script setup lang="ts">
 import { Box, Delete, EditPen, Plus, Search, Setting, SwitchButton } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import {
   deleteUserChannel,
   getUserChannels,
+  refreshUserAlipayCkQrcode,
   saveUserChannel,
   saveUserChannelRotation,
   saveUserPaymentSettings,
+  syncUserAlipayCkStatus,
   testUserChannel,
   toggleUserChannel,
   uploadUserChannelConfigFile,
@@ -18,10 +20,7 @@ import {
   normalizeSchemaDefault,
   normalizeSchemaOptions,
 } from '../lib/plugin-schema'
-import templateDefaultPreview from '../assets/payment-settings/template-default.png'
-import templateHgPreview1 from '../assets/payment-settings/template-hg-1.png'
-import templateHgPreview2 from '../assets/payment-settings/template-hg-2.png'
-import templateModernFloatPreview from '../assets/payment-settings/template-modern-float.png'
+import templateCheckoutLivePreview from '../assets/payment-settings/template-checkout-live.png'
 
 type ChannelMethod = {
   code: string
@@ -71,11 +70,18 @@ type PaymentVariableChip = {
   sample: string
 }
 
+type AlipayCkPanelState = {
+  status: string
+  status_label: string
+  status_tone: string
+  message: string
+  qr_image: string
+  account_pid: string
+  updated_at: string
+}
+
 const paymentTemplateOptions: PaymentTemplatePreset[] = [
-  { code: 'nexpay-standard', title: 'NexPay 标准版', preview: templateDefaultPreview },
-  { code: 'nexpay-center', title: 'NexPay 中台版', preview: templateHgPreview1 },
-  { code: 'nexpay-dialog', title: 'NexPay 弹窗版', preview: templateHgPreview2 },
-  { code: 'nexpay-float', title: 'NexPay 轻盈版', preview: templateModernFloatPreview },
+  { code: 'nexpay-standard', title: 'NexPay 当前版', preview: templateCheckoutLivePreview },
 ]
 
 const paymentVariableOptions: PaymentVariableChip[] = [
@@ -89,9 +95,13 @@ const paymentVariableOptions: PaymentVariableChip[] = [
 
 const paymentTemplateCodeAliasMap: Record<string, string> = {
   'classic-blue': 'nexpay-standard',
-  'hg-pay-1': 'nexpay-center',
-  'hg-pay-2': 'nexpay-dialog',
-  'modern-float': 'nexpay-float',
+  'hg-pay-1': 'nexpay-standard',
+  'hg-pay-2': 'nexpay-standard',
+  'modern-float': 'nexpay-standard',
+  'nexpay-standard': 'nexpay-standard',
+  'nexpay-center': 'nexpay-standard',
+  'nexpay-dialog': 'nexpay-standard',
+  'nexpay-float': 'nexpay-standard',
 }
 
 const paymentVariableTokenAliasMap: Record<string, string> = {
@@ -159,6 +169,21 @@ const configForm = reactive<Record<string, any>>({
 })
 
 const configUploadLoading = reactive<Record<string, boolean>>({})
+const alipayCkLoading = reactive({
+  qrcode: false,
+  status: false,
+})
+let alipayCkPollTimer: number | null = null
+let alipayCkSuccessToastShown = false
+const alipayCkPanel = reactive<AlipayCkPanelState>({
+  status: 'idle',
+  status_label: '未获取',
+  status_tone: 'muted',
+  message: '点击刷新二维码，生成支付宝 CK 登录二维码。',
+  qr_image: '',
+  account_pid: '',
+  updated_at: '',
+})
 
 const paymentForm = reactive({
   template: 'nexpay-standard',
@@ -293,10 +318,16 @@ const selectedConfigPlugin = computed<ChannelPlugin | null>(() => {
   return pluginsForMethod(String(configForm.method_code || ''), code).find((item) => item.code === code) || null
 })
 
+const isAlipayCkConfig = computed(() => String(configForm.plugin_code || '') === 'alipay-ck')
+
 const configSchema = computed<Record<string, any>[]>(() => {
-  const schema = Array.isArray(selectedConfigPlugin.value?.settings_schema)
-    ? selectedConfigPlugin.value?.settings_schema || []
-    : []
+  const rawSchema = selectedConfigPlugin.value?.settings_schema
+  const rawSchemaObject = rawSchema && typeof rawSchema === 'object' ? (rawSchema as Record<string, any>) : null
+  const schema = Array.isArray(rawSchema)
+    ? rawSchema
+    : Array.isArray(rawSchemaObject?.fields)
+      ? (rawSchemaObject.fields as Record<string, any>[])
+      : []
 
   return schema.filter((field) =>
     isSchemaFieldVisible(field, String(configForm.method_code || ''), configForm.plugin_config || {}),
@@ -396,6 +427,173 @@ function pluginName(code: string) {
 
 function statusClass(item: Record<string, any>) {
   return Number(item.status_code) === 1 ? 'success' : 'muted'
+}
+
+function resetAlipayCkPanel() {
+  stopAlipayCkPolling()
+  alipayCkSuccessToastShown = false
+  Object.assign(alipayCkPanel, {
+    status: 'idle',
+    status_label: '未获取',
+    status_tone: 'muted',
+    message: '点击刷新二维码，生成支付宝 CK 登录二维码。',
+    qr_image: '',
+    account_pid: '',
+    updated_at: '',
+  })
+}
+
+function applyAlipayCkPanel(payload: Record<string, any> | null | undefined) {
+  const source = payload || {}
+  Object.assign(alipayCkPanel, {
+    status: String(source.status || source.login_state || 'idle'),
+    status_label: String(source.status_label || source.login_state_text || '未获取'),
+    status_tone: String(source.status_tone || 'muted'),
+    message: String(source.message || source.login_state_message || '点击刷新二维码，生成支付宝 CK 登录二维码。'),
+    qr_image: String(source.qr_image || source.login_qr_image || ''),
+    account_pid: String(source.account_pid || ''),
+    updated_at: String(source.updated_at || source.login_checked_at || source.login_confirmed_at || ''),
+  })
+}
+
+function patchCurrentChannelPluginConfig(source: Record<string, any>) {
+  const channelId = Number(configForm.id || 0)
+  if (!channelId) return
+
+  const items = Array.isArray(channelData.value.items) ? channelData.value.items : []
+  const index = items.findIndex((item) => Number(item?.id || 0) === channelId)
+  if (index < 0) return
+
+  const current = items[index] || {}
+  const nextItems = [...items]
+  nextItems[index] = {
+    ...current,
+    plugin_config: {
+      ...(current.plugin_config || {}),
+      ...(source.plugin_config || {}),
+    },
+  }
+  channelData.value = {
+    ...channelData.value,
+    items: nextItems,
+  }
+}
+
+function syncAlipayCkPanelFromConfig() {
+  if (!isAlipayCkConfig.value) {
+    resetAlipayCkPanel()
+    return
+  }
+
+  applyAlipayCkPanel(configForm.plugin_config || {})
+}
+
+function mergeAlipayCkPluginConfig(source: Record<string, any>) {
+  configForm.plugin_config = {
+    ...(configForm.plugin_config || {}),
+    ...(source.plugin_config || {}),
+  }
+  patchCurrentChannelPluginConfig(source)
+
+  applyAlipayCkPanel({
+    ...configForm.plugin_config,
+    ...source,
+  })
+}
+
+function stopAlipayCkPolling() {
+  if (alipayCkPollTimer !== null) {
+    window.clearTimeout(alipayCkPollTimer)
+    alipayCkPollTimer = null
+  }
+}
+
+function shouldPollAlipayCkStatus(status: string) {
+  return ['pending_scan', 'pending_confirm'].includes(String(status || '').trim().toLowerCase())
+}
+
+function scheduleAlipayCkPolling(delay = 1600) {
+  stopAlipayCkPolling()
+  if (!configDialogVisible.value || !isAlipayCkConfig.value || !Number(configForm.id || 0)) {
+    return
+  }
+
+  if (!shouldPollAlipayCkStatus(alipayCkPanel.status)) {
+    return
+  }
+
+  alipayCkPollTimer = window.setTimeout(() => {
+    alipayCkPollTimer = null
+    void loadAlipayCkStatus({ silent: true })
+  }, Math.max(800, delay))
+}
+
+async function loadAlipayCkQrcode() {
+  if (!Number(configForm.id || 0) || !isAlipayCkConfig.value) return
+
+  stopAlipayCkPolling()
+  alipayCkSuccessToastShown = false
+  alipayCkLoading.qrcode = true
+  try {
+    const resp = await refreshUserAlipayCkQrcode(Number(configForm.id || 0))
+    if (resp.code === 0 && resp.data) {
+      mergeAlipayCkPluginConfig(resp.data)
+      ElMessage.success(resp.message || '登录二维码已刷新')
+      scheduleAlipayCkPolling(1200)
+      return
+    }
+
+    ElMessage.error(resp.message || '登录二维码刷新失败')
+  } catch {
+    ElMessage.error('登录二维码刷新失败')
+  } finally {
+    alipayCkLoading.qrcode = false
+  }
+}
+
+async function loadAlipayCkStatus(options: { silent?: boolean } = {}) {
+  if (!Number(configForm.id || 0) || !isAlipayCkConfig.value) return
+
+  stopAlipayCkPolling()
+  alipayCkLoading.status = true
+  try {
+    const resp = await syncUserAlipayCkStatus(Number(configForm.id || 0))
+    if (resp.code === 0 && resp.data) {
+      const previousStatus = String(alipayCkPanel.status || '').trim().toLowerCase()
+      mergeAlipayCkPluginConfig(resp.data)
+      const nextStatus = String((resp.data.status || resp.data.login_state || alipayCkPanel.status || '')).trim().toLowerCase()
+
+      if (!options.silent) {
+        ElMessage.success(resp.message || '登录状态已更新')
+      } else if (nextStatus === 'authenticated' && previousStatus !== 'authenticated' && !alipayCkSuccessToastShown) {
+        ElMessage.success('支付宝 CK 已登录成功')
+        alipayCkSuccessToastShown = true
+      }
+
+      if (shouldPollAlipayCkStatus(nextStatus)) {
+        scheduleAlipayCkPolling(nextStatus === 'pending_confirm' ? 1000 : 1600)
+      }
+      return
+    }
+
+    if (!options.silent) {
+      ElMessage.error(resp.message || '登录状态更新失败')
+    } else {
+      scheduleAlipayCkPolling(2400)
+    }
+  } catch {
+    if (!options.silent) {
+      ElMessage.error('登录状态更新失败')
+    } else {
+      scheduleAlipayCkPolling(2400)
+    }
+  } finally {
+    alipayCkLoading.status = false
+  }
+}
+
+function checkAlipayCkStatus() {
+  void loadAlipayCkStatus()
 }
 
 function rotationStrategyLabel(strategy: string) {
@@ -667,7 +865,7 @@ function editChannel(item: Record<string, any>) {
   channelDialogVisible.value = true
 }
 
-function openConfig(item: Record<string, any>) {
+async function openConfig(item: Record<string, any>) {
   Object.assign(configForm, {
     id: item.id,
     channel_name: item.channel_name || item.method_name || '',
@@ -684,7 +882,19 @@ function openConfig(item: Record<string, any>) {
     plugin_config: { ...(item.plugin_config || {}) },
   })
   ensureConfigDefaults(selectedConfigPlugin.value, true)
+  syncAlipayCkPanelFromConfig()
   configDialogVisible.value = true
+
+  if (!isAlipayCkConfig.value) {
+    return
+  }
+
+  if (String(configForm.plugin_config?.login_id || '').trim()) {
+    await loadAlipayCkStatus()
+    return
+  }
+
+  await loadAlipayCkQrcode()
 }
 
 function openTestDialog(item: Record<string, any>) {
@@ -731,13 +941,51 @@ watch(
 
 watch(
   () => selectedConfigPlugin.value?.code || '',
-  () => ensureConfigDefaults(selectedConfigPlugin.value, true),
+  () => {
+    ensureConfigDefaults(selectedConfigPlugin.value, true)
+    syncAlipayCkPanelFromConfig()
+  },
 )
 
 watch(
   () => configSchema.value.map((field) => String(field.key || '')).join('|'),
   () => ensureConfigDefaults(selectedConfigPlugin.value, true),
 )
+
+watch(
+  () => configDialogVisible.value,
+  (visible) => {
+    if (!visible) {
+      resetAlipayCkPanel()
+      return
+    }
+
+    if (isAlipayCkConfig.value) {
+      scheduleAlipayCkPolling(800)
+    }
+  },
+)
+
+watch(
+  () => alipayCkPanel.status,
+  (status) => {
+    if (!configDialogVisible.value || !isAlipayCkConfig.value) {
+      stopAlipayCkPolling()
+      return
+    }
+
+    if (shouldPollAlipayCkStatus(String(status || ''))) {
+      scheduleAlipayCkPolling(status === 'pending_confirm' ? 1000 : 1600)
+      return
+    }
+
+    stopAlipayCkPolling()
+  },
+)
+
+onBeforeUnmount(() => {
+  stopAlipayCkPolling()
+})
 
 function syncDisplayValueFromConfig() {
   const config = configForm.plugin_config || {}
@@ -778,7 +1026,11 @@ function appendPaymentVariable(field: 'voice_content' | 'cashier_notice', token:
 
 function normalizePaymentTemplate(code: string) {
   const normalized = String(code || '').trim()
-  return paymentTemplateCodeAliasMap[normalized] || normalized || 'nexpay-standard'
+  if (!normalized) {
+    return 'nexpay-standard'
+  }
+
+  return paymentTemplateCodeAliasMap[normalized] || 'nexpay-standard'
 }
 
 function normalizePaymentVariableText(content: string) {
@@ -1015,14 +1267,14 @@ onMounted(load)
           <label class="payment-setting-field">
             <span class="payment-setting-field__label">收款语音</span>
             <span class="payment-switch-row">
-              <span class="payment-switch-copy">关闭</span>
+              <span class="payment-switch-copy" :class="{ 'payment-switch-copy--active': !paymentForm.voice_enabled }">关闭</span>
               <el-switch
                 v-model="paymentForm.voice_enabled"
                 class="payment-switch"
                 :active-value="true"
                 :inactive-value="false"
               />
-              <span class="payment-switch-copy payment-switch-copy--active">开启</span>
+              <span class="payment-switch-copy" :class="{ 'payment-switch-copy--active': paymentForm.voice_enabled }">开启</span>
             </span>
           </label>
 
@@ -1066,7 +1318,7 @@ onMounted(load)
             <textarea
               v-model="paymentForm.cashier_notice"
               rows="6"
-              placeholder="可输入 HTML 代码，并插入 {{platform_order_no}} 等系统变量"
+              placeholder="可输入基础 HTML 标签，并插入 {{platform_order_no}} 等系统变量"
             />
           </label>
 
@@ -1085,7 +1337,7 @@ onMounted(load)
             </div>
           </div>
 
-          <p class="payment-helper-copy">此内容将显示在收银台页面，可使用 HTML 代码与系统变量自定义样式</p>
+          <p class="payment-helper-copy">此内容将显示在收银台页面，支持基础 HTML 标签与系统变量</p>
         </div>
       </article>
 
@@ -1300,7 +1552,55 @@ onMounted(load)
             <h3 class="settings-block-title">{{ pluginName(configForm.plugin_code) }}</h3>
           </div>
 
-          <div v-if="configSchema.length" class="field-grid compact">
+          <div v-if="isAlipayCkConfig" class="alipay-ck-panel">
+            <div class="alipay-ck-panel__head">
+              <div class="alipay-ck-panel__summary">
+                <div class="alipay-ck-panel__title-row">
+                  <span class="alipay-ck-panel__title">支付宝 CK 登录</span>
+                  <span class="status-chip" :class="alipayCkPanel.status_tone">{{ alipayCkPanel.status_label }}</span>
+                </div>
+                <p class="alipay-ck-panel__message">{{ alipayCkPanel.message }}</p>
+              </div>
+              <div class="alipay-ck-panel__actions">
+                <button class="ghost-btn" type="button" :disabled="alipayCkLoading.qrcode" @click="loadAlipayCkQrcode">
+                  {{ alipayCkLoading.qrcode ? '刷新中...' : '刷新二维码' }}
+                </button>
+                <button class="ghost-btn" type="button" :disabled="alipayCkLoading.status" @click="checkAlipayCkStatus">
+                  {{ alipayCkLoading.status ? '检查中...' : '检查状态' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="alipay-ck-panel__body">
+              <div class="alipay-ck-panel__meta">
+                <div class="alipay-ck-panel__item">
+                  <span class="alipay-ck-panel__label">通道名称</span>
+                  <strong class="alipay-ck-panel__value">{{ configForm.channel_name || '-' }}</strong>
+                </div>
+                <div class="alipay-ck-panel__item">
+                  <span class="alipay-ck-panel__label">当前状态</span>
+                  <strong class="alipay-ck-panel__value">{{ alipayCkPanel.status_label || '未获取' }}</strong>
+                </div>
+                <div class="alipay-ck-panel__item">
+                  <span class="alipay-ck-panel__label">支付宝 PID</span>
+                  <strong class="alipay-ck-panel__value">{{ alipayCkPanel.account_pid || '登录成功后自动识别' }}</strong>
+                </div>
+                <div class="alipay-ck-panel__item">
+                  <span class="alipay-ck-panel__label">最近更新</span>
+                  <strong class="alipay-ck-panel__value">{{ alipayCkPanel.updated_at || '暂未更新' }}</strong>
+                </div>
+              </div>
+
+              <div class="alipay-ck-panel__qrcode">
+                <img v-if="alipayCkPanel.qr_image" :src="alipayCkPanel.qr_image" alt="支付宝 CK 登录二维码" />
+                <div v-else class="alipay-ck-panel__placeholder">
+                  点击“刷新二维码”生成支付宝 CK 登录二维码
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="configSchema.length" class="field-grid compact">
             <label
               v-for="field in configSchema"
               :key="field.key"
@@ -1381,8 +1681,10 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="ghost-btn" type="button" @click="configDialogVisible = false">取消</button>
-        <button class="primary-btn" type="button" @click="submitConfig">保存配置</button>
+        <button class="ghost-btn" type="button" @click="configDialogVisible = false">
+          {{ isAlipayCkConfig ? '关闭' : '取消' }}
+        </button>
+        <button v-if="!isAlipayCkConfig" class="primary-btn" type="button" @click="submitConfig">保存配置</button>
       </template>
     </el-dialog>
 
@@ -1542,7 +1844,8 @@ onMounted(load)
 
 .payment-template-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 360px));
+  justify-content: flex-start;
   gap: 14px;
 }
 
@@ -1635,8 +1938,8 @@ onMounted(load)
 }
 
 .payment-switch-row :deep(.payment-switch .el-switch__core) {
-  border-color: #24cb63;
-  background: #24cb63;
+  border-color: #d8e0ea;
+  background: #d8e0ea;
 }
 
 .payment-switch-row :deep(.payment-switch.is-checked .el-switch__core) {
@@ -1692,7 +1995,7 @@ onMounted(load)
 
 .channel-grid {
   display: grid;
-  grid-template-columns: 0.45fr 1.1fr 0.82fr 1fr 0.72fr 0.68fr 0.72fr 0.72fr 0.58fr 1.42fr;
+  grid-template-columns: 0.45fr 1.1fr 0.82fr 1fr 0.72fr 0.68fr 0.72fr 0.72fr 0.76fr 1.54fr;
   gap: 12px;
   align-items: center;
   min-width: 0;
@@ -1741,6 +2044,118 @@ onMounted(load)
 
 .channel-dialog {
   gap: 18px;
+}
+
+.alipay-ck-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #dbe6f5;
+  border-radius: 9px;
+  background: #f8fbff;
+}
+
+.alipay-ck-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alipay-ck-panel__summary {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.alipay-ck-panel__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.alipay-ck-panel__title {
+  color: #355276;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.alipay-ck-panel__message {
+  margin: 0;
+  color: #51647f;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.alipay-ck-panel__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.alipay-ck-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 236px;
+  gap: 16px;
+  align-items: start;
+}
+
+.alipay-ck-panel__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.alipay-ck-panel__item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.alipay-ck-panel__label {
+  color: #607089;
+  font-size: 12px;
+}
+
+.alipay-ck-panel__value {
+  color: #1f2d3d;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.alipay-ck-panel__qrcode {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px dashed #c8d8ef;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.alipay-ck-panel__qrcode img {
+  display: block;
+  width: 100%;
+  max-width: 208px;
+  height: auto;
+  border-radius: 6px;
+}
+
+.alipay-ck-panel__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 208px;
+  padding: 16px;
+  color: #607089;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
 }
 
 .channel-toolbar {
@@ -2040,6 +2455,25 @@ onMounted(load)
 
   .rotation-panel__body {
     padding: 18px 16px;
+  }
+
+  .alipay-ck-panel {
+    padding: 14px;
+  }
+
+  .alipay-ck-panel__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .alipay-ck-panel__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .alipay-ck-panel__body,
+  .alipay-ck-panel__meta {
+    grid-template-columns: 1fr;
   }
 
   .rotation-panel__head {

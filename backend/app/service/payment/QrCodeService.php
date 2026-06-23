@@ -41,14 +41,44 @@ class QrCodeService
         return self::imageResponseForOrder($order, $size);
     }
 
+    public static function imageDataUriForOrder(object $order, int $size = self::DEFAULT_SIZE): string
+    {
+        $image = self::imageBinaryForOrder($order, $size);
+        if ($image['body'] === '') {
+            return '';
+        }
+
+        return 'data:' . $image['mime'] . ';base64,' . base64_encode($image['body']);
+    }
+
+    public static function imageDataUriForContent(string $content, int $size = self::DEFAULT_SIZE): string
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return '';
+        }
+
+        try {
+            $body = self::encodeQrCode($content, null, self::normalizeSize($size));
+        } catch (Throwable) {
+            return '';
+        }
+
+        return 'data:image/png;base64,' . base64_encode($body);
+    }
+
     public static function imageResponseForOrder(object $order, int $size = self::DEFAULT_SIZE): Response
     {
-        $size = self::normalizeSize($size);
-        $source = self::resolveOrderSourceValue($order);
+        $image = self::imageBinaryForOrder($order, $size);
 
-        if ($source === '') {
+        if ($image['body'] === '') {
             return self::svgResponse('未生成支付二维码');
         }
+
+        return new Response(200, [
+            'Content-Type' => $image['mime'],
+            'Cache-Control' => 'private, max-age=300',
+        ], $image['body']);
 
         try {
             $content = self::resolveOrderPayload($order, $source);
@@ -186,6 +216,33 @@ class QrCodeService
         }
 
         return $content;
+    }
+
+    private static function imageBinaryForOrder(object $order, int $size = self::DEFAULT_SIZE): array
+    {
+        $size = self::normalizeSize($size);
+        $source = self::resolveOrderSourceValue($order);
+
+        if ($source === '') {
+            return ['mime' => 'image/png', 'body' => ''];
+        }
+
+        try {
+            $content = self::resolveOrderPayload($order, $source);
+            if ($content !== '') {
+                return [
+                    'mime' => 'image/png',
+                    'body' => self::encodeQrCode($content, null, $size),
+                ];
+            }
+        } catch (Throwable) {
+        }
+
+        if (self::isImageValue($source)) {
+            return self::fetchImageBinary($source);
+        }
+
+        return ['mime' => 'image/png', 'body' => ''];
     }
 
     private static function cacheResolvedPayload(object $order, string $source, string $content): void

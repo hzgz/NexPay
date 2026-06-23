@@ -365,6 +365,72 @@ class LocalOrderStore
         return null;
     }
 
+    public static function deleteMerchantOrder(int $merchantId, string $tradeNo = '', string $outTradeNo = '', int $orderId = 0): int
+    {
+        $merchantId = max(0, $merchantId);
+        if ($merchantId <= 0) {
+            return 0;
+        }
+
+        $tradeNo = trim($tradeNo);
+        $outTradeNo = trim($outTradeNo);
+        $orderId = max(0, $orderId);
+        if ($tradeNo === '' && $outTradeNo === '' && $orderId <= 0) {
+            return 0;
+        }
+
+        $rows = self::loadOrders();
+        $deleted = 0;
+        $next = [];
+
+        foreach ($rows as $row) {
+            $matchesMerchant = (int)($row['merchant_id'] ?? 0) === $merchantId;
+            $matchesOrder = $orderId > 0 && (int)($row['id'] ?? 0) === $orderId;
+            $matchesTradeNo = $tradeNo !== '' && (string)($row['trade_no'] ?? '') === $tradeNo;
+            $matchesOutTradeNo = $outTradeNo !== '' && (string)($row['out_trade_no'] ?? '') === $outTradeNo;
+
+            if ($matchesMerchant && ($matchesOrder || $matchesTradeNo || $matchesOutTradeNo)) {
+                $deleted++;
+                continue;
+            }
+
+            $next[] = $row;
+        }
+
+        if ($deleted > 0) {
+            self::saveOrders($next);
+        }
+
+        return $deleted;
+    }
+
+    public static function deleteCallbacksByOrderId(int $orderId): int
+    {
+        $orderId = max(0, $orderId);
+        if ($orderId <= 0) {
+            return 0;
+        }
+
+        $rows = self::loadCallbacks();
+        $deleted = 0;
+        $next = [];
+
+        foreach ($rows as $row) {
+            if ((int)($row['order_id'] ?? 0) === $orderId) {
+                $deleted++;
+                continue;
+            }
+
+            $next[] = $row;
+        }
+
+        if ($deleted > 0) {
+            self::saveCallbacks($next);
+        }
+
+        return $deleted;
+    }
+
     private static function loadOrders(): array
     {
         return JsonStoreService::load(self::ORDER_STORE, []);

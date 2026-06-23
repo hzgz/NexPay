@@ -25,6 +25,10 @@ class ManualPaymentService
         }
 
         $order = OrderService::findByTradeNo($tradeNo);
+        if (self::isMerchantOwnedOrder($order)) {
+            throw new BusinessException('管理员后台不支持对商户订单执行人工确认收款', StatusCode::VALIDATION_ERROR);
+        }
+
         if (!LocalOrderStore::isBusinessOrder($order) && !self::isMerchantRechargeOrder($order)) {
             throw new BusinessException('测试或联调订单不能人工确认收款', StatusCode::VALIDATION_ERROR);
         }
@@ -97,5 +101,10 @@ class ManualPaymentService
 
         return (string)($meta['business'] ?? '') === 'merchant_recharge'
             && !str_starts_with(strtoupper((string)($order->txid ?? $order->api_trade_no ?? '')), 'MOCK');
+    }
+
+    private static function isMerchantOwnedOrder(object $order): bool
+    {
+        return (int)($order->merchant_id ?? 0) > 0;
     }
 }

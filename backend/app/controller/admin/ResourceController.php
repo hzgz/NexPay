@@ -4,7 +4,9 @@ namespace app\controller\admin;
 
 use app\controller\BaseApiController;
 use app\service\system\AccountService;
+use app\service\system\AdminAvatarUploadService;
 use app\service\system\AdminMerchantService;
+use app\service\system\AdminOrderService;
 use app\service\system\AnnouncementService;
 use app\service\system\FileService;
 use app\service\system\ManualPaymentService;
@@ -93,6 +95,25 @@ class ResourceController extends BaseApiController
                     $payload
                 ),
                 '订单已人工确认收款'
+            );
+        });
+    }
+
+    public function orderCallbackRetry(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $this->requireGuard($request, 'admin');
+            throw new BusinessException('管理员后台已关闭手动回调功能', StatusCode::VALIDATION_ERROR);
+        });
+    }
+
+    public function orderDelete(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'admin');
+            return $this->success(
+                AdminOrderService::deleteOrder($this->payload($request), (string)($claims['username'] ?? 'admin')),
+                '订单已删除'
             );
         });
     }
@@ -266,19 +287,53 @@ class ResourceController extends BaseApiController
         });
     }
 
-    public function ticketCreate(Request $request)
+    public function ticketDetail(Request $request)
     {
         return $this->execute(function () use ($request) {
             $this->requireGuard($request, 'admin');
-            return $this->success(TicketService::createAdminTicket($this->payload($request)), '工单创建成功');
+            $payload = $this->payload($request);
+            return $this->success(TicketService::adminTicketDetail((int)($payload['id'] ?? $request->get('id', 0))));
+        });
+    }
+
+    public function ticketCreate(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'admin');
+            $payload = $this->payload($request);
+            $profile = AccountService::adminProfile((int)($claims['sub'] ?? 0));
+            $payload['admin_name'] = (string)($profile['nickname'] ?? $profile['username'] ?? $claims['username'] ?? '管理员');
+            $payload['admin_avatar'] = (string)($profile['avatar'] ?? '');
+            return $this->success(TicketService::createAdminTicket($payload), '工单创建成功');
         });
     }
 
     public function ticketUpdate(Request $request)
     {
         return $this->execute(function () use ($request) {
-            $this->requireGuard($request, 'admin');
-            return $this->success(TicketService::updateTicket($this->payload($request)), '工单更新成功');
+            $claims = $this->requireGuard($request, 'admin');
+            $payload = $this->payload($request);
+            $profile = AccountService::adminProfile((int)($claims['sub'] ?? 0));
+            $payload['admin_name'] = (string)($profile['nickname'] ?? $profile['username'] ?? $claims['username'] ?? '管理员');
+            $payload['admin_avatar'] = (string)($profile['avatar'] ?? '');
+            return $this->success(TicketService::updateTicket($payload), '工单更新成功');
+        });
+    }
+
+    public function ticketReply(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'admin');
+            $payload = $this->payload($request);
+            $profile = AccountService::adminProfile((int)($claims['sub'] ?? 0));
+            return $this->success(
+                TicketService::replyByAdmin(
+                    (string)($profile['nickname'] ?? $profile['username'] ?? $claims['username'] ?? '管理员'),
+                    (string)($profile['avatar'] ?? ''),
+                    $payload
+                ),
+                '回复成功'
+            );
         });
     }
 
@@ -529,6 +584,17 @@ class ResourceController extends BaseApiController
         return $this->execute(function () use ($request) {
             $claims = $this->requireGuard($request, 'admin');
             return $this->success(AccountService::saveAdminProfile((int)$claims['sub'], $this->payload($request)), '保存成功');
+        });
+    }
+
+    public function profileAvatarUpload(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'admin');
+            return $this->success(
+                AdminAvatarUploadService::upload((int)($claims['sub'] ?? 0), $request->file('file')),
+                '头像上传成功'
+            );
         });
     }
 

@@ -8,6 +8,7 @@ use app\controller\api\CheckoutController;
 use app\controller\api\EpayV1Controller;
 use app\controller\api\EpayV2Controller;
 use app\controller\api\LegacyPayController;
+use app\controller\api\SoftwareCompatController;
 use app\controller\home\HomeController;
 use app\controller\merchant\AuthController as MerchantAuthController;
 use app\controller\merchant\DashboardController as MerchantDashboardController;
@@ -52,6 +53,8 @@ Route::group('/api/admin', static function (): void {
     Route::post('/merchants/groups/delete', [AdminResourceController::class, 'merchantGroupDelete']);
     Route::get('/orders', [AdminResourceController::class, 'orders']);
     Route::post('/orders/manual-confirm', [AdminResourceController::class, 'orderManualConfirm']);
+    Route::post('/orders/callback-retry', [AdminResourceController::class, 'orderCallbackRetry']);
+    Route::post('/orders/delete', [AdminResourceController::class, 'orderDelete']);
     Route::post('/refunds/manual-confirm', [AdminResourceController::class, 'refundManualConfirm']);
     Route::post('/refunds/sync', [AdminResourceController::class, 'refundSync']);
     Route::post('/refunds/sync-batch', [AdminResourceController::class, 'refundSyncBatch']);
@@ -68,8 +71,10 @@ Route::group('/api/admin', static function (): void {
     Route::post('/settings/cleanup', [AdminResourceController::class, 'settingsCleanup']);
     Route::post('/settings/provider-test', [AdminResourceController::class, 'providerTest']);
     Route::get('/tickets', [AdminResourceController::class, 'tickets']);
+    Route::get('/tickets/detail', [AdminResourceController::class, 'ticketDetail']);
     Route::post('/tickets/create', [AdminResourceController::class, 'ticketCreate']);
     Route::post('/tickets/update', [AdminResourceController::class, 'ticketUpdate']);
+    Route::post('/tickets/reply', [AdminResourceController::class, 'ticketReply']);
     Route::post('/tickets/category/save', [AdminResourceController::class, 'ticketCategorySave']);
     Route::post('/tickets/category/delete', [AdminResourceController::class, 'ticketCategoryDelete']);
     Route::get('/files', [AdminResourceController::class, 'files']);
@@ -93,6 +98,7 @@ Route::group('/api/admin', static function (): void {
     Route::post('/callbacks/retry', [AdminResourceController::class, 'callbackRetry']);
     Route::get('/profile', [AdminResourceController::class, 'profile']);
     Route::post('/profile/save', [AdminResourceController::class, 'profileSave']);
+    Route::post('/profile/avatar/upload', [AdminResourceController::class, 'profileAvatarUpload']);
     Route::post('/profile/password', [AdminResourceController::class, 'passwordSave']);
 });
 
@@ -114,9 +120,13 @@ Route::group('/api/merchant', static function (): void {
     Route::post('/channels/delete', [MerchantResourceController::class, 'channelDelete']);
     Route::post('/channels/test', [MerchantResourceController::class, 'channelTest']);
     Route::post('/channels/config/upload', [MerchantResourceController::class, 'channelConfigUpload']);
+    Route::post('/channels/alipay-ck/qrcode', [MerchantResourceController::class, 'channelAlipayCkQrcode']);
+    Route::post('/channels/alipay-ck/status', [MerchantResourceController::class, 'channelAlipayCkStatus']);
     Route::post('/channels/rotation/save', [MerchantResourceController::class, 'channelRotationSave']);
     Route::post('/channels/payment-settings/save', [MerchantResourceController::class, 'channelPaymentSettingsSave']);
     Route::get('/orders', [MerchantResourceController::class, 'orders']);
+    Route::post('/orders/callback-retry', [MerchantResourceController::class, 'orderCallbackRetry']);
+    Route::post('/orders/delete', [MerchantResourceController::class, 'orderDelete']);
     Route::get('/funds', [MerchantResourceController::class, 'funds']);
     Route::post('/funds/recharge', [MerchantResourceController::class, 'fundRecharge']);
     Route::post('/funds/withdraw', [MerchantResourceController::class, 'fundWithdraw']);
@@ -129,9 +139,12 @@ Route::group('/api/merchant', static function (): void {
     Route::get('/telegram', [MerchantResourceController::class, 'telegram']);
     Route::get('/profile', [MerchantResourceController::class, 'profile']);
     Route::post('/profile/save', [MerchantResourceController::class, 'profileSave']);
+    Route::post('/profile/avatar/upload', [MerchantResourceController::class, 'profileAvatarUpload']);
     Route::post('/profile/password', [MerchantResourceController::class, 'passwordSave']);
     Route::get('/tickets', [MerchantResourceController::class, 'tickets']);
+    Route::get('/tickets/detail', [MerchantResourceController::class, 'ticketDetail']);
     Route::post('/tickets/create', [MerchantResourceController::class, 'ticketCreate']);
+    Route::post('/tickets/reply', [MerchantResourceController::class, 'ticketReply']);
     Route::get('/files', [MerchantResourceController::class, 'files']);
     Route::post('/files/delete', [MerchantResourceController::class, 'fileDelete']);
 });
@@ -156,10 +169,23 @@ Route::group('/api/transfer', static function (): void {
     Route::post('/balance', [EpayV2Controller::class, 'transferBalance']);
 });
 
+Route::any('/api/Software/verify', [SoftwareCompatController::class, 'verify']);
+Route::any('/api/Software/heartbeat', [SoftwareCompatController::class, 'heartbeat']);
+Route::any('/api/Software/checkOrder', [SoftwareCompatController::class, 'checkOrder']);
+Route::any('/api/Software/PCNotify', [SoftwareCompatController::class, 'pcNotify']);
+Route::any('/api/report', [SoftwareCompatController::class, 'report']);
+Route::any('/api/report/', [SoftwareCompatController::class, 'report']);
+Route::any('/api/report/{merchantId}', [SoftwareCompatController::class, 'report']);
+Route::any('/api/report/{merchantId}/', [SoftwareCompatController::class, 'report']);
+
 Route::get('/pay/checkout/{trade_no}', [CheckoutController::class, 'show']);
+Route::get('/pay/checkout/{trade_no}/', [CheckoutController::class, 'show']);
 Route::get('/pay/status/{trade_no}', [CheckoutController::class, 'status']);
+Route::get('/pay/status/{trade_no}/', [CheckoutController::class, 'status']);
 Route::get('/pay/qr-image/{trade_no}', [CheckoutController::class, 'qrImage']);
+Route::get('/pay/qr-image/{trade_no}/', [CheckoutController::class, 'qrImage']);
 Route::post('/pay/mock/{trade_no}', [CheckoutController::class, 'mockComplete']);
+Route::post('/pay/mock/{trade_no}/', [CheckoutController::class, 'mockComplete']);
 Route::any('/pay/submit/{trade_no}', [LegacyPayController::class, 'submit']);
 Route::any('/pay/qrcode/{trade_no}', [LegacyPayController::class, 'qrcode']);
 Route::any('/pay/submitwap/{trade_no}', [LegacyPayController::class, 'submitWap']);
@@ -180,6 +206,8 @@ Route::any('/pay/dividenotify/{trade_no}', [LegacyPayController::class, 'divideN
 Route::any('/pay/cashiernotify/{trade_no}', [LegacyPayController::class, 'cashierNotify']);
 Route::any('/pay/return/{trade_no}', [LegacyPayController::class, 'legacyReturn']);
 Route::any('/pay/ok/{trade_no}', [LegacyPayController::class, 'ok']);
+Route::any('/pay/{action}/{trade_no}/', [LegacyPayController::class, 'dispatch']);
+Route::any('/pay/{action}/{trade_no}', [LegacyPayController::class, 'dispatch']);
 Route::get('/callback/success', static function () {
     return response('success', 200, ['Content-Type' => 'text/plain; charset=utf-8']);
 });

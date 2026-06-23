@@ -257,3 +257,48 @@ onMounted(async () => {
     </section>
   </div>
 </template>
+
+<style scoped>
+.register-methods {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.register-methods__label {
+  color: #6f829d;
+  font-size: 12px;
+}
+
+.register-methods__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.register-method {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #d8e3f2;
+  background: #fff;
+  color: #223a58;
+}
+
+.register-method.is-active {
+  border-color: #2f6bff;
+  background: #f4f8ff;
+}
+
+.register-method input {
+  display: none;
+}
+
+.register-method img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+</style>

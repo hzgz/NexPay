@@ -25,6 +25,9 @@ class AdminMerchantService
         $statusCode = self::normalizeStatusCode((int)($payload['status_code'] ?? 1));
 
         self::validate($merchantName, $contactName, $username, $email, $phone, $password);
+        if ($groupName !== '' && !MerchantGroupService::existsName($groupName)) {
+            throw new BusinessException('所选用户组不存在', StatusCode::VALIDATION_ERROR);
+        }
 
         if (database_available()) {
             try {

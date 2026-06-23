@@ -39,51 +39,21 @@ const currentMethodName = computed(() => {
   return props.demoMethods.find((item) => item.code === props.demoForm.method)?.name || props.demoForm.method
 })
 
-const currentProviderName = computed(() => {
-  return props.demoConfig.providers.find((item) => item.value === props.demoForm.provider)?.label || props.demoForm.provider
-})
-
-const demoStatusMeta = computed(() => {
-  const status = props.demoState.status
-
-  switch (status) {
+const demoStatusTitle = computed(() => {
+  switch (props.demoState.status) {
     case 'success':
-      return {
-        tone: 'success',
-        title: '支付成功',
-        copy: '测试订单已完成支付，你可以继续查看收银台状态或重新发起一笔新订单。',
-      }
+      return '支付成功'
     case 'failed':
-      return {
-        tone: 'error',
-        title: '支付失败',
-        copy: '上游返回了失败结果，请检查支付配置、通道参数或重新发起测试。',
-      }
+      return '支付失败'
     case 'expired':
-      return {
-        tone: 'warning',
-        title: '订单已过期',
-        copy: '这笔测试单已经过期，可以重新下单生成新的支付链接。',
-      }
+      return '订单已过期'
     case 'closed':
-      return {
-        tone: 'warning',
-        title: '订单已关闭',
-        copy: '这笔测试单已经关闭，如需继续测试请重新创建订单。',
-      }
+      return '订单已关闭'
     case 'pending':
     case 'processing':
-      return {
-        tone: 'pending',
-        title: '等待支付',
-        copy: '当前页会自动刷新订单状态，你可以在新窗口继续完成支付。',
-      }
+      return '等待支付'
     default:
-      return {
-        tone: 'idle',
-        title: '尚未创建订单',
-        copy: '填写参数后创建测试订单，当前页会保留完整结果状态。',
-      }
+      return '尚未创建订单'
   }
 })
 
@@ -103,16 +73,6 @@ const hasOrder = computed(() => props.demoState.tradeNo !== '')
 
       <div class="surface-grid surface-grid--demo">
         <div class="surface-main">
-          <label class="field-block">
-            <span>接口选择</span>
-            <input v-if="demoConfig.providers.length <= 1" :value="currentProviderName" type="text" readonly />
-            <select v-else v-model="demoForm.provider">
-              <option v-for="item in demoConfig.providers" :key="item.value" :value="item.value">
-                {{ item.label }}
-              </option>
-            </select>
-          </label>
-
           <div class="field-block">
             <span>支付金额</span>
             <div class="inline-field">
@@ -122,7 +82,7 @@ const hasOrder = computed(() => props.demoState.tradeNo !== '')
               </select>
               <input v-model="demoForm.amount" type="text" placeholder="留空则随机" />
             </div>
-            <small>支持自定义金额，不填写时按后台配置值或随机金额生成测试单。</small>
+            <small>最低起付 {{ demoConfig.min_amount || '0.10' }} 元，不填写时按后台配置值或随机金额生成测试单。</small>
           </div>
 
           <div class="field-block">
@@ -159,12 +119,9 @@ const hasOrder = computed(() => props.demoState.tradeNo !== '')
           <p v-if="demoState.error" class="feedback feedback--error">{{ demoState.error }}</p>
           <p v-if="demoState.result" class="feedback feedback--success">{{ demoState.result }}</p>
 
-          <section class="demo-status-board" :class="`is-${demoStatusMeta.tone}`">
+          <section class="demo-status-board">
             <div class="demo-status-board__head">
-              <div>
-                <strong>{{ demoStatusMeta.title }}</strong>
-                <p>{{ demoStatusMeta.copy }}</p>
-              </div>
+              <strong>{{ demoStatusTitle }}</strong>
               <span class="demo-status-board__tag">{{ demoState.statusText || '待创建' }}</span>
             </div>
 
@@ -180,10 +137,6 @@ const hasOrder = computed(() => props.demoState.tradeNo !== '')
               <div>
                 <span>支付方式</span>
                 <strong>{{ currentMethodName }}</strong>
-              </div>
-              <div>
-                <span>接口来源</span>
-                <strong>{{ currentProviderName }}</strong>
               </div>
             </div>
 
@@ -213,10 +166,6 @@ const hasOrder = computed(() => props.demoState.tradeNo !== '')
               <dd>{{ demoConfig.merchant_name }}</dd>
             </div>
             <div>
-              <dt>接口来源</dt>
-              <dd>{{ currentProviderName }}</dd>
-            </div>
-            <div>
               <dt>支付方式</dt>
               <dd>{{ currentMethodName }}</dd>
             </div>
@@ -237,11 +186,6 @@ const hasOrder = computed(() => props.demoState.tradeNo !== '')
               <dd>{{ demoState.statusText || '待创建' }}</dd>
             </div>
           </dl>
-
-          <div class="minor-links">
-            <a href="/doc">查看开发文档</a>
-            <a href="/user/login">进入商户中心</a>
-          </div>
         </aside>
       </div>
     </section>

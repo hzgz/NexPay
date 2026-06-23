@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace plugins\payment\epayn;
 
-use app\common\PaymentContext;
 use app\common\BasePayment;
+use app\common\PaymentContext;
 use Exception;
 
 class EpaynPlugin extends BasePayment
 {
+    private const LEGACY_GATEWAY_BASE = '/pay/';
+
     private array $epayConfig;
 
     public function __construct(array $channel)
@@ -27,54 +29,133 @@ class EpaynPlugin extends BasePayment
     {
         $tradeNo = $ctx->order['trade_no'];
 
-        if ($this->channel['appswitch'] == 1) {
-            return ['type' => 'jump', 'url' => '/pay/' . $ctx->order['typename'] . '/' . $tradeNo . '/'];
+        if (($this->channel['appswitch'] ?? '0') == '1') {
+            return ['type' => 'jump', 'url' => $this->gatewayActionUrl((string) $ctx->order['typename'], $tradeNo)];
+        }
+
+        $directAction = $this->resolveDirectSubmitAction((string) ($ctx->order['typename'] ?? ''));
+        if ($directAction !== null) {
+            return $this->{$directAction}($ctx);
         }
 
         $epay = new EpayCore($this->epayConfig);
-        $params = [
+        $params = $this->appendCollectorRoute([
             'type' => $ctx->order['typename'],
-            'notify_url' => config_get('localurl') . 'pay/notify/' . $tradeNo . '/',
-            'return_url' => request()->siteurl . 'pay/return/' . $tradeNo . '/',
+            'notify_url' => $this->gatewayActionUrl('notify', $tradeNo, true),
+            'return_url' => $this->gatewayActionUrl('return', $tradeNo, true),
             'out_trade_no' => $tradeNo,
             'name' => $ctx->order['name'],
             'money' => $ctx->order['realmoney'],
-        ];
-        if (!empty($this->channel['merchant_id'])) $params['merchant_id'] = $this->channel['merchant_id'];
-        if (!empty($this->channel['channel_id'])) $params['channel_id'] = $this->channel['channel_id'];
+        ]);
 
-        if (is_https() && substr($this->epayConfig['apiurl'], 0, 7) == 'http://') {
-            $jump_url = $epay->getPayLink($params);
-            return ['type' => 'jump', 'url' => $jump_url];
-        } else {
-            $html_text = $epay->pagePay($params, '正在跳转');
-            return ['type' => 'html', 'data' => $html_text];
+        if (is_https() && str_starts_with((string) $this->epayConfig['apiurl'], 'http://')) {
+            return ['type' => 'jump', 'url' => $epay->getPayLink($params)];
         }
+
+        return ['type' => 'html', 'data' => $epay->pagePay($params, '正在跳转')];
     }
 
     public function mapi(PaymentContext $ctx): array
     {
-        if ($this->channel['appswitch'] == 1) {
+        if (($this->channel['appswitch'] ?? '0') == '1') {
             $typename = $ctx->order['typename'];
             return $this->$typename($ctx);
-        } else {
-            return ['type' => 'jump', 'url' => request()->siteurl . 'pay/submit/' . $ctx->order['trade_no'] . '/'];
         }
+
+        return ['type' => 'jump', 'url' => $this->gatewayActionUrl('submit', (string) $ctx->order['trade_no'])];
     }
 
     private function getDevice(PaymentContext $ctx): string
     {
-        if ($ctx->mdevice === 'wechat') return 'wechat';
-        if ($ctx->mdevice === 'qq') return 'qq';
-        if ($ctx->mdevice === 'alipay') return 'alipay';
-        if ($ctx->mdevice === 'douyin') return 'douyin';
-        if ($ctx->isMobile) return 'mobile';
+        if ($ctx->mdevice === 'wechat') {
+            return 'wechat';
+        }
+        if ($ctx->mdevice === 'qq') {
+            return 'qq';
+        }
+        if ($ctx->mdevice === 'alipay') {
+            return 'alipay';
+        }
+        if ($ctx->mdevice === 'douyin') {
+            return 'douyin';
+        }
+        if ($ctx->isMobile) {
+            return 'mobile';
+        }
+
         return 'pc';
     }
 
-    //统一下单接口
-    private function pay_mapi(string $method, string $type, PaymentContext $ctx, ?string $auth_code = null, ?string $sub_openid = null, ?string $sub_appid = null): array
+    private function collectorMerchantId(): string
     {
+        foreach (['collector_merchant_id', 'custom_merchant_id', 'upstream_merchant_id'] as $key) {
+            $value = trim((string) ($this->channel[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $pluginConfig = is_array($this->channel['plugin_config'] ?? null) ? $this->channel['plugin_config'] : [];
+        return trim((string) ($pluginConfig['merchant_id'] ?? ''));
+    }
+
+    private function collectorChannelId(): string
+    {
+        $value = trim((string) ($this->channel['collector_channel_id'] ?? $this->channel['channel_id'] ?? ''));
+        if ($value !== '') {
+            return $value;
+        }
+
+        $pluginConfig = is_array($this->channel['plugin_config'] ?? null) ? $this->channel['plugin_config'] : [];
+        return trim((string) ($pluginConfig['channel_id'] ?? ''));
+    }
+
+    private function appendCollectorRoute(array $params): array
+    {
+        $collectorMerchantId = $this->collectorMerchantId();
+        if ($collectorMerchantId !== '') {
+            $params['merchant_id'] = $collectorMerchantId;
+        }
+
+        $collectorChannelId = $this->collectorChannelId();
+        if ($collectorChannelId !== '') {
+            $params['channel_id'] = $collectorChannelId;
+        }
+
+        return $params;
+    }
+
+    private function resolveDirectSubmitAction(string $type): ?string
+    {
+        $type = trim($type);
+        if ($type === '') {
+            return null;
+        }
+
+        return in_array($type, ['alipay', 'wxpay', 'qqpay', 'bank', 'jdpay', 'douyinpay'], true)
+            && method_exists($this, $type)
+            ? $type
+            : null;
+    }
+
+    private function isUpstreamEmptyCashier(string $url): bool
+    {
+        return str_contains($url, 'cashier?') && str_contains($url, 'other=1');
+    }
+
+    private function upstreamCustomChannelMessage(): string
+    {
+        return '上游易支付商户未配置当前支付方式的可用自定义通道';
+    }
+
+    private function payMapi(
+        string $method,
+        string $type,
+        PaymentContext $ctx,
+        ?string $authCode = null,
+        ?string $subOpenid = null,
+        ?string $subAppid = null
+    ): array {
         $tradeNo = $ctx->order['trade_no'];
 
         $epay = new EpayCore($this->epayConfig);
@@ -83,253 +164,226 @@ class EpaynPlugin extends BasePayment
             'type' => $type,
             'device' => $this->getDevice($ctx),
             'clientip' => request()->clientip,
-            'notify_url' => config_get('localurl') . 'pay/notify/' . $tradeNo . '/',
-            'return_url' => request()->siteurl . 'pay/return/' . $tradeNo . '/',
+            'notify_url' => $this->gatewayActionUrl('notify', $tradeNo, true),
+            'return_url' => $this->gatewayActionUrl('return', $tradeNo, true),
             'out_trade_no' => $tradeNo,
             'name' => $ctx->order['name'],
             'money' => $ctx->order['realmoney'],
         ];
-        if ($auth_code) $params['auth_code'] = $auth_code;
-        if ($sub_openid) $params['sub_openid'] = $sub_openid;
-        if ($sub_appid) $params['sub_appid'] = $sub_appid;
-        if (!empty($this->channel['merchant_id'])) $params['merchant_id'] = $this->channel['merchant_id'];
-        if (!empty($this->channel['channel_id'])) $params['channel_id'] = $this->channel['channel_id'];
+        if ($authCode !== null && $authCode !== '') {
+            $params['auth_code'] = $authCode;
+        }
+        if ($subOpenid !== null && $subOpenid !== '') {
+            $params['sub_openid'] = $subOpenid;
+        }
+        if ($subAppid !== null && $subAppid !== '') {
+            $params['sub_appid'] = $subAppid;
+        }
+        $params = $this->appendCollectorRoute($params);
 
         return self::lockPayData($tradeNo, function () use ($epay, $params) {
             $result = $epay->apiPay($params);
-            return [$result['pay_type'], $result['pay_info']];
+            $payType = (string) ($result['pay_type'] ?? '');
+            $payInfo = (string) ($result['pay_info'] ?? '');
+
+            if ($payType === 'jump' && $this->isUpstreamEmptyCashier($payInfo)) {
+                throw new Exception($this->upstreamCustomChannelMessage());
+            }
+
+            if ($payType === '' || $payInfo === '') {
+                throw new Exception((string) ($result['msg'] ?? '未返回有效支付信息'));
+            }
+
+            return [$payType, $payInfo];
         });
     }
 
-    //支付宝扫码支付
+    private function buildDirectPayResult(
+        string $method,
+        string $url,
+        PaymentContext $ctx,
+        string $defaultQrPage
+    ): array {
+        if ($method === 'jump') {
+            return ['type' => 'jump', 'url' => $url];
+        }
+        if ($method === 'html') {
+            return ['type' => 'html', 'data' => $url];
+        }
+        if ($method === 'urlscheme') {
+            return ['type' => 'scheme', 'page' => 'wxpay_mini', 'url' => $url];
+        }
+
+        if ($defaultQrPage === 'wxpay_qrcode') {
+            if ($ctx->mdevice === 'wechat') {
+                return ['type' => 'jump', 'url' => $url];
+            }
+            if ($ctx->isMobile) {
+                return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $url];
+            }
+        }
+
+        if ($defaultQrPage === 'qqpay_qrcode') {
+            if ($ctx->mdevice === 'qq') {
+                return ['type' => 'jump', 'url' => $url];
+            }
+            if ($ctx->isMobile && !request()->get('qrcode')) {
+                return ['type' => 'qrcode', 'page' => 'qqpay_wap', 'url' => $url];
+            }
+        }
+
+        if ($defaultQrPage === 'douyinpay_qrcode' && $ctx->isMobile) {
+            return ['type' => 'qrcode', 'page' => 'douyinpay_wap', 'url' => $url];
+        }
+
+        return ['type' => 'qrcode', 'page' => $defaultQrPage, 'url' => $url];
+    }
+
     public function alipay(PaymentContext $ctx): array
     {
         try {
-            [$method, $url] = $this->pay_mapi('web', 'alipay', $ctx);
+            [$method, $url] = $this->payMapi('web', 'alipay', $ctx);
+            return $this->buildDirectPayResult($method, $url, $ctx, 'alipay_qrcode');
         } catch (Exception $ex) {
             return ['type' => 'error', 'msg' => $ex->getMessage()];
         }
-
-        if ($method == 'jump') {
-            return ['type' => 'jump', 'url' => $url];
-        } elseif ($method == 'html') {
-            return ['type' => 'html', 'data' => $url];
-        } else {
-            return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $url];
-        }
     }
 
-    //微信扫码支付
     public function wxpay(PaymentContext $ctx): array
     {
         try {
-            [$method, $url] = $this->pay_mapi('web', 'wxpay', $ctx);
+            [$method, $url] = $this->payMapi('web', 'wxpay', $ctx);
+            return $this->buildDirectPayResult($method, $url, $ctx, 'wxpay_qrcode');
         } catch (Exception $ex) {
             return ['type' => 'error', 'msg' => $ex->getMessage()];
         }
-
-        if ($method == 'jump') {
-            return ['type' => 'jump', 'url' => $url];
-        } elseif ($method == 'html') {
-            return ['type' => 'html', 'data' => $url];
-        } elseif ($method == 'urlscheme') {
-            return ['type' => 'scheme', 'page' => 'wxpay_mini', 'url' => $url];
-        } else {
-            if ($ctx->mdevice === 'wechat') {
-                return ['type' => 'jump', 'url' => $url];
-            } elseif ($ctx->isMobile) {
-                return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $url];
-            } else {
-                return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $url];
-            }
-        }
     }
 
-    //QQ扫码支付
     public function qqpay(PaymentContext $ctx): array
     {
         try {
-            [$method, $url] = $this->pay_mapi('web', 'qqpay', $ctx);
+            [$method, $url] = $this->payMapi('web', 'qqpay', $ctx);
+            return $this->buildDirectPayResult($method, $url, $ctx, 'qqpay_qrcode');
         } catch (Exception $ex) {
             return ['type' => 'error', 'msg' => $ex->getMessage()];
         }
-
-        if ($method == 'jump') {
-            return ['type' => 'jump', 'url' => $url];
-        } elseif ($method == 'html') {
-            return ['type' => 'html', 'data' => $url];
-        } else {
-            if ($ctx->mdevice === 'qq') {
-                return ['type' => 'jump', 'url' => $url];
-            } elseif ($ctx->isMobile && !request()->get('qrcode')) {
-                return ['type' => 'qrcode', 'page' => 'qqpay_wap', 'url' => $url];
-            } else {
-                return ['type' => 'qrcode', 'page' => 'qqpay_qrcode', 'url' => $url];
-            }
-        }
     }
 
-    //云闪付扫码支付
     public function bank(PaymentContext $ctx): array
     {
         try {
-            [$method, $url] = $this->pay_mapi('web', 'bank', $ctx);
+            [$method, $url] = $this->payMapi('web', 'bank', $ctx);
+            return $this->buildDirectPayResult($method, $url, $ctx, 'bank_qrcode');
         } catch (Exception $ex) {
             return ['type' => 'error', 'msg' => $ex->getMessage()];
         }
-
-        if ($method == 'jump') {
-            return ['type' => 'jump', 'url' => $url];
-        } elseif ($method == 'html') {
-            return ['type' => 'html', 'data' => $url];
-        } else {
-            return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $url];
-        }
     }
 
-    //京东支付
     public function jdpay(PaymentContext $ctx): array
     {
         try {
-            [$method, $url] = $this->pay_mapi('web', 'jdpay', $ctx);
+            [$method, $url] = $this->payMapi('web', 'jdpay', $ctx);
+            return $this->buildDirectPayResult($method, $url, $ctx, 'jdpay_qrcode');
         } catch (Exception $ex) {
             return ['type' => 'error', 'msg' => $ex->getMessage()];
         }
-
-        if ($method == 'jump') {
-            return ['type' => 'jump', 'url' => $url];
-        } elseif ($method == 'html') {
-            return ['type' => 'html', 'data' => $url];
-        } else {
-            return ['type' => 'qrcode', 'page' => 'jdpay_qrcode', 'url' => $url];
-        }
     }
 
-    //抖音支付
     public function douyinpay(PaymentContext $ctx): array
     {
         try {
-            [$method, $url] = $this->pay_mapi('web', 'douyinpay', $ctx);
+            [$method, $url] = $this->payMapi('web', 'douyinpay', $ctx);
+            return $this->buildDirectPayResult($method, $url, $ctx, 'douyinpay_qrcode');
         } catch (Exception $ex) {
             return ['type' => 'error', 'msg' => $ex->getMessage()];
         }
-
-        if ($method == 'jump') {
-            return ['type' => 'jump', 'url' => $url];
-        } else {
-            if ($ctx->isMobile) {
-                return ['type' => 'qrcode', 'page' => 'douyinpay_wap', 'url' => $url];
-            } else {
-                return ['type' => 'qrcode', 'page' => 'douyinpay_qrcode', 'url' => $url];
-            }
-        }
     }
 
-    //异步回调
     public function notify(PaymentContext $ctx): array
     {
         $epayNotify = new EpayCore($this->epayConfig);
-
-        //计算得出通知验证结果
-        $verify_result = $epayNotify->verify(request()->get());
-
-        if ($verify_result) { //验证成功
-            //商户订单号
-            $out_trade_no = request()->get('out_trade_no');
-
-            //易支付交易号
-            $trade_no = request()->get('trade_no');
-
-            //交易金额
-            $money = (float) request()->get('money');
-
-            //支付人账号
-            $buyer = request()->get('buyer');
-
-            $api_trade_no = request()->get('api_trade_no');
-
-            $endtime = request()->get('endtime');
-
-            if (request()->get('trade_status') == 'TRADE_SUCCESS') {
-                if ($out_trade_no == $ctx->order['trade_no'] && round($money, 2) == round((float)$ctx->order['realmoney'], 2)) {
-                    $this->processNotify($ctx->order, $trade_no, $buyer, $api_trade_no, null, $endtime);
-                }
-            }
-            return ['type' => 'html', 'data' => 'success'];
-        } else {
-            //验证失败
+        if (!$epayNotify->verify(request()->get())) {
             return ['type' => 'html', 'data' => 'fail'];
         }
+
+        $outTradeNo = (string) request()->get('out_trade_no');
+        $tradeNo = (string) request()->get('trade_no');
+        $money = (float) request()->get('money');
+        $buyer = request()->get('buyer');
+        $apiTradeNo = request()->get('api_trade_no');
+        $endtime = request()->get('endtime');
+
+        if (
+            request()->get('trade_status') === 'TRADE_SUCCESS'
+            && $outTradeNo === (string) $ctx->order['trade_no']
+            && round($money, 2) === round((float) $ctx->order['realmoney'], 2)
+        ) {
+            ($this->markTrustedCallback($ctx, 'notify', 'epayn-signature'))(function () use ($ctx, $tradeNo, $buyer, $apiTradeNo, $endtime): void {
+                $this->processNotify($ctx->order, $tradeNo, $buyer, $apiTradeNo, null, $endtime);
+            });
+        }
+
+        return ['type' => 'html', 'data' => 'success'];
     }
 
-    //同步回调
     public function return(PaymentContext $ctx): array
     {
         $epayNotify = new EpayCore($this->epayConfig);
-
-        //计算得出通知验证结果
-        $verify_result = $epayNotify->verify(request()->get());
-        if ($verify_result) {
-            //商户订单号
-            $out_trade_no = request()->get('out_trade_no');
-
-            //易支付交易号
-            $trade_no = request()->get('trade_no');
-
-            //交易金额
-            $money = (float) request()->get('money');
-
-            //支付人账号
-            $buyer = request()->get('buyer');
-
-            $api_trade_no = request()->get('api_trade_no');
-
-            $endtime = request()->get('endtime');
-
-            if (request()->get('trade_status') == 'TRADE_SUCCESS') {
-                if ($out_trade_no == $ctx->order['trade_no'] && round($money, 2) == round((float)$ctx->order['realmoney'], 2)) {
-                    return ($this->markTrustedCallback($ctx, 'return', 'epayn-signature'))(function () use ($ctx, $trade_no, $buyer, $api_trade_no, $endtime) {
-                        return $this->processReturn($ctx->order, $trade_no, $buyer, $api_trade_no, null, $endtime);
-                    });
-                } else {
-                    return ['type' => 'error', 'msg' => '订单信息校验失败'];
-                }
-            } else {
-                return ['type' => 'error', 'msg' => 'trade_status=' . request()->get('trade_status')];
-            }
-        } else {
-            //验证失败
-            return ['type' => 'error', 'msg' => '验证失败！'];
+        if (!$epayNotify->verify(request()->get())) {
+            return ['type' => 'error', 'msg' => '验签失败'];
         }
+
+        $outTradeNo = (string) request()->get('out_trade_no');
+        $tradeNo = (string) request()->get('trade_no');
+        $money = (float) request()->get('money');
+        $buyer = request()->get('buyer');
+        $apiTradeNo = request()->get('api_trade_no');
+        $endtime = request()->get('endtime');
+
+        if (request()->get('trade_status') !== 'TRADE_SUCCESS') {
+            return ['type' => 'error', 'msg' => 'trade_status=' . request()->get('trade_status')];
+        }
+
+        if ($outTradeNo !== (string) $ctx->order['trade_no'] || round($money, 2) !== round((float) $ctx->order['realmoney'], 2)) {
+            return ['type' => 'error', 'msg' => '订单信息校验失败'];
+        }
+
+        return ($this->markTrustedCallback($ctx, 'return', 'epayn-signature'))(function () use ($ctx, $tradeNo, $buyer, $apiTradeNo, $endtime) {
+            return $this->processReturn($ctx->order, $tradeNo, $buyer, $apiTradeNo, null, $endtime);
+        });
     }
 
     public function query(array $order): array
     {
         $epay = new EpayCore($this->epayConfig);
-        $result = $epay->queryOrderByOutTradeNo($order['trade_no']);
+        $result = $epay->queryOrderByOutTradeNo((string) $order['trade_no']);
+
         return [
-            'api_trade_no' => $result['trade_no'],
-            'status' => $result['status'],
-            'money' => $result['money'],
+            'api_trade_no' => $result['trade_no'] ?? '',
+            'status' => $result['status'] ?? 0,
+            'money' => $result['money'] ?? 0,
             'buyer' => $result['buyer'] ?? null,
             'bill_trade_no' => $result['api_trade_no'] ?? null,
             'endtime' => $result['endtime'] ?? null,
         ];
     }
 
-    //退款
     public function refund($order): array
     {
         $epay = new EpayCore($this->epayConfig);
         try {
-            $result = $epay->refund($order['refund_no'], $order['api_trade_no'], $order['refundmoney']);
-            return ['code' => 0, 'trade_no' => $result['refund_no'], 'refund_fee' => $result['money']];
+            $result = $epay->refund((string) $order['refund_no'], (string) $order['api_trade_no'], $order['refundmoney']);
+            return [
+                'code' => 0,
+                'status' => $result['status'] ?? 1,
+                'trade_no' => $result['refund_no'] ?? '',
+                'refund_fee' => $result['money'] ?? $order['refundmoney'],
+            ];
         } catch (Exception $ex) {
             return ['code' => -1, 'msg' => $ex->getMessage()];
         }
     }
 
-    //转账
     public function transfer($bizParam): array
     {
         $epay = new EpayCore($this->epayConfig);
@@ -341,42 +395,65 @@ class EpaynPlugin extends BasePayment
             'remark' => $bizParam['transfer_desc'],
             'out_biz_no' => $bizParam['out_biz_no'],
         ];
+
         try {
             $result = $epay->execute('api/transfer/submit', $params);
+            $payload = [
+                'code' => 0,
+                'status' => $result['status'] ?? 0,
+                'orderid' => $result['out_biz_no'] ?? $bizParam['out_biz_no'],
+                'paydate' => $result['paydate'] ?? '',
+            ];
             if (isset($result['jumpurl'])) {
-                return ['code' => 0, 'status' => $result['status'], 'orderid' => $result['out_biz_no'], 'paydate' => $result['paydate'], 'wxpackage' => $result['jumpurl']];
-            } else {
-                return ['code' => 0, 'status' => $result['status'], 'orderid' => $result['out_biz_no'], 'paydate' => $result['paydate']];
+                $payload['wxpackage'] = $result['jumpurl'];
             }
-        } catch (Exception $e) {
-            return ['code' => -1, 'msg' => $e->getMessage()];
+            return $payload;
+        } catch (Exception $ex) {
+            return ['code' => -1, 'msg' => $ex->getMessage()];
         }
     }
 
-    //转账查询
     public function transfer_query($bizParam): array
     {
         $epay = new EpayCore($this->epayConfig);
-        $params = [
-            'out_biz_no' => $bizParam['out_biz_no'],
-        ];
         try {
-            $result = $epay->execute('api/transfer/query', $params);
-            return ['code' => 0, 'status' => $result['status'], 'amount' => $result['amount'], 'paydate' => $result['paydate'], 'errmsg' => $result['errmsg']];
-        } catch (Exception $e) {
-            return ['code' => -1, 'msg' => $e->getMessage()];
+            $result = $epay->execute('api/transfer/query', [
+                'out_biz_no' => $bizParam['out_biz_no'],
+            ]);
+            return [
+                'code' => 0,
+                'status' => $result['status'] ?? 0,
+                'amount' => $result['amount'] ?? 0,
+                'paydate' => $result['paydate'] ?? '',
+                'errmsg' => $result['errmsg'] ?? '',
+            ];
+        } catch (Exception $ex) {
+            return ['code' => -1, 'msg' => $ex->getMessage()];
         }
     }
 
-    //余额查询
     public function balance_query($bizParam): array
     {
         $epay = new EpayCore($this->epayConfig);
         try {
             $result = $epay->execute('api/transfer/balance', []);
-            return ['code' => 0, 'amount' => $result['available_money']];
-        } catch (Exception $e) {
-            return ['code' => -1, 'msg' => $e->getMessage()];
+            return ['code' => 0, 'amount' => $result['available_money'] ?? 0];
+        } catch (Exception $ex) {
+            return ['code' => -1, 'msg' => $ex->getMessage()];
         }
+    }
+
+    private function gatewayActionUrl(string $action, string $tradeNo, bool $absolute = false): string
+    {
+        $action = trim(strtolower($action));
+        $tradeNo = trim($tradeNo);
+
+        $path = self::LEGACY_GATEWAY_BASE . rawurlencode($action) . '/' . rawurlencode($tradeNo) . '/';
+
+        if (!$absolute) {
+            return $path;
+        }
+
+        return rtrim((string) config_get('localurl'), '/') . $path;
     }
 }

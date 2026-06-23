@@ -94,6 +94,13 @@ class PluginRuntimeService
                     ?? ($sourceConfig['pay_types']
                     ?? ($sourceInfo['pay_types'] ?? [])))
                 );
+                $kind = trim((string)($manifest['kind'] ?? (string)($config['kind'] ?? 'general')));
+                $defaultSettings = is_array($config['default_settings'] ?? null) ? $config['default_settings'] : [];
+                $settingsSchema = self::normalizeSettingsSchema(
+                    is_array($config['settings_schema'] ?? null) ? $config['settings_schema'] : [],
+                    $defaultSettings,
+                    $kind
+                );
 
                 $items[] = [
                     'code' => $code,
@@ -101,7 +108,7 @@ class PluginRuntimeService
                     'version' => trim((string)($manifest['version'] ?? '1.0.0')),
                     'description' => trim((string)($manifest['description'] ?? '')),
                     'group' => $group,
-                    'kind' => trim((string)($manifest['kind'] ?? (string)($config['kind'] ?? 'general'))),
+                    'kind' => $kind,
                     'provider' => trim((string)($manifest['provider'] ?? '')),
                     'provider_file' => is_file($providerPath) ? self::relativePath($providerPath) : '',
                     'config_file' => is_file($configPath) ? self::relativePath($configPath) : '',
@@ -117,8 +124,8 @@ class PluginRuntimeService
                         self::normalizeList($manifest['transfer_methods'] ?? ($config['transfer_methods'] ?? [])),
                         $paymentMethods
                     ),
-                    'default_settings' => is_array($config['default_settings'] ?? null) ? $config['default_settings'] : [],
-                    'settings_schema' => is_array($config['settings_schema'] ?? null) ? $config['settings_schema'] : [],
+                    'default_settings' => $defaultSettings,
+                    'settings_schema' => $settingsSchema,
                     'status' => '停用',
                     'status_code' => 0,
                     'installed_at' => date('Y-m-d H:i:s', @filemtime($manifestPath) ?: time()),
@@ -331,6 +338,159 @@ class PluginRuntimeService
 
         $payload = include $path;
         return is_array($payload) ? $payload : [];
+    }
+
+    private static function normalizeSettingsSchema(array $schema, array $defaultSettings = [], string $kind = ''): array
+    {
+        if (is_array($schema['fields'] ?? null)) {
+            $schema = $schema['fields'];
+        }
+
+        $normalized = [];
+        foreach ($schema as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            $normalized[] = self::normalizeSettingsField($field, $defaultSettings, $kind);
+        }
+
+        return array_values($normalized);
+    }
+
+    private static function normalizeSettingsField(array $field, array $defaultSettings = [], string $kind = ''): array
+    {
+        $type = strtolower(trim((string)($field['type'] ?? 'text')));
+        $key = trim((string)($field['key'] ?? ''));
+        $field['type'] = $type !== '' ? $type : 'text';
+
+        if (in_array($field['type'], ['select', 'radio'], true)) {
+            $field['options'] = self::normalizeFieldOptions(
+                $field['options'] ?? [],
+                $key,
+                $defaultSettings,
+                $kind
+            );
+        } elseif ($field['type'] === 'checkbox' && !isset($field['options'])) {
+            $field['options'] = [
+                ['label' => '否', 'value' => '0'],
+                ['label' => '是', 'value' => '1'],
+            ];
+        }
+
+        return $field;
+    }
+
+    private static function normalizeFieldOptions(
+        mixed $options,
+        string $fieldKey,
+        array $defaultSettings = [],
+        string $kind = ''
+    ): array {
+        if (is_array($options) && $options !== []) {
+            $normalized = [];
+            foreach ($options as $key => $item) {
+                if (is_array($item)) {
+                    $value = self::normalizeOptionScalar($item['value'] ?? $item['key'] ?? $item['id'] ?? $key);
+                    $label = trim((string)($item['label'] ?? $item['name'] ?? $item['text'] ?? $value));
+                    if ($label === '' && $value === '') {
+                        continue;
+                    }
+
+                    $normalized[] = [
+                        'label' => $label !== '' ? $label : $value,
+                        'value' => $value,
+                    ];
+                    continue;
+                }
+
+                $label = trim((string)$item);
+                $value = self::normalizeOptionScalar($key);
+
+                if (is_int($key)) {
+                    $defaultValue = self::normalizeOptionScalar($defaultSettings[$fieldKey] ?? '');
+                    if ($defaultValue !== '' && $defaultValue === self::normalizeOptionScalar((string)$key)) {
+                        $value = $defaultValue;
+                    }
+                }
+
+                if ($label === '' && $value === '') {
+                    continue;
+                }
+
+                $normalized[] = [
+                    'label' => $label !== '' ? $label : $value,
+                    'value' => $value,
+                ];
+            }
+
+            if ($normalized !== []) {
+                return array_values($normalized);
+            }
+        }
+
+        return self::defaultFieldOptions($fieldKey, $defaultSettings, $kind);
+    }
+
+    private static function defaultFieldOptions(string $fieldKey, array $defaultSettings = [], string $kind = ''): array
+    {
+        $defaultValue = self::normalizeOptionScalar($defaultSettings[$fieldKey] ?? '');
+        $kind = strtolower(trim($kind));
+
+        return match ($fieldKey) {
+            'mode' => self::defaultModeOptions($kind, $defaultValue),
+            'device' => self::defaultDeviceOptions($defaultValue),
+            'listener' => [
+                ['label' => '模拟监听', 'value' => $defaultValue !== '' ? $defaultValue : 'mock-listener'],
+            ],
+            'address_strategy' => [
+                ['label' => '单地址收款', 'value' => $defaultValue !== '' ? $defaultValue : 'single'],
+            ],
+            default => [],
+        };
+    }
+
+    private static function defaultModeOptions(string $kind, string $defaultValue): array
+    {
+        return match ($kind) {
+            'app' => [
+                ['label' => 'APP 拉起', 'value' => $defaultValue !== '' ? $defaultValue : 'app'],
+            ],
+            'qrcode' => [
+                ['label' => '二维码', 'value' => $defaultValue !== '' ? $defaultValue : 'native'],
+            ],
+            default => $defaultValue !== '' ? [[
+                'label' => $defaultValue,
+                'value' => $defaultValue,
+            ]] : [],
+        };
+    }
+
+    private static function defaultDeviceOptions(string $defaultValue): array
+    {
+        if ($defaultValue === 'mobile') {
+            return [
+                ['label' => '手机/H5', 'value' => 'mobile'],
+            ];
+        }
+
+        return [
+            ['label' => 'PC/网页', 'value' => 'pc'],
+            ['label' => '手机/H5', 'value' => 'mobile'],
+        ];
+    }
+
+    private static function normalizeOptionScalar(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if ($value === null) {
+            return '';
+        }
+
+        return trim((string)$value);
     }
 
     private static function normalizeList(mixed $value): array

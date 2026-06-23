@@ -343,10 +343,12 @@ class LegacyPaymentGatewayService
     private static function toResponse(array $result, string $tradeNo): Response
     {
         $type = strtolower(trim((string)($result['type'] ?? 'error')));
+        $checkoutUrl = self::gatewayPathUrl('/pay/checkout/' . rawurlencode($tradeNo));
 
         return match ($type) {
-            'jump', 'redirect' => redirect((string)($result['url'] ?? '/pay/checkout/' . $tradeNo)),
+            'jump', 'redirect' => redirect(self::normalizeResultUrl((string)($result['url'] ?? ''), $checkoutUrl)),
             'html' => response((string)($result['data'] ?? ''), 200, ['Content-Type' => 'text/html; charset=utf-8']),
+            'error' => self::friendlyErrorResponse($tradeNo, $result),
             'json' => response(
                 json_encode($result['data'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 (int)($result['code'] ?? 200),
@@ -355,16 +357,78 @@ class LegacyPaymentGatewayService
             'plain', 'text' => response((string)($result['data'] ?? $result['msg'] ?? ''), (int)($result['code'] ?? 200), ['Content-Type' => 'text/plain; charset=utf-8']),
             'xml' => response((string)($result['data'] ?? ''), (int)($result['code'] ?? 200), ['Content-Type' => 'application/xml; charset=utf-8']),
             'qrcode' => self::qrcodeResponse($tradeNo, $result),
-            'scheme' => redirect((string)($result['url'] ?? '/pay/checkout/' . $tradeNo)),
-            'return' => redirect((string)($result['url'] ?? '/pay/checkout/' . $tradeNo)),
+            'scheme' => redirect(self::normalizeResultUrl((string)($result['url'] ?? ''), $checkoutUrl)),
+            'return' => redirect(self::normalizeResultUrl((string)($result['url'] ?? ''), $checkoutUrl)),
+            'page' => self::friendlyPageResponse($tradeNo, $result),
             default => response(self::unsupportedResponseTypeMessage(), 200, ['Content-Type' => 'text/plain; charset=utf-8']),
+        };
+    }
+
+    private static function friendlyErrorResponse(string $tradeNo, array $result): Response
+    {
+        $message = GatewayCompatService::normalizeGatewayErrorMessageSafe((string)($result['msg'] ?? $result['data'] ?? '支付请求失败'));
+        $checkoutUrl = '/pay/checkout/' . rawurlencode($tradeNo);
+        $html = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>NexPay 支付失败</title><style>body{margin:0;background:#f4f7fb;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#172033}.wrap{max-width:720px;margin:56px auto;padding:0 18px}.card{background:#fff;border:1px solid #dbe7f6;border-radius:20px;padding:28px;box-shadow:0 18px 48px rgba(15,23,42,.08)}h1{margin:0 0 14px;font-size:26px}.msg{padding:16px 18px;border-radius:14px;background:#fff6f6;border:1px solid #ffd5d5;color:#b42318;line-height:1.7;word-break:break-word}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}.btn{display:inline-flex;align-items:center;justify-content:center;min-width:132px;height:42px;padding:0 18px;border-radius:12px;text-decoration:none;font-weight:600}.btn-primary{background:#1677ff;color:#fff}.btn-light{background:#eef4ff;color:#1677ff}</style></head><body><div class="wrap"><div class="card"><h1>支付请求失败</h1><div class="msg">'
+            . htmlspecialchars($message, ENT_QUOTES, 'UTF-8')
+            . '</div><div class="actions"><a class="btn btn-primary" href="'
+            . htmlspecialchars($checkoutUrl, ENT_QUOTES, 'UTF-8')
+            . '">返回收银台</a></div></div></div></body></html>';
+
+        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8']);
+    }
+
+    private static function friendlyPageResponse(string $tradeNo, array $result): Response
+    {
+        $page = strtolower(trim((string)($result['page'] ?? '')));
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+        if ($page === 'return') {
+            return redirect(self::normalizeResultUrl(
+                (string)($data['redirect_url'] ?? $result['url'] ?? ''),
+                self::gatewayPathUrl('/pay/checkout/' . rawurlencode($tradeNo))
+            ));
+        }
+
+        return self::friendlyErrorResponse($tradeNo, [
+            'msg' => '当前支付方式需要专用页面支持，暂未接入该展示类型：' . ($page !== '' ? $page : 'unknown'),
+        ]);
+    }
+
+    private static function errorResponse(string $tradeNo, array $result): Response
+    {
+        $message = trim((string)($result['msg'] ?? $result['data'] ?? '支付请求失败'));
+        $checkoutUrl = '/pay/checkout/' . rawurlencode($tradeNo);
+        $html = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>NexPay 支付失败</title><style>body{margin:0;background:#f4f7fb;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#172033}.wrap{max-width:720px;margin:56px auto;padding:0 18px}.card{background:#fff;border:1px solid #dbe7f6;border-radius:20px;padding:28px;box-shadow:0 18px 48px rgba(15,23,42,.08)}h1{margin:0 0 14px;font-size:26px}.msg{padding:16px 18px;border-radius:14px;background:#fff6f6;border:1px solid #ffd5d5;color:#b42318;line-height:1.7;word-break:break-word}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}.btn{display:inline-flex;align-items:center;justify-content:center;min-width:132px;height:42px;padding:0 18px;border-radius:12px;text-decoration:none;font-weight:600}.btn-primary{background:#1677ff;color:#fff}.btn-light{background:#eef4ff;color:#1677ff}</style></head><body><div class="wrap"><div class="card"><h1>支付请求失败</h1><div class="msg">'
+            . htmlspecialchars($message, ENT_QUOTES, 'UTF-8')
+            . '</div><div class="actions"><a class="btn btn-primary" href="'
+            . htmlspecialchars($checkoutUrl, ENT_QUOTES, 'UTF-8')
+            . '">返回收银台</a></div></div></div></body></html>';
+
+        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8']);
+    }
+
+    private static function pageResponse(string $tradeNo, array $result): Response
+    {
+        $page = strtolower(trim((string)($result['page'] ?? '')));
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+        return match ($page) {
+            'return' => redirect(self::normalizeResultUrl(
+                (string)($data['redirect_url'] ?? $result['url'] ?? ''),
+                self::gatewayPathUrl('/pay/checkout/' . rawurlencode($tradeNo))
+            )),
+            default => self::errorResponse($tradeNo, [
+                'msg' => '当前支付方式需要专用页面支持，暂未接入该展示类型：' . ($page !== '' ? $page : 'unknown'),
+            ]),
         };
     }
 
 
     private static function qrcodeResponse(string $tradeNo, array $result): Response
     {
-        $rawUrl = trim((string)($result['url'] ?? ''));
+        $rawUrl = self::normalizeResultUrl((string)($result['url'] ?? ''));
         if ($rawUrl !== '') {
             QrCodeService::rememberOrderSource($tradeNo, $rawUrl, array_filter([
                 'type' => 'qrcode',
@@ -372,17 +436,60 @@ class LegacyPaymentGatewayService
             ], static fn(mixed $value): bool => is_string($value) && $value !== ''));
         }
 
-        $url = htmlspecialchars(QrCodeService::displayValueForOrder(OrderService::findByTradeNo($tradeNo)), ENT_QUOTES, 'UTF-8');
-        $imageUrl = htmlspecialchars(QrCodeService::imageUrl($tradeNo, 320), ENT_QUOTES, 'UTF-8');
-        $page = htmlspecialchars((string)($result['page'] ?? 'payment_qrcode'), ENT_QUOTES, 'UTF-8');
         $checkoutUrl = '/pay/checkout/' . rawurlencode($tradeNo);
-        $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-            . '<title>NexPay QR Payment</title><style>body{margin:0;background:#f4f8ff;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#172033}.wrap{max-width:760px;margin:48px auto;padding:0 18px}.card{background:#fff;border:1px solid #dbe7f6;border-radius:24px;padding:28px;box-shadow:0 22px 56px rgba(15,23,42,.08)}.tag{display:inline-flex;padding:7px 12px;border-radius:999px;background:#edf5ff;color:#1677ff;font-weight:700;font-size:12px}.title{margin:16px 0 10px;font-size:28px}.box{margin-top:18px;padding:16px;border-radius:18px;background:#f8fbff;border:1px solid #dbe7f6;word-break:break-all}.box img{display:block;width:100%;max-width:280px;background:#fff;border-radius:14px;border:1px solid #dbe7f6}.muted{color:#607089;line-height:1.8}.link{display:inline-flex;margin-top:16px;color:#1677ff;text-decoration:none;font-weight:600}</style></head><body><div class="wrap"><div class="card"><span class="tag">'
-            . $page . '</span><h1 class="title">Payment QR ready</h1><div class="muted">Scan the QR code below or open the checkout page.</div><div class="box"><img src="'
-            . $imageUrl . '" alt="Payment QR"></div><div class="box">'
-            . $url . '</div><a class="link" href="' . htmlspecialchars($checkoutUrl, ENT_QUOTES, 'UTF-8') . '">Open checkout page</a></div></div></body></html>';
+        return redirect(self::gatewayPathUrl($checkoutUrl));
+    }
 
-        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8']);
+    private static function normalizeResultUrl(string $url, string $fallback = ''): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return $fallback;
+        }
+
+        if (str_starts_with($url, '//')) {
+            $scheme = (string)(parse_url(ConfigService::gatewayBaseUrl(), PHP_URL_SCHEME) ?: 'http');
+            return $scheme . ':' . $url;
+        }
+
+        if (preg_match('/^[a-z][a-z0-9+.-]*:/i', $url) === 1) {
+            $parts = parse_url($url);
+            $host = strtolower((string)($parts['host'] ?? ''));
+            $path = (string)($parts['path'] ?? '');
+            if (str_starts_with($path, '/pay/') && self::shouldRewriteGatewayHost($host)) {
+                $rewritten = self::gatewayPathUrl($path);
+                if (($parts['query'] ?? '') !== '') {
+                    $rewritten .= '?' . $parts['query'];
+                }
+                if (($parts['fragment'] ?? '') !== '') {
+                    $rewritten .= '#' . $parts['fragment'];
+                }
+                return $rewritten;
+            }
+
+            return $url;
+        }
+
+        return self::gatewayPathUrl($url);
+    }
+
+    private static function gatewayPathUrl(string $path): string
+    {
+        return rtrim(ConfigService::gatewayBaseUrl(), '/') . '/' . ltrim($path, '/');
+    }
+
+    private static function shouldRewriteGatewayHost(string $host): bool
+    {
+        if ($host === '') {
+            return false;
+        }
+
+        $gatewayHost = strtolower((string)(parse_url(ConfigService::gatewayBaseUrl(), PHP_URL_HOST) ?: ''));
+        if ($gatewayHost !== '' && $host === $gatewayHost) {
+            return true;
+        }
+
+        return in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
     }
 
 

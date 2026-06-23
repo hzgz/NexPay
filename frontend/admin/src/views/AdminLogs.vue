@@ -43,6 +43,38 @@ const callbackSummary = computed<Record<string, any>>(() =>
   data.value.callback_summary && typeof data.value.callback_summary === 'object' ? data.value.callback_summary : {},
 )
 
+const adminLogs = computed<Record<string, any>[]>(() =>
+  Array.isArray(data.value.admin_logs) ? data.value.admin_logs : [],
+)
+
+const merchantLogs = computed<Record<string, any>[]>(() =>
+  Array.isArray(data.value.merchant_logs) ? data.value.merchant_logs : [],
+)
+
+const callbackLogs = computed<Record<string, any>[]>(() =>
+  Array.isArray(data.value.callback_logs) ? data.value.callback_logs : [],
+)
+
+const providerLogs = computed<Record<string, any>[]>(() =>
+  Array.isArray(data.value.provider_logs) ? data.value.provider_logs : [],
+)
+
+const realnameLogs = computed<Record<string, any>[]>(() =>
+  Array.isArray(data.value.realname_logs) ? data.value.realname_logs : [],
+)
+
+const pluginNotifyLogs = computed<Record<string, any>[]>(() =>
+  Array.isArray(data.value.plugin_notify_logs) ? data.value.plugin_notify_logs : [],
+)
+
+const callbackSummaryItems = computed(() => [
+  { key: 'pending_due', label: '待立即执行', value: String(Number(callbackSummary.value.pending_due ?? 0)), tone: 'metric' },
+  { key: 'pending_scheduled', label: '排队中', value: String(Number(callbackSummary.value.pending_scheduled ?? 0)), tone: 'metric' },
+  { key: 'retry_exhausted', label: '已耗尽', value: String(Number(callbackSummary.value.retry_exhausted ?? 0)), tone: 'metric' },
+  { key: 'attention_total', label: '需关注', value: String(Number(callbackSummary.value.attention_total ?? 0)), tone: 'metric' },
+  { key: 'next_due_time', label: '下次执行', value: String(callbackSummary.value.next_due_time || '-'), tone: 'time' },
+])
+
 const sectionCopy = computed(() => {
   if (activeSection.value === 'callback') return '回调结果、重试次数和下次执行时间集中展示，便于统一排查异步通知。'
   if (activeSection.value === 'provider') return '邮件、短信和其他服务商调用结果按统一表格排布，方便快速定位失败记录。'
@@ -51,6 +83,14 @@ const sectionCopy = computed(() => {
   return activeSection.value === 'admin'
     ? '在这里查看管理员操作日志。'
     : '商户后台操作日志按相同结构展示，方便对比与排查。'
+})
+
+const emptyCopy = computed(() => {
+  if (activeSection.value === 'callback') return '暂无回调日志。'
+  if (activeSection.value === 'provider') return '暂无服务商日志。'
+  if (activeSection.value === 'realname') return '暂无实名日志。'
+  if (activeSection.value === 'plugin-notify') return '暂无插件通知日志。'
+  return activeSection.value === 'admin' ? '暂无管理员日志。' : '暂无商户日志。'
 })
 
 async function load() {
@@ -246,6 +286,25 @@ function formatCallbackResponse(value: unknown) {
   return callbackResponseMap[lower] || raw
 }
 
+function displayText(value: unknown) {
+  return toText(value) || '-'
+}
+
+async function copyCellText(value: unknown, label: string) {
+  const text = toText(value)
+  if (!text) {
+    ElMessage.warning(`${label}为空`)
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success(`${label}已复制`)
+  } catch {
+    ElMessage.error(`${label}复制失败`)
+  }
+}
+
 function callbackStatusClass(item: Record<string, any>) {
   if (Number(item.status_code) === 2) return 'success'
   if (Number(item.status_code) === 1) return 'danger'
@@ -253,11 +312,7 @@ function callbackStatusClass(item: Record<string, any>) {
   return 'muted'
 }
 
-function callbackHint(item: Record<string, any>) {
-  if (item.retry_exhausted) return '已耗尽'
-  if (item.runtime_exception) return '运行异常'
-  if (item.due_now) return '待执行'
-  if (item.manual_retry) return '人工重试'
+function callbackHint() {
   return ''
 }
 
@@ -319,10 +374,16 @@ function formatRealnameResult(item: Record<string, any>) {
 const pluginNotifyActionMap: Record<string, string> = {
   refundnotify: '退款回调通知',
   transfernotify: '代付回调通知',
+  notify: '支付结果通知',
+  'software-report': '监控上报',
+  'software-pcnotify': '监控回调',
 }
 
 const pluginNotifyStageMap: Record<string, string> = {
   'legacy-gateway': '兼容网关',
+  'software-compat': '监控软件兼容',
+  'order-process': '订单处理',
+  gateway: '网关处理',
 }
 
 const pluginNotifyMessageMap: Record<string, string> = {
@@ -398,10 +459,16 @@ function formatPluginNotifyTarget(item: Record<string, any>) {
 }
 
 function formatPluginNotifyPlugin(item: Record<string, any>) {
-  const pluginCode = toText(item.plugin_code)
+  const pluginCode = toText(item.plugin_code).toLowerCase()
+  if (pluginCode === 'wechat-qrcode') return '微信码支付'
+  if (pluginCode === 'alipay-qrcode') return '支付宝码支付'
+  if (pluginCode === 'epay') return '易支付'
+  if (pluginCode === 'epayn') return '易支付 V2'
   if (pluginCode) return pluginCode
 
-  const methodCode = toText(item.method_code)
+  const methodCode = toText(item.method_code).toLowerCase()
+  if (methodCode === 'wxpay') return '微信支付'
+  if (methodCode === 'alipay') return '支付宝'
   if (methodCode) return methodCode
 
   return '-'
@@ -490,169 +557,194 @@ onMounted(load)
           </div>
 
           <div v-if="activeSection === 'admin' || activeSection === 'merchant'" class="table-wrap">
-        <div class="table-head log-grid">
-          <span>操作人</span>
-          <span>动作</span>
-          <span>详情</span>
-          <span>IP地址</span>
-          <span>时间</span>
-        </div>
-        <div
-          v-for="item in activeSection === 'admin' ? data.admin_logs || [] : data.merchant_logs || []"
-          :key="`${item.operator}-${item.created_at}`"
-          class="table-row log-grid"
-        >
-          <strong>{{ formatLogOperator(item.operator) }}</strong>
-          <span>{{ item.action }}</span>
-          <span>{{ formatLogSummary(item) }}</span>
-          <span>{{ formatLogIp(item.ip) }}</span>
-          <span>{{ item.created_at }}</span>
-        </div>
-      </div>
+            <template v-if="(activeSection === 'admin' ? adminLogs : merchantLogs).length">
+              <div class="table-head log-grid">
+                <span>操作人</span>
+                <span>动作</span>
+                <span>详情</span>
+                <span>IP地址</span>
+                <span>时间</span>
+              </div>
+              <div
+                v-for="item in activeSection === 'admin' ? adminLogs : merchantLogs"
+                :key="`${item.operator}-${item.created_at}`"
+                class="table-row log-grid"
+              >
+                <strong>{{ formatLogOperator(item.operator) }}</strong>
+                <span>{{ item.action }}</span>
+                <span>{{ formatLogSummary(item) }}</span>
+                <span>{{ formatLogIp(item.ip) }}</span>
+                <span>{{ item.created_at }}</span>
+              </div>
+            </template>
+            <p v-else class="empty-note log-empty">{{ emptyCopy }}</p>
+          </div>
 
           <div v-else-if="activeSection === 'callback'" class="table-wrap">
-        <div class="log-summary">
-          <div class="log-summary__item">
-            <span class="log-summary__label">待立即执行</span>
-            <strong>{{ callbackSummary.pending_due || 0 }}</strong>
-          </div>
-          <div class="log-summary__item">
-            <span class="log-summary__label">排队中</span>
-            <strong>{{ callbackSummary.pending_scheduled || 0 }}</strong>
-          </div>
-          <div class="log-summary__item">
-            <span class="log-summary__label">已耗尽</span>
-            <strong>{{ callbackSummary.retry_exhausted || 0 }}</strong>
-          </div>
-          <div class="log-summary__item">
-            <span class="log-summary__label">需关注</span>
-            <strong>{{ callbackSummary.attention_total || 0 }}</strong>
-          </div>
-          <div class="log-summary__item">
-            <span class="log-summary__label">下次执行</span>
-            <strong>{{ callbackSummary.next_due_time || '-' }}</strong>
-          </div>
-        </div>
+            <div class="log-summary">
+              <div
+                v-for="item in callbackSummaryItems"
+                :key="item.key"
+                class="log-summary__item"
+                :class="`is-${item.tone}`"
+              >
+                <span class="log-summary__label">{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
 
-        <div class="table-head callback-grid">
-          <span>平台订单号</span>
-          <span>回调地址</span>
-          <span>结果</span>
-          <span>响应</span>
-          <span>重试</span>
-          <span>下次执行</span>
-          <span>更新时间</span>
-          <span>操作</span>
-        </div>
-        <div
-          v-for="item in data.callback_logs || []"
-          :key="`${item.id}-${item.updated_at}`"
-          class="table-row callback-grid"
-        >
-          <strong>{{ item.trade_no || item.order_id }}</strong>
-          <span>{{ item.notify_url }}</span>
-          <span class="callback-result">
-            <span class="status-chip" :class="callbackStatusClass(item)">{{ formatCallbackResult(item.result) }}</span>
-            <small v-if="callbackHint(item)" class="callback-note">{{ callbackHint(item) }}</small>
-          </span>
-          <span>{{ formatCallbackResponse(item.response) }}</span>
-          <span>{{ item.retry_count }}/{{ item.max_retry }}</span>
-          <span>{{ item.next_time || '-' }}</span>
-          <span>{{ item.updated_at || item.created_at }}</span>
-          <span>
-            <button
-              v-if="item.can_retry"
-              class="link-action"
-              type="button"
-              @click="retryCallback(item)"
-            >
-              立即重试
-            </button>
-            <span v-else>-</span>
-          </span>
-        </div>
-      </div>
+            <template v-if="callbackLogs.length">
+              <div class="table-head callback-grid">
+                <span>平台订单号</span>
+                <span>回调地址</span>
+                <span>结果</span>
+                <span>响应</span>
+                <span>重试</span>
+                <span>下次执行</span>
+                <span>更新时间</span>
+                <span>操作</span>
+              </div>
+              <div
+                v-for="item in callbackLogs"
+                :key="`${item.id}-${item.updated_at}`"
+                class="table-row callback-grid"
+              >
+                <button
+                  class="table-copy-text table-copy-text--strong"
+                  type="button"
+                  :title="displayText(item.trade_no || item.order_id)"
+                  @click="copyCellText(item.trade_no || item.order_id, '平台订单号')"
+                >
+                  {{ displayText(item.trade_no || item.order_id) }}
+                </button>
+                <button
+                  class="table-copy-text"
+                  type="button"
+                  :title="displayText(item.notify_url)"
+                  @click="copyCellText(item.notify_url, '回调地址')"
+                >
+                  {{ displayText(item.notify_url) }}
+                </button>
+                <span class="callback-result">
+                  <span class="status-chip" :class="callbackStatusClass(item)">{{ formatCallbackResult(item.result) }}</span>
+                  <small v-if="callbackHint()" class="callback-note">{{ callbackHint() }}</small>
+                </span>
+                <button
+                  class="table-copy-text"
+                  type="button"
+                  :title="displayText(formatCallbackResponse(item.response))"
+                  @click="copyCellText(formatCallbackResponse(item.response), '响应内容')"
+                >
+                  {{ displayText(formatCallbackResponse(item.response)) }}
+                </button>
+                <span>{{ item.retry_count }}/{{ item.max_retry }}</span>
+                <span>{{ item.next_time || '-' }}</span>
+                <span>{{ item.updated_at || item.created_at }}</span>
+                <span>
+                  <button
+                    v-if="item.can_retry"
+                    class="link-action"
+                    type="button"
+                    @click="retryCallback(item)"
+                  >
+                    立即重试
+                  </button>
+                  <span v-else>-</span>
+                </span>
+              </div>
+            </template>
+            <p v-else class="empty-note log-empty">{{ emptyCopy }}</p>
+          </div>
 
-      <div v-else-if="activeSection === 'provider'" class="table-wrap">
-        <div class="table-head provider-grid">
-          <span>类型</span>
-          <span>场景</span>
-          <span>服务商</span>
-          <span>目标</span>
-          <span>状态</span>
-          <span>结果</span>
-          <span>操作人</span>
-          <span>时间</span>
-        </div>
-        <div
-          v-for="item in data.provider_logs || []"
-          :key="`${item.id}-${item.created_at}`"
-          class="table-row provider-grid"
-        >
-          <strong>{{ formatProviderType(item.type) }}</strong>
-          <span>{{ formatProviderScene(item.scene) }}</span>
-          <span>{{ formatProviderCode(item.provider_code) }}</span>
-          <span>{{ formatProviderTarget(item.target) }}</span>
-          <span>{{ formatLogStatus(item.status) }}</span>
-          <span>{{ formatProviderMessage(item.message) }}</span>
-          <span>{{ formatLogOperator(item.operator) }}</span>
-          <span>{{ item.created_at }}</span>
-        </div>
-      </div>
+          <div v-else-if="activeSection === 'provider'" class="table-wrap">
+            <template v-if="providerLogs.length">
+              <div class="table-head provider-grid">
+                <span>类型</span>
+                <span>场景</span>
+                <span>服务商</span>
+                <span>目标</span>
+                <span>状态</span>
+                <span>结果</span>
+                <span>操作人</span>
+                <span>时间</span>
+              </div>
+              <div
+                v-for="item in providerLogs"
+                :key="`${item.id}-${item.created_at}`"
+                class="table-row provider-grid"
+              >
+                <strong>{{ formatProviderType(item.type) }}</strong>
+                <span>{{ formatProviderScene(item.scene) }}</span>
+                <span>{{ formatProviderCode(item.provider_code) }}</span>
+                <span>{{ formatProviderTarget(item.target) }}</span>
+                <span>{{ formatLogStatus(item.status) }}</span>
+                <span>{{ formatProviderMessage(item.message) }}</span>
+                <span>{{ formatLogOperator(item.operator) }}</span>
+                <span>{{ item.created_at }}</span>
+              </div>
+            </template>
+            <p v-else class="empty-note log-empty">{{ emptyCopy }}</p>
+          </div>
 
-      <div v-else-if="activeSection === 'realname'" class="table-wrap">
-        <div class="table-head realname-grid">
-          <span>商户</span>
-          <span>服务商</span>
-          <span>姓名</span>
-          <span>证件</span>
-          <span>状态</span>
-          <span>结果</span>
-          <span>操作人</span>
-          <span>时间</span>
-        </div>
-        <div
-          v-for="item in data.realname_logs || []"
-          :key="`${item.id}-${item.created_at}`"
-          class="table-row realname-grid"
-        >
-          <strong>{{ item.merchant_id || '-' }}</strong>
-          <span>{{ formatRealnameProvider(item.provider) }}</span>
-          <span>{{ item.real_name || '-' }}</span>
-          <span>{{ item.id_card || '-' }}</span>
-          <span>{{ formatRealnameStatus(item.status) }}</span>
-          <span>{{ formatRealnameResult(item) }}</span>
-          <span>{{ formatLogOperator(item.operator) }}</span>
-          <span>{{ item.created_at }}</span>
-        </div>
-      </div>
+          <div v-else-if="activeSection === 'realname'" class="table-wrap">
+            <template v-if="realnameLogs.length">
+              <div class="table-head realname-grid">
+                <span>商户</span>
+                <span>服务商</span>
+                <span>姓名</span>
+                <span>证件</span>
+                <span>状态</span>
+                <span>结果</span>
+                <span>操作人</span>
+                <span>时间</span>
+              </div>
+              <div
+                v-for="item in realnameLogs"
+                :key="`${item.id}-${item.created_at}`"
+                class="table-row realname-grid"
+              >
+                <strong>{{ item.merchant_id || '-' }}</strong>
+                <span>{{ formatRealnameProvider(item.provider) }}</span>
+                <span>{{ item.real_name || '-' }}</span>
+                <span>{{ item.id_card || '-' }}</span>
+                <span>{{ formatRealnameStatus(item.status) }}</span>
+                <span>{{ formatRealnameResult(item) }}</span>
+                <span>{{ formatLogOperator(item.operator) }}</span>
+                <span>{{ item.created_at }}</span>
+              </div>
+            </template>
+            <p v-else class="empty-note log-empty">{{ emptyCopy }}</p>
+          </div>
 
           <div v-else class="table-wrap">
-        <div class="table-head plugin-notify-grid">
-          <span>动作</span>
-          <span>阶段</span>
-          <span>订单/通道</span>
-          <span>插件</span>
-          <span>状态</span>
-          <span>结果</span>
-          <span>时间</span>
-          <span>上下文</span>
-        </div>
-        <div
-          v-for="item in data.plugin_notify_logs || []"
-          :key="`${item.id}-${item.created_at}`"
-          class="table-row plugin-notify-grid"
-        >
-          <strong>{{ formatPluginNotifyAction(item.action) }}</strong>
-          <span>{{ formatPluginNotifyStage(item.stage) }}</span>
-          <span>{{ formatPluginNotifyTarget(item) }}</span>
-          <span>{{ formatPluginNotifyPlugin(item) }}</span>
-          <span>{{ formatPluginNotifyStatus(item.status) }}</span>
-          <span>{{ formatPluginNotifyMessage(item.message || item.result_type) }}</span>
-          <span>{{ item.created_at }}</span>
-          <span>{{ summarizeContext(item) }}</span>
-        </div>
-      </div>
+            <template v-if="pluginNotifyLogs.length">
+              <div class="table-head plugin-notify-grid">
+                <span>动作</span>
+                <span>阶段</span>
+                <span>订单/通道</span>
+                <span>插件</span>
+                <span>状态</span>
+                <span>结果</span>
+                <span>时间</span>
+                <span>上下文</span>
+              </div>
+              <div
+                v-for="item in pluginNotifyLogs"
+                :key="`${item.id}-${item.created_at}`"
+                class="table-row plugin-notify-grid"
+              >
+                <strong class="plugin-notify-cell" :title="formatPluginNotifyAction(item.action)">{{ formatPluginNotifyAction(item.action) }}</strong>
+                <span class="plugin-notify-cell" :title="formatPluginNotifyStage(item.stage)">{{ formatPluginNotifyStage(item.stage) }}</span>
+                <span class="plugin-notify-cell" :title="formatPluginNotifyTarget(item)">{{ formatPluginNotifyTarget(item) }}</span>
+                <span class="plugin-notify-cell" :title="formatPluginNotifyPlugin(item)">{{ formatPluginNotifyPlugin(item) }}</span>
+                <span class="plugin-notify-cell" :title="formatPluginNotifyStatus(item.status)">{{ formatPluginNotifyStatus(item.status) }}</span>
+                <span class="plugin-notify-cell" :title="formatPluginNotifyMessage(item.message || item.result_type)">{{ formatPluginNotifyMessage(item.message || item.result_type) }}</span>
+                <span class="plugin-notify-cell" :title="item.created_at || '-'">{{ item.created_at }}</span>
+                <span class="plugin-notify-cell" :title="summarizeContext(item)">{{ summarizeContext(item) }}</span>
+              </div>
+            </template>
+            <p v-else class="empty-note log-empty">{{ emptyCopy }}</p>
+          </div>
         </div>
       </div>
     </article>
@@ -662,30 +754,42 @@ onMounted(load)
 <style scoped>
 .log-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 18px;
-  padding: 0 0 16px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(180px, 1.35fr);
+  gap: 0;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--brand-border);
+  background: rgba(247, 250, 255, 0.78);
 }
 
 .log-summary__item {
   min-width: 0;
+  padding: 12px 16px;
+}
+
+.log-summary__item + .log-summary__item {
+  border-left: 1px solid var(--brand-border);
 }
 
 .log-summary__label {
   display: block;
   color: var(--brand-subtle);
   font-size: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .log-summary__item strong {
   display: block;
-  font-size: 15px;
+  color: var(--brand-text);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.log-summary__item.is-time strong {
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.5;
-  word-break: break-word;
 }
 
 .callback-result {
@@ -698,6 +802,34 @@ onMounted(load)
   color: var(--brand-subtle);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.table-copy-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand-text);
+  text-align: left;
+  font: inherit;
+}
+
+.table-copy-text:hover {
+  color: var(--brand-primary);
+}
+
+.table-copy-text--strong {
+  font-weight: 700;
+}
+
+.log-empty {
+  padding: 28px 16px 32px;
+  text-align: center;
+  border-bottom: 1px solid var(--brand-border);
 }
 
 .log-grid {
@@ -726,10 +858,18 @@ onMounted(load)
 
 .plugin-notify-grid {
   display: grid;
-  grid-template-columns: 0.7fr 0.8fr 1fr 0.8fr 0.5fr 1.2fr 0.9fr 1.6fr;
+  grid-template-columns: 0.85fr 0.95fr 1.05fr 0.95fr 0.55fr 1.2fr 0.95fr 1.2fr;
   gap: 12px;
   align-items: center;
   min-width: 0;
+}
+
+.plugin-notify-cell {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .realname-grid {
@@ -743,7 +883,19 @@ onMounted(load)
 @media (max-width: 1180px) {
   .log-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 18px;
+    padding: 0;
+  }
+
+  .log-summary__item + .log-summary__item {
+    border-left: 0;
+  }
+
+  .log-summary__item:nth-child(2n) {
+    border-left: 1px solid var(--brand-border);
+  }
+
+  .log-summary__item:nth-child(n + 3) {
+    border-top: 1px solid var(--brand-border);
   }
 }
 
@@ -755,6 +907,21 @@ onMounted(load)
   .plugin-notify-grid,
   .realname-grid {
     grid-template-columns: 1fr;
+  }
+
+  .log-summary {
+    background: #fff;
+  }
+
+  .log-summary__item,
+  .log-summary__item + .log-summary__item,
+  .log-summary__item:nth-child(2n) {
+    border-left: 0;
+    border-top: 1px solid var(--brand-border);
+  }
+
+  .log-summary__item:first-child {
+    border-top: 0;
   }
 }
 </style>

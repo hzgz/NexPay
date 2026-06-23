@@ -20,11 +20,16 @@ class MerchantChannelService
 {
     private const STORE_KEY = 'merchant_channels';
     private const DEFAULT_PAYMENT_TEMPLATE = 'nexpay-standard';
+    private const MONITOR_HEARTBEAT_TIMEOUT = 180;
     private const PAYMENT_TEMPLATE_ALIAS_MAP = [
         'classic-blue' => 'nexpay-standard',
-        'hg-pay-1' => 'nexpay-center',
-        'hg-pay-2' => 'nexpay-dialog',
-        'modern-float' => 'nexpay-float',
+        'hg-pay-1' => 'nexpay-standard',
+        'hg-pay-2' => 'nexpay-standard',
+        'modern-float' => 'nexpay-standard',
+        'nexpay-standard' => 'nexpay-standard',
+        'nexpay-center' => 'nexpay-standard',
+        'nexpay-dialog' => 'nexpay-standard',
+        'nexpay-float' => 'nexpay-standard',
     ];
     private const PAYMENT_VARIABLE_ALIAS_MAP = [
         '[平台订单号]' => '{{platform_order_no}}',
@@ -56,7 +61,6 @@ class MerchantChannelService
             'plugins' => self::pluginOptions(),
         ];
     }
-
     protected static function channelItemsForRotation(int $merchantId): array
     {
         $items = self::canUseDatabase()
@@ -144,7 +148,15 @@ class MerchantChannelService
             $channelName = (string)($method['name'] ?? PaymentMetaService::friendlyMethodName($methodCode));
         }
 
-        $channelConfig = self::buildChannelConfig($method, $plugin, $pluginConfig, $displayValue, $channelName, $limits);
+        $channelConfig = self::buildChannelConfig(
+            $method,
+            $plugin,
+            $pluginConfig,
+            $displayValue,
+            $channelName,
+            $limits,
+            is_array($existing['config'] ?? null) ? $existing['config'] : []
+        );
 
         if (self::canUseDatabase()) {
             $channelType = ChannelType::where('code', $methodCode)->find();
@@ -371,11 +383,19 @@ class MerchantChannelService
         }
 
         if (!is_array($item)) {
-            throw new BusinessException('Channel not found', StatusCode::NOT_FOUND);
+            throw new BusinessException('通道不存在', StatusCode::NOT_FOUND);
         }
 
         if ((int)($item['status_code'] ?? 0) !== 1) {
-            throw new BusinessException('Channel is disabled', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('通道已关闭', StatusCode::VALIDATION_ERROR);
+        }
+
+        $runtimeState = self::runtimeStateForPayload($item);
+        if (($runtimeState['runtime_requires_online'] ?? false) && !($runtimeState['runtime_online'] ?? false)) {
+            throw new BusinessException(
+                self::runtimeUnavailableMessage($runtimeState),
+                StatusCode::VALIDATION_ERROR
+            );
         }
 
         $plugin = self::findPlugin((string)($item['plugin_code'] ?? ''));
@@ -391,7 +411,7 @@ class MerchantChannelService
         $tradeNo = 'TST' . date('YmdHis') . random_int(100000, 999999);
         $amount = number_format((float)($payload['amount'] ?? '1.00'), 2, '.', '');
         self::assertAmountWithinLimits($item, (float)$amount);
-        $subject = trim((string)($payload['subject'] ?? ($item['method_name'] ?? 'Channel test order')));
+        $subject = trim((string)($payload['subject'] ?? ($item['method_name'] ?? '通道测试订单')));
         $baseUrl = rtrim(ConfigService::gatewayBaseUrl(), '/');
         $notifyUrl = $baseUrl . '/callback/success';
         $returnUrl = $baseUrl . '/pay/checkout/' . $tradeNo;
@@ -424,7 +444,7 @@ class MerchantChannelService
             'param' => 'channel-test',
             'request_payload' => ['_meta' => ['source_protocol' => 'channel_test']],
             'notify_payload' => [],
-            'remark' => 'Channel test order',
+            'remark' => '通道测试订单',
         ];
 
         if (self::canUseDatabase()) {
@@ -1092,7 +1112,8 @@ class MerchantChannelService
         array $pluginConfig,
         string $displayValue,
         string $channelName,
-        array $limits
+        array $limits,
+        array $previousConfig = []
     ): array
     {
         $methodCode = PaymentMetaService::normalizeMethodCode((string)($method['code'] ?? ''));
@@ -1121,6 +1142,16 @@ class MerchantChannelService
             $config['address'] = $display !== '' ? $display : (string)($pluginConfig['address'] ?? '');
         } else {
             $config['qrcode_url'] = $display !== '' ? $display : (string)($pluginConfig['qrcode_url'] ?? '');
+        }
+
+        $previousMethodCode = PaymentMetaService::normalizeMethodCode((string)($previousConfig['method_code'] ?? ''));
+        $previousPluginCode = PluginCodeService::normalize((string)($previousConfig['plugin_code'] ?? ''));
+        if (
+            is_array($previousConfig['monitor_runtime'] ?? null)
+            && $previousMethodCode === $methodCode
+            && $previousPluginCode === $normalizedPluginCode
+        ) {
+            $config['monitor_runtime'] = $previousConfig['monitor_runtime'];
         }
 
         return $config;
@@ -1174,6 +1205,16 @@ class MerchantChannelService
         $config['daily_count_limit'] = $limits['daily_count_limit'];
         $config['single_min_amount'] = $limits['single_min_amount'];
         $config['single_max_amount'] = $limits['single_max_amount'];
+        $config['plugin_code'] = $pluginCode;
+        $config['plugin_name'] = $pluginName;
+        $config['plugin_kind'] = $pluginKind;
+        $runtimeState = self::runtimeState([
+            'plugin_code' => $pluginCode,
+            'plugin_kind' => $pluginKind,
+            'plugin_config' => $pluginConfig,
+            'config' => $config,
+            'status_code' => $statusCode,
+        ]);
 
         return [
             'id' => $id,
@@ -1202,9 +1243,131 @@ class MerchantChannelService
             'remark' => $safeRemark,
             'config' => $config,
             'execution' => self::executionStatus($pluginCode, $plugin, $statusCode),
-        ];
+        ] + $runtimeState;
     }
 
+    public static function runtimeStateForPayload(array $payload): array
+    {
+        return self::runtimeState($payload);
+    }
+
+    public static function runtimeUnavailableMessageForState(array $runtimeState): string
+    {
+        return self::runtimeUnavailableMessage($runtimeState);
+    }
+
+    private static function runtimeState(array $payload): array
+    {
+        $config = is_array($payload['config'] ?? null) ? $payload['config'] : [];
+        $pluginConfig = is_array($payload['plugin_config'] ?? null) ? $payload['plugin_config'] : [];
+        if ($pluginConfig !== [] && !isset($config['plugin_config'])) {
+            $config['plugin_config'] = $pluginConfig;
+        }
+
+        $pluginCode = PluginCodeService::normalize((string)($payload['plugin_code'] ?? $config['plugin_code'] ?? ''));
+        $pluginKind = strtolower(trim((string)($payload['plugin_kind'] ?? $config['plugin_kind'] ?? '')));
+        if ($pluginKind === '' && $pluginCode !== '') {
+            $plugin = self::findPlugin($pluginCode);
+            $pluginKind = strtolower(trim((string)($plugin['kind'] ?? '')));
+        }
+        $statusCode = (int)($payload['status_code'] ?? 1) === 1 ? 1 : 0;
+        $runtime = is_array($config['monitor_runtime'] ?? null) ? $config['monitor_runtime'] : [];
+        $lastHeartbeatAt = trim((string)($runtime['last_heartbeat_at'] ?? ''));
+        $lastHeartbeatTs = $lastHeartbeatAt !== '' ? strtotime($lastHeartbeatAt) : false;
+        $timeoutSeconds = self::runtimeHeartbeatTimeout();
+        $heartbeatTimedOut = $lastHeartbeatTs !== false && $lastHeartbeatTs < (time() - $timeoutSeconds);
+        $runtimeStatus = (int)($runtime['status'] ?? 0);
+        $requiresOnline = self::pluginRequiresOnlineRuntime($pluginKind, $runtime) || $pluginCode === 'alipay-ck';
+        $isMonitorPlugin = $requiresOnline || $runtime !== [];
+        $online = true;
+        $statusLabel = '无需心跳';
+        $statusKey = 'not_required';
+        $offlineReason = '';
+
+        if ($requiresOnline && $runtime === []) {
+            $online = false;
+            $statusLabel = '待连接';
+            $statusKey = 'pending';
+            $offlineReason = '暂未收到通道心跳。';
+        } elseif ($runtime !== []) {
+            if ($runtimeStatus !== 1) {
+                $online = false;
+                $statusLabel = $lastHeartbeatAt !== '' ? '已离线' : '待连接';
+                $statusKey = $lastHeartbeatAt !== '' ? 'offline' : 'pending';
+                $offlineReason = $lastHeartbeatAt !== '' ? '通道已上报离线状态。' : '暂未收到通道心跳。';
+            } elseif ($heartbeatTimedOut) {
+                $online = false;
+                $statusLabel = '心跳超时';
+                $statusKey = 'timeout';
+                $offlineReason = '最近一次心跳已超时。';
+            } else {
+                $online = true;
+                $statusLabel = '在线';
+                $statusKey = 'online';
+            }
+        }
+
+        if ($pluginCode === 'alipay-ck') {
+            $loginState = strtolower(trim((string)($pluginConfig['login_state'] ?? '')));
+            if ($loginState !== 'authenticated') {
+                $online = false;
+                $statusKey = in_array($loginState, ['', 'idle', 'pending_scan', 'pending_confirm'], true) ? 'pending' : 'offline';
+                $statusLabel = $statusKey === 'pending' ? '待登录' : '已离线';
+                $offlineReason = match ($loginState) {
+                    '', 'idle' => '支付宝 CK 尚未登录，请先刷新二维码并完成登录。',
+                    'pending_scan' => '支付宝 CK 等待扫码，请使用支付宝扫码登录。',
+                    'pending_confirm' => '支付宝 CK 已扫码，等待在支付宝内确认登录。',
+                    'expired' => '支付宝 CK 登录已失效，请刷新二维码重新登录。',
+                    default => '支付宝 CK 当前未登录，暂时无法拉起支付。',
+                };
+            } else {
+                $online = true;
+                $statusKey = 'online';
+                $statusLabel = '在线';
+                $offlineReason = '';
+            }
+        }
+
+        return [
+            'monitor_runtime' => $runtime,
+            'runtime_manual_enabled' => $statusCode === 1,
+            'runtime_is_monitor_plugin' => $isMonitorPlugin,
+            'runtime_requires_online' => $requiresOnline,
+            'runtime_online' => $online,
+            'runtime_status_code' => $statusKey,
+            'runtime_status_label' => $statusLabel,
+            'runtime_last_heartbeat_at' => $lastHeartbeatAt,
+            'runtime_reported_type' => trim((string)($runtime['reported_type'] ?? '')),
+            'runtime_reported_pid' => trim((string)($runtime['reported_pid'] ?? '')),
+            'runtime_reported_mode' => trim((string)($runtime['reported_mode'] ?? '')),
+            'runtime_reported_temp_param' => trim((string)($runtime['reported_temp_param'] ?? '')),
+            'runtime_timeout_seconds' => $timeoutSeconds,
+            'runtime_offline_reason' => $offlineReason,
+        ];
+    }
+    private static function pluginRequiresOnlineRuntime(string $pluginKind, array $runtime): bool
+    {
+        if ($pluginKind === 'ck') {
+            return true;
+        }
+
+        return $runtime !== [];
+    }
+
+    private static function runtimeHeartbeatTimeout(): int
+    {
+        $configured = (int)(ConfigService::get('merchant_channel_runtime_timeout', self::MONITOR_HEARTBEAT_TIMEOUT));
+        return $configured > 0 ? $configured : self::MONITOR_HEARTBEAT_TIMEOUT;
+    }
+
+    private static function runtimeUnavailableMessage(array $runtimeState): string
+    {
+        return match ((string)($runtimeState['runtime_status_code'] ?? '')) {
+            'pending' => '当前通道尚未就绪，请先完成插件登录或启动监控软件。',
+            'timeout' => '当前通道心跳超时，请稍后重试。',
+            default => '当前通道已离线，请稍后重试。',
+        };
+    }
     private static function executionStatus(string $pluginCode, array $plugin, int $statusCode): array
     {
         $pluginCode = PluginCodeService::normalize($pluginCode);
@@ -1291,29 +1454,83 @@ class MerchantChannelService
     {
         $records = JsonStoreService::load(self::STORE_KEY, self::defaults());
         $normalized = [];
+        $changed = false;
 
         foreach ($records as $record) {
             if (!is_array($record)) {
+                $changed = true;
                 continue;
             }
 
             $items = [];
             foreach ((array)($record['items'] ?? []) as $item) {
                 if (!is_array($item) || self::isSeedChannelItem($item)) {
+                    $changed = true;
                     continue;
                 }
-                $items[] = $item;
+
+                $normalizedItem = self::normalizeStoredJsonItem($item);
+                if ($normalizedItem !== $item) {
+                    $changed = true;
+                }
+
+                $items[] = $normalizedItem;
             }
 
             $record['items'] = array_values($items);
             if (($record['rotation']['remark'] ?? '') === '微信不可用时切换到链上通道') {
                 $record['rotation'] = self::emptyRecord((int)($record['merchant_id'] ?? 0))['rotation'];
+                $changed = true;
             }
 
             $normalized[] = $record;
         }
 
+        if ($changed) {
+            JsonStoreService::save(self::STORE_KEY, $normalized);
+        }
+
         return $normalized;
+    }
+
+    private static function normalizeStoredJsonItem(array $item): array
+    {
+        $methodCode = PaymentMetaService::normalizeMethodCode((string)($item['method_code'] ?? $item['code'] ?? $item['channel_code'] ?? ''));
+        $pluginCode = PluginCodeService::normalize((string)($item['plugin_code'] ?? ''));
+        $statusCode = (int)($item['status_code'] ?? 0) === 1 ? 1 : 0;
+        $config = is_array($item['config'] ?? null) ? $item['config'] : [];
+        $pluginConfig = is_array($item['plugin_config'] ?? null) ? $item['plugin_config'] : [];
+        $methodName = PaymentMetaService::safeMethodName(
+            (string)($item['method_name'] ?? $item['channel'] ?? $config['method_name'] ?? ''),
+            $methodCode
+        );
+        $channelName = trim((string)($item['channel_name'] ?? $config['channel_name'] ?? ''));
+        if ($channelName === '') {
+            $channelName = $methodName;
+        }
+
+        if ($config !== []) {
+            $config['method_code'] = $methodCode !== '' ? $methodCode : (string)($config['method_code'] ?? '');
+            $config['method_name'] = $methodName !== '' ? $methodName : (string)($config['method_name'] ?? '');
+            $config['channel_name'] = $channelName;
+            $config['plugin_code'] = $pluginCode !== '' ? $pluginCode : (string)($config['plugin_code'] ?? '');
+            $config['plugin_config'] = is_array($config['plugin_config'] ?? null) ? $config['plugin_config'] : $pluginConfig;
+        }
+
+        $item['method_code'] = $methodCode;
+        $item['channel'] = $methodName;
+        $item['method_name'] = $methodName;
+        $item['channel_name'] = $channelName;
+        $item['category'] = PaymentMetaService::safeCategoryLabel((string)($item['category'] ?? ''), $methodCode);
+        $item['settlement'] = PaymentMetaService::safeSettlementLabel((string)($item['settlement'] ?? ''), $methodCode);
+        $item['plugin_code'] = $pluginCode;
+        $item['plugin_config'] = $pluginConfig;
+        $item['config'] = $config;
+        $item['status_code'] = $statusCode;
+        $item['status'] = $statusCode === 1 ? '启用' : '停用';
+        $item['remark'] = PaymentMetaService::safeRemark((string)($item['remark'] ?? ''), $methodCode);
+
+        return $item;
     }
 
     private static function isSeedChannelItem(array $item): bool
@@ -1400,7 +1617,7 @@ class MerchantChannelService
             return self::DEFAULT_PAYMENT_TEMPLATE;
         }
 
-        return self::PAYMENT_TEMPLATE_ALIAS_MAP[$normalized] ?? $normalized;
+        return self::PAYMENT_TEMPLATE_ALIAS_MAP[$normalized] ?? self::DEFAULT_PAYMENT_TEMPLATE;
     }
 
     protected static function normalizePaymentVariableText(string $content): string
@@ -1409,7 +1626,22 @@ class MerchantChannelService
             return '';
         }
 
-        return strtr($content, self::PAYMENT_VARIABLE_ALIAS_MAP);
+        $normalized = strtr($content, self::PAYMENT_VARIABLE_ALIAS_MAP);
+
+        return strtr($normalized, [
+            '[平台订单号]' => '{{platform_order_no}}',
+            '[商户订单号]' => '{{merchant_order_no}}',
+            '[商品名称]' => '{{product_name}}',
+            '[实付价格]' => '{{paid_amount}}',
+            '[订单价格]' => '{{order_amount}}',
+            '[收款方式]' => '{{payment_method}}',
+            '{{平台订单号}}' => '{{platform_order_no}}',
+            '{{商户订单号}}' => '{{merchant_order_no}}',
+            '{{商品名称}}' => '{{product_name}}',
+            '{{实付价格}}' => '{{paid_amount}}',
+            '{{订单价格}}' => '{{order_amount}}',
+            '{{收款方式}}' => '{{payment_method}}',
+        ]);
     }
 
     private static function nextItemId(array $items): int

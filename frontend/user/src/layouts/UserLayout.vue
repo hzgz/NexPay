@@ -16,7 +16,7 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MerchantAnnouncementBell from '../components/MerchantAnnouncementBell.vue'
-import { getUserSessionUser } from '../lib/api'
+import { getUserSessionUser, resolveUserAvatarUrl, USER_SESSION_UPDATED_EVENT } from '../lib/api'
 import { useSidebarAccordion, type MenuItem } from '../lib/sidebar'
 
 const route = useRoute()
@@ -172,7 +172,7 @@ const shellClass = computed(() => ({
 }))
 const sidebarSwitchIcon = computed(() => (sidebarCollapsed.value ? Expand : Fold))
 const avatarSrc = computed(() => {
-  const avatar = String(sessionUser.value.avatar || '').trim()
+  const avatar = resolveUserAvatarUrl(sessionUser.value.avatar, sessionUser.value.avatar_version)
   return avatar || defaultAvatar
 })
 
@@ -189,10 +189,12 @@ onMounted(() => {
   syncViewport()
   syncExpandedByRoute()
   window.addEventListener('resize', syncViewport)
+  window.addEventListener(USER_SESSION_UPDATED_EVENT, loadUser as EventListener)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewport)
+  window.removeEventListener(USER_SESSION_UPDATED_EVENT, loadUser as EventListener)
 })
 </script>
 

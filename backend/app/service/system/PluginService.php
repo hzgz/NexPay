@@ -625,6 +625,7 @@ class PluginService
             if ($storedMethods === [] && $definitions !== []) {
                 self::syncPaymentMethodsFromPlugins($definitions);
             }
+            self::normalizeStoredPaymentMethods();
             $bootstrapped = true;
         } finally {
             $bootstrapping = false;
@@ -747,6 +748,57 @@ class PluginService
         }
 
         return $rows;
+    }
+
+    protected static function normalizeStoredPaymentMethods(): void
+    {
+        if (self::canUseChannelTypeTable()) {
+            return;
+        }
+
+        $stored = JsonStoreService::load(self::METHOD_STORE_KEY, []);
+        if ($stored === []) {
+            return;
+        }
+
+        $normalized = [];
+        $changed = false;
+
+        foreach ($stored as $item) {
+            if (!is_array($item)) {
+                $changed = true;
+                continue;
+            }
+
+            $code = PaymentMetaService::normalizeMethodCode((string)($item['code'] ?? ''));
+            if ($code === '') {
+                $changed = true;
+                continue;
+            }
+
+            $statusCode = (int)($item['status_code'] ?? 0) === 1 ? 1 : 0;
+            $next = [
+                'code' => $code,
+                'name' => PaymentMetaService::safeMethodName((string)($item['name'] ?? ''), $code),
+                'category' => PaymentMetaService::safeCategoryLabel((string)($item['category'] ?? ''), $code),
+                'settlement' => PaymentMetaService::safeSettlementLabel((string)($item['settlement'] ?? ''), $code),
+                'status' => $statusCode === 1 ? '启用' : '停用',
+                'status_code' => $statusCode,
+            ];
+
+            if ($next !== $item) {
+                $changed = true;
+            }
+
+            $normalized[] = $next;
+        }
+
+        $deduped = self::dedupeMethods($normalized);
+        if (!$changed && $deduped === $normalized) {
+            return;
+        }
+
+        JsonStoreService::save(self::METHOD_STORE_KEY, $deduped);
     }
 
     protected static function mergePlugins(array $existing, array $discovered): array

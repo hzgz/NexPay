@@ -10,10 +10,10 @@ class PaymentMetaService
             'wxpay' => '微信支付',
             'alipay' => '支付宝',
             'qqpay' => 'QQ钱包',
-            'bank' => 'Bank / UnionPay',
+            'bank' => '银行卡 / 云闪付',
             'jdpay' => '京东支付',
             'paypal' => 'PayPal',
-            'douyinpay' => 'Douyin Pay',
+            'douyinpay' => '抖音支付',
             'usdtaptos' => 'USDT-Aptos',
             'usdtpolygon' => 'USDT-Polygon',
             'usdttrc20' => 'USDT-TRC20',
@@ -170,7 +170,7 @@ class PaymentMetaService
 
     public static function defaultSettlementByCode(string $code): string
     {
-        return self::isChainMethodCode($code) ? 'On-chain realtime' : 'T+0';
+        return self::isChainMethodCode($code) ? '链上实时结算' : 'T+0';
     }
 
     public static function safeMethodName(string $name, string $code): string
@@ -182,6 +182,9 @@ class PaymentMetaService
             'qq pay',
             'jd pay',
             'wechat pay',
+            'douyin pay',
+            'bank / unionpay',
+            'on-chain realtime',
         ];
 
         if ($trimmed === '' || self::containsMojibake($trimmed) || in_array($normalizedName, $legacyEnglishNames, true)) {
@@ -204,7 +207,18 @@ class PaymentMetaService
     public static function safeSettlementLabel(string $label, string $code): string
     {
         $trimmed = trim($label);
-        if ($trimmed === '' || self::containsMojibake($trimmed)) {
+        $normalized = strtolower($trimmed);
+        $legacyEnglishLabels = [
+            'on-chain realtime',
+            'on chain realtime',
+            'onchain realtime',
+        ];
+
+        if (
+            $trimmed === ''
+            || self::containsMojibake($trimmed)
+            || in_array($normalized, $legacyEnglishLabels, true)
+        ) {
             return self::defaultSettlementByCode($code);
         }
 
@@ -219,12 +233,12 @@ class PaymentMetaService
         }
 
         return match (self::normalizeMethodCode($code)) {
-            'wxpay' => 'Default WeChat Pay channel',
-            'alipay' => 'Default Alipay channel',
-            'qqpay' => 'Default QQ Pay channel',
-            'bank' => 'Default Bank / UnionPay channel',
-            'paypal' => 'Default PayPal channel',
-            default => self::isChainMethodCode($code) ? 'Default on-chain channel' : 'Default payment collection channel',
+            'wxpay' => '默认微信支付通道',
+            'alipay' => '默认支付宝通道',
+            'qqpay' => '默认 QQ 钱包通道',
+            'bank' => '默认银行卡 / 云闪付通道',
+            'paypal' => '默认 PayPal 通道',
+            default => self::isChainMethodCode($code) ? '默认链上通道' : '默认收款通道',
         };
     }
 
@@ -232,7 +246,7 @@ class PaymentMetaService
     {
         $trimmed = trim($name);
         if ($trimmed === '' || self::containsMojibake($trimmed)) {
-            return 'Official';
+            return '官方';
         }
 
         return $trimmed;

@@ -12,7 +12,21 @@ return [
     ],
     'settings_schema' => [
         ['key' => 'confirmations', 'label' => '确认次数', 'type' => 'number'],
-        ['key' => 'listener', 'label' => '监听模式', 'type' => 'select'],
-        ['key' => 'address_strategy', 'label' => '地址策略', 'type' => 'select'],
+        [
+            'key' => 'listener',
+            'label' => '监听模式',
+            'type' => 'select',
+            'options' => [
+                ['label' => '模拟监听', 'value' => 'mock-listener'],
+            ],
+        ],
+        [
+            'key' => 'address_strategy',
+            'label' => '地址策略',
+            'type' => 'select',
+            'options' => [
+                ['label' => '单地址收款', 'value' => 'single'],
+            ],
+        ],
     ],
 ];

@@ -250,13 +250,29 @@ class CallbackService
         return self::dispatchCallbackSafely($callback, true);
     }
 
-    public static function enqueueOrder(object $order, object $merchant): void
+    public static function resendNow(int $callbackId): array
+    {
+        $callback = self::findCallback($callbackId);
+        if (!$callback) {
+            return [
+                'checked' => 0,
+                'succeeded' => 0,
+                'deferred' => 0,
+                'failed' => 1,
+                'message' => 'callback not found',
+            ];
+        }
+
+        return self::dispatchCallbackSafely($callback, true);
+    }
+
+    public static function enqueueOrder(object $order, object $merchant, bool $force = false): void
     {
         if (!$order->notify_url) {
             return;
         }
 
-        if (!LocalOrderStore::isBusinessOrder($order)) {
+        if (!$force && !LocalOrderStore::isBusinessOrder($order)) {
             return;
         }
 
@@ -276,6 +292,45 @@ class CallbackService
             'next_time' => date('Y-m-d H:i:s'),
             'last_error' => '',
         ]);
+    }
+
+    public static function syncOrderPayload(object $order, object $merchant): ?object
+    {
+        $callback = self::findCallbackByOrderId((int)($order->id ?? 0));
+        if ($callback === null) {
+            return null;
+        }
+
+        $payload = self::buildPayload($order, $merchant);
+        self::updateCallback((int)($callback->id ?? 0), [
+            'merchant_id' => (int)($merchant->id ?? $callback->merchant_id ?? 0),
+            'notify_url' => (string)($order->notify_url ?? $callback->notify_url ?? ''),
+            'payload' => $payload,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        return self::findCallbackByOrderId((int)($order->id ?? 0));
+    }
+
+    public static function findCallbackByOrderId(int $orderId): ?object
+    {
+        if ($orderId <= 0) {
+            return null;
+        }
+
+        if (self::canUseDatabase()) {
+            try {
+                return \app\model\CallbackQueue::where('order_id', $orderId)->order('id', 'desc')->find();
+            } catch (Throwable) {
+                return null;
+            }
+        }
+
+        if (method_exists(LocalOrderStore::class, 'findCallbackByOrderId')) {
+            return LocalOrderStore::findCallbackByOrderId($orderId);
+        }
+
+        return null;
     }
 
     private static function buildPayload(object $order, object $merchant): array
@@ -320,6 +375,10 @@ class CallbackService
 
     private static function deliver(string $notifyUrl, array $payload): array
     {
+        if (self::isInternalSuccessCallback($notifyUrl)) {
+            return [true, 'success'];
+        }
+
         $query = http_build_query($payload);
         $url = $notifyUrl . (str_contains($notifyUrl, '?') ? '&' : '?') . $query;
         $context = stream_context_create([
@@ -342,6 +401,30 @@ class CallbackService
         }
 
         return [false, $body !== '' ? self::truncate($body) : 'empty response'];
+    }
+
+    private static function isInternalSuccessCallback(string $notifyUrl): bool
+    {
+        $notifyUrl = trim($notifyUrl);
+        if ($notifyUrl === '') {
+            return false;
+        }
+
+        $gatewayBase = rtrim((string)ConfigService::gatewayBaseUrl(), '/');
+        if ($gatewayBase !== '' && strcasecmp($notifyUrl, $gatewayBase . '/callback/success') === 0) {
+            return true;
+        }
+
+        $path = (string)(parse_url($notifyUrl, PHP_URL_PATH) ?: '');
+        if ($path === '/callback/success') {
+            $host = strtolower((string)(parse_url($notifyUrl, PHP_URL_HOST) ?: ''));
+            $baseHost = strtolower((string)(parse_url($gatewayBase, PHP_URL_HOST) ?: ''));
+            if ($host !== '' && $baseHost !== '' && $host === $baseHost) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function dispatchCallback(object $callback, bool $manual = false): array

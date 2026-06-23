@@ -11,20 +11,39 @@ use app\service\system\SystemBusinessPaymentService;
 
 class DemoCheckoutService
 {
-    public static function config(): array
+    public static function config(array $payload = []): array
     {
         $settings = SettingsService::all(false);
         $payment = is_array($settings['payment'] ?? null) ? $settings['payment'] : [];
         $basic = is_array($settings['basic'] ?? null) ? $settings['basic'] : [];
         $frontendTest = self::frontendTestSettings($payment);
         $enabled = (bool)($frontendTest['enabled'] ?? false);
+        $contextPayload = [];
+        $methodCode = SettingsService::resolveEnabledPaymentMethodCode(
+            'frontend_test',
+            (string)($payload['method'] ?? $payload['method_code'] ?? $payload['type'] ?? '')
+        );
+        if ($methodCode !== '') {
+            $contextPayload['channel_code'] = $methodCode;
+        }
+        $preferredMerchantId = (int)($payload['merchant_id'] ?? 0);
+        if ($preferredMerchantId > 0) {
+            $contextPayload['merchant_id'] = $preferredMerchantId;
+        }
         $context = $enabled
-            ? SystemBusinessPaymentService::inspectContext('frontend_test')
+            ? SystemBusinessPaymentService::inspectContext('frontend_test', $contextPayload)
             : ['ok' => false, 'message' => '首页测试支付已关闭'];
         $available = $enabled && (bool)($context['ok'] ?? false);
-        $merchantId = $available
-            ? (int)($context['merchant_id'] ?? 0)
-            : (int)($frontendTest['merchant_id'] ?? 0);
+        $merchantId = 0;
+        if ($available) {
+            $merchantId = (int)($context['local_merchant_id'] ?? $context['merchant_id'] ?? 0);
+        } else {
+            try {
+                $merchantId = SystemBusinessPaymentService::resolveFrontendTestLocalMerchantId($contextPayload);
+            } catch (\Throwable) {
+                $merchantId = 0;
+            }
+        }
 
         return [
             'enabled' => $available,
@@ -33,6 +52,7 @@ class DemoCheckoutService
                 ? '用于首页游客支付测试，会先创建真实本地订单，再跳转到收银台。'
                 : '请先启用首页测试支付，并为可用商户配置至少一个已启用通道。',
             'default_amount' => (string)($frontendTest['amount'] ?? ''),
+            'min_amount' => (string)($frontendTest['min_amount'] ?? '0.10'),
             'auto_complete' => (bool)($frontendTest['auto_complete'] ?? false),
             'providers' => self::providerOptions(),
             'methods' => self::demoMethodOptions(),
@@ -62,13 +82,17 @@ class DemoCheckoutService
             throw new BusinessException('请选择支付方式', StatusCode::VALIDATION_ERROR);
         }
 
-        $amount = self::resolveDemoAmount($payload, (string)($frontendTest['amount'] ?? ''));
+        $amount = self::resolveDemoAmount(
+            $payload,
+            (string)($frontendTest['amount'] ?? ''),
+            (string)($frontendTest['min_amount'] ?? '0.10')
+        );
         $subject = trim((string)($payload['subject'] ?? 'NexPay 支付测试订单'));
         if ($subject === '') {
             $subject = 'NexPay 支付测试订单';
         }
 
-        $merchantId = self::resolveDemoMerchantId($methodCode);
+        $merchantId = self::resolveDemoMerchantId($methodCode, (int)($payload['merchant_id'] ?? 0));
         $context = SystemBusinessPaymentService::inspectContext('frontend_test', [
             'merchant_id' => $merchantId,
             'channel_code' => $methodCode,
@@ -143,14 +167,16 @@ class DemoCheckoutService
             'merchant_md5' => trim((string)($source['merchant_md5'] ?? '')),
             'platform_public_key' => trim((string)($source['platform_public_key'] ?? '')),
             'merchant_private_key' => trim((string)($source['merchant_private_key'] ?? '')),
+            'min_amount' => trim((string)($source['min_amount'] ?? '0.10')),
             'enabled' => (bool)($source['enabled'] ?? $payment['payment_test_enabled'] ?? false),
             'amount' => trim((string)($source['amount'] ?? $payment['test_default_amount'] ?? '')),
             'auto_complete' => (bool)($source['auto_complete'] ?? $payment['test_auto_complete'] ?? false),
         ];
     }
 
-    private static function resolveDemoAmount(array $payload, string $configuredAmount): string
+    private static function resolveDemoAmount(array $payload, string $configuredAmount, string $minimumAmount): string
     {
+        $minimum = self::normalizeMinimumAmount($minimumAmount);
         $requested = trim((string)($payload['amount'] ?? ''));
         if ($requested !== '') {
             if (!is_numeric($requested)) {
@@ -161,6 +187,9 @@ class DemoCheckoutService
             if ((float)$amount <= 0) {
                 throw new BusinessException('测试金额必须大于 0', StatusCode::VALIDATION_ERROR);
             }
+            if ((float)$amount < (float)$minimum) {
+                throw new BusinessException('测试金额不能低于 ' . $minimum . ' 元', StatusCode::VALIDATION_ERROR);
+            }
 
             return $amount;
         }
@@ -169,16 +198,36 @@ class DemoCheckoutService
         if ($configured !== '' && is_numeric($configured)) {
             $amount = number_format((float)$configured, 2, '.', '');
             if ((float)$amount > 0) {
-                return $amount;
+                return (float)$amount < (float)$minimum ? $minimum : $amount;
             }
         }
 
-        return self::randomDemoAmount();
+        return self::randomDemoAmount((float)$minimum);
     }
 
-    private static function randomDemoAmount(): string
+    private static function randomDemoAmount(float $minimumAmount = 0.10): string
     {
-        return number_format(random_int(100, 9999) / 100, 2, '.', '');
+        $lower = max(1, (int)ceil($minimumAmount * 100));
+        if ($lower > 9999) {
+            return number_format($minimumAmount, 2, '.', '');
+        }
+
+        return number_format(random_int($lower, 9999) / 100, 2, '.', '');
+    }
+
+    private static function normalizeMinimumAmount(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '' || !is_numeric($trimmed)) {
+            return '0.10';
+        }
+
+        $amount = (float)$trimmed;
+        if ($amount <= 0) {
+            return '0.10';
+        }
+
+        return number_format($amount, 2, '.', '');
     }
 
     private static function requestedOutTradeNo(array $payload, string $tradeNo): string
@@ -205,13 +254,25 @@ class DemoCheckoutService
         return SettingsService::frontendPaymentMethodOptions('frontend_test');
     }
 
-    private static function resolveDemoMerchantId(string $requestedMethod = ''): int
+    private static function resolveDemoMerchantId(string $requestedMethod = '', int $preferredMerchantId = 0): int
     {
-        $context = SystemBusinessPaymentService::inspectContext('frontend_test', [
+        $contextPayload = [
             'channel_code' => PaymentMetaService::normalizeMethodCode($requestedMethod),
-        ]);
-        if ((bool)($context['ok'] ?? false) && (int)($context['merchant_id'] ?? 0) > 0) {
-            return (int)$context['merchant_id'];
+        ];
+        if ($preferredMerchantId > 0) {
+            $contextPayload['merchant_id'] = $preferredMerchantId;
+        }
+
+        $context = SystemBusinessPaymentService::inspectContext('frontend_test', $contextPayload);
+        if ((bool)($context['ok'] ?? false)) {
+            $localMerchantId = (int)($context['local_merchant_id'] ?? 0);
+            if ($localMerchantId > 0) {
+                return $localMerchantId;
+            }
+
+            if ((int)($context['merchant_id'] ?? 0) > 0) {
+                return (int)$context['merchant_id'];
+            }
         }
 
         throw new BusinessException((string)($context['message'] ?? '首页测试支付缺少可用商户通道'), StatusCode::BUSINESS_ERROR);

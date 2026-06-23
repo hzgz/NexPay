@@ -15,19 +15,21 @@ class SystemBusinessPaymentService
     private const PROVIDER_EPAY = 'epay';
     private const MODE_V1 = 'v1';
     private const MODE_V2 = 'v2';
+    private const MIN_AMOUNT_DEFAULT = '0.10';
 
     public static function create(string $configKey, array $payload): object
     {
         $config = self::gatewayConfig($configKey, $payload);
         $merchantId = (int)($payload['merchant_id'] ?? 0);
         if ($merchantId <= 0) {
-            throw new BusinessException('Business payment requires a merchant ID', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('业务订单缺少商户信息', StatusCode::VALIDATION_ERROR);
         }
 
         $amount = number_format((float)($payload['amount'] ?? 0), 2, '.', '');
         if ((float)$amount <= 0) {
-            throw new BusinessException('Payment amount must be greater than 0', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('支付金额必须大于 0', StatusCode::VALIDATION_ERROR);
         }
+        self::assertMinimumAmount($amount, (string)($config['min_amount'] ?? self::MIN_AMOUNT_DEFAULT));
 
         $tradeNo = self::tradeNo();
         $createdAt = date('Y-m-d H:i:s');
@@ -53,7 +55,7 @@ class SystemBusinessPaymentService
             'merchant_channel_id' => (int)($payload['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
             'channel_code' => (string)($payload['channel_code'] ?? $legacyChannel['channel_code'] ?? ''),
             'channel_category' => (int)($payload['channel_category'] ?? $legacyChannel['channel_category'] ?? 2),
-            'subject' => trim((string)($payload['subject'] ?? 'Business payment order')) ?: 'Business payment order',
+            'subject' => trim((string)($payload['subject'] ?? '系统业务订单')) ?: '系统业务订单',
             'amount' => $amount,
             'payable_amount' => $amount,
             'status' => OrderService::STATUS_PENDING,
@@ -82,7 +84,13 @@ class SystemBusinessPaymentService
     public static function inspectContext(string $configKey, array $payload = []): array
     {
         try {
-            return self::gatewayConfig($configKey, $payload) + ['ok' => true];
+            $context = self::gatewayConfig($configKey, $payload);
+            $amount = number_format((float)($payload['amount'] ?? 0), 2, '.', '');
+            if ((float)$amount > 0) {
+                self::assertMinimumAmount($amount, (string)($context['min_amount'] ?? self::MIN_AMOUNT_DEFAULT));
+            }
+
+            return $context + ['ok' => true];
         } catch (BusinessException $exception) {
             return [
                 'ok' => false,
@@ -94,6 +102,20 @@ class SystemBusinessPaymentService
                 'message' => $exception->getMessage(),
             ];
         }
+    }
+
+    public static function resolveFrontendTestLocalMerchantId(array $payload = []): int
+    {
+        $settings = SettingsService::all(false);
+        $payment = is_array($settings['payment'] ?? null) ? $settings['payment'] : [];
+        $config = is_array($payment['frontend_test'] ?? null) ? $payment['frontend_test'] : [];
+
+        return self::resolveConfiguredLocalMerchantId(
+            $config,
+            $payload,
+            self::requestedMethodCode($payload),
+            (float)($payload['amount'] ?? 0)
+        );
     }
 
     public static function submitUrl(string $tradeNo): string
@@ -111,16 +133,16 @@ class SystemBusinessPaymentService
         $order = OrderService::findByTradeNo($tradeNo);
         $status = (int)($order->status ?? OrderService::STATUS_PENDING);
         $statusMap = [
-            OrderService::STATUS_PENDING => ['key' => 'pending', 'label' => 'Pending'],
-            OrderService::STATUS_SUCCESS => ['key' => 'success', 'label' => 'Paid'],
-            OrderService::STATUS_FAILED => ['key' => 'failed', 'label' => 'Failed'],
-            OrderService::STATUS_EXPIRED => ['key' => 'expired', 'label' => 'Expired'],
-            OrderService::STATUS_CLOSED => ['key' => 'closed', 'label' => 'Closed'],
+            OrderService::STATUS_PENDING => ['key' => 'pending', 'label' => '待支付'],
+            OrderService::STATUS_SUCCESS => ['key' => 'success', 'label' => '支付成功'],
+            OrderService::STATUS_FAILED => ['key' => 'failed', 'label' => '支付失败'],
+            OrderService::STATUS_EXPIRED => ['key' => 'expired', 'label' => '订单已过期'],
+            OrderService::STATUS_CLOSED => ['key' => 'closed', 'label' => '订单已关闭'],
         ];
         $requestPayload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
         $notifyPayload = is_array($order->notify_payload ?? null) ? $order->notify_payload : [];
-        $statusInfo = $statusMap[$status] ?? ['key' => 'unknown', 'label' => 'Unknown'];
+        $statusInfo = $statusMap[$status] ?? ['key' => 'unknown', 'label' => '未知状态'];
 
         return [
             'trade_no' => (string)($order->trade_no ?? ''),
@@ -147,14 +169,18 @@ class SystemBusinessPaymentService
 
         $provider = self::provider((string)($payload['provider'] ?? $config['provider'] ?? self::PROVIDER_SYSTEM));
         $mode = self::mode((string)($payload['mode'] ?? $config['mode'] ?? self::MODE_V2));
+        $minAmount = self::normalizeMinimumAmount((string)($config['min_amount'] ?? self::MIN_AMOUNT_DEFAULT));
         $paymentUrl = self::normalizeGatewayBaseUrl((string)($config['payment_url'] ?? ''), $mode);
         $merchantId = trim((string)($config['merchant_id'] ?? ''));
         $merchantMd5 = trim((string)($config['merchant_md5'] ?? ''));
         $platformPublicKey = trim((string)($config['platform_public_key'] ?? ''));
         $merchantPrivateKey = trim((string)($config['merchant_private_key'] ?? ''));
+        $requestedMethod = self::requestedMethodCode($payload);
+        $amount = (float)($payload['amount'] ?? 0);
 
         if (
-            self::configuredGatewayReady(
+            $configKey === 'frontend_test'
+            && self::configuredGatewayReady(
                 $paymentUrl,
                 $merchantId,
                 $merchantMd5,
@@ -163,23 +189,64 @@ class SystemBusinessPaymentService
                 $mode
             )
         ) {
-            return [
-                'provider' => $provider,
-                'mode' => $mode,
-                'appswitch' => self::appswitch((string)($config['appswitch'] ?? ''), $mode),
-                'payment_url' => $paymentUrl,
-                'merchant_id' => $merchantId,
-                'merchant_md5' => $merchantMd5,
-                'platform_public_key' => $platformPublicKey,
-                'merchant_private_key' => $merchantPrivateKey,
-                'source' => 'configured',
-            ];
+            $resolved = self::configuredGatewayConfig(
+                $config,
+                $provider,
+                $mode,
+                $minAmount,
+                $paymentUrl,
+                $merchantId,
+                $merchantMd5,
+                $platformPublicKey,
+                $merchantPrivateKey
+            );
+
+            $resolved['local_merchant_id'] = self::resolveConfiguredLocalMerchantId($config, $payload, $requestedMethod, $amount);
+            if ((int)($resolved['local_merchant_id'] ?? 0) <= 0) {
+                throw new BusinessException('首页测试支付缺少可用的本地商户，请先启用至少一个本地商户。', StatusCode::BUSINESS_ERROR);
+            }
+
+            return $resolved;
         }
 
-        $requestedMethod = self::requestedMethodCode($payload);
-        $amount = (float)($payload['amount'] ?? 0);
+        if (self::configuredGatewayExplicitlyRequested($config, $payload)) {
+            if (
+                !self::configuredGatewayReady(
+                    $paymentUrl,
+                    $merchantId,
+                    $merchantMd5,
+                    $platformPublicKey,
+                    $merchantPrivateKey,
+                    $mode
+                )
+            ) {
+                throw new BusinessException('系统业务支付上游接口配置不完整，请检查支付 URL、商户号和密钥', StatusCode::BUSINESS_ERROR);
+            }
+
+            $resolved = self::configuredGatewayConfig(
+                $config,
+                $provider,
+                $mode,
+                $minAmount,
+                $paymentUrl,
+                $merchantId,
+                $merchantMd5,
+                $platformPublicKey,
+                $merchantPrivateKey
+            );
+
+            if ($configKey === 'frontend_test') {
+                $resolved['local_merchant_id'] = self::resolveConfiguredLocalMerchantId($config, $payload, $requestedMethod, $amount);
+                if ((int)($resolved['local_merchant_id'] ?? 0) <= 0) {
+                    throw new BusinessException('首页测试支付缺少可用的本地商户，请先启用至少一个本地商户。', StatusCode::BUSINESS_ERROR);
+                }
+            }
+
+            return $resolved;
+        }
+
         if (self::hasConfiguredCarrierRoute($config, $payload)) {
-            $resolved = self::configuredCarrierGatewayConfig($config, $payload, $provider, $mode, $requestedMethod, $amount);
+            $resolved = self::configuredCarrierGatewayConfig($config, $payload, $provider, $mode, $requestedMethod, $amount, $minAmount);
             if ($resolved !== null) {
                 return $resolved;
             }
@@ -187,19 +254,10 @@ class SystemBusinessPaymentService
             throw new BusinessException('当前系统业务收款通道配置无效，请检查公共收款商户或通道状态', StatusCode::BUSINESS_ERROR);
         }
 
-        foreach (self::candidateMerchantIds($config, $payload) as $candidateMerchantId) {
-            $resolved = self::autoBoundGatewayConfig($candidateMerchantId, $provider, $mode, $requestedMethod, $amount);
+        foreach (self::candidateMerchantIds($payload, $config) as $candidateMerchantId) {
+            $resolved = self::autoBoundGatewayConfig($candidateMerchantId, $provider, $mode, $requestedMethod, $amount, $minAmount);
             if ($resolved !== null) {
                 return $resolved;
-            }
-        }
-
-        if ($configKey === 'system_checkout') {
-            foreach (self::candidateMerchantIds($config, $payload) as $candidateMerchantId) {
-                $fallback = self::syntheticLocalGatewayConfig($candidateMerchantId);
-                if ($fallback !== null) {
-                    return $fallback;
-                }
             }
         }
 
@@ -208,6 +266,34 @@ class SystemBusinessPaymentService
             : '当前没有可自动绑定的商户支付通道';
 
         throw new BusinessException($message, StatusCode::BUSINESS_ERROR);
+    }
+
+    private static function configuredGatewayConfig(
+        array $config,
+        string $provider,
+        string $mode,
+        string $minAmount,
+        string $paymentUrl,
+        string $merchantId,
+        string $merchantMd5,
+        string $platformPublicKey,
+        string $merchantPrivateKey
+    ): array {
+        return [
+            'provider' => $provider,
+            'mode' => $mode,
+            'appswitch' => self::appswitch((string)($config['appswitch'] ?? ''), $mode),
+            'min_amount' => $minAmount,
+            'payment_url' => $paymentUrl,
+            'merchant_id' => $merchantId,
+            'merchant_md5' => $merchantMd5,
+            'platform_public_key' => $platformPublicKey,
+            'merchant_private_key' => $merchantPrivateKey,
+            'carrier_merchant_id' => trim((string)($config['carrier_merchant_id'] ?? '')),
+            'carrier_channel_id' => trim((string)($config['carrier_channel_id'] ?? '')),
+            'carrier_channel_code' => PaymentMetaService::normalizeMethodCode((string)($config['carrier_channel_code'] ?? '')),
+            'source' => 'configured',
+        ];
     }
 
     private static function legacyChannelSnapshot(array $config, array $payload): array
@@ -225,6 +311,9 @@ class SystemBusinessPaymentService
             'appkey' => $config['mode'] === self::MODE_V1 ? $config['merchant_md5'] : $config['platform_public_key'],
             'appsecret' => $config['mode'] === self::MODE_V2 ? $config['merchant_private_key'] : '',
             'appswitch' => self::appswitch((string)($config['appswitch'] ?? ''), $config['mode']),
+            'merchant_id' => trim((string)($config['carrier_merchant_id'] ?? '')),
+            'channel_id' => trim((string)($config['carrier_channel_id'] ?? '')),
+            'carrier_channel_code' => trim((string)($config['carrier_channel_code'] ?? '')),
         ];
 
         return [
@@ -276,7 +365,23 @@ class SystemBusinessPaymentService
         return $platformPublicKey !== '' && $merchantPrivateKey !== '';
     }
 
-    private static function candidateMerchantIds(array $config, array $payload): array
+    private static function configuredGatewayExplicitlyRequested(array $config, array $payload): bool
+    {
+        foreach ([
+            $payload['use_configured_gateway'] ?? null,
+            $payload['force_configured_gateway'] ?? null,
+            $config['use_configured_gateway'] ?? null,
+            $config['force_configured_gateway'] ?? null,
+        ] as $value) {
+            if (self::truthy($value)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function candidateMerchantIds(array $payload, array $config = []): array
     {
         $candidates = [];
         $requestPayload = is_array($payload['request_payload'] ?? null) ? $payload['request_payload'] : [];
@@ -286,7 +391,6 @@ class SystemBusinessPaymentService
             (int)($payload['merchant_id'] ?? 0),
             (int)($payload['carrier_merchant_id'] ?? 0),
             (int)($config['carrier_merchant_id'] ?? 0),
-            (int)($config['merchant_id'] ?? 0),
             (int)($meta['merchant_id'] ?? 0),
             (int)($meta['carrier_merchant_id'] ?? 0),
         ] as $merchantId) {
@@ -295,18 +399,90 @@ class SystemBusinessPaymentService
             }
         }
 
-        foreach (ResourceDataService::adminMerchants()['items'] ?? [] as $item) {
-            if (!is_array($item) || (int)($item['status_code'] ?? 0) !== 1) {
-                continue;
-            }
+        return array_values($candidates);
+    }
 
-            $merchantId = (int)($item['id'] ?? 0);
-            if ($merchantId > 0) {
-                $candidates[$merchantId] = $merchantId;
+    private static function resolveConfiguredLocalMerchantId(
+        array $config,
+        array $payload,
+        string $requestedMethod,
+        float $amount
+    ): int {
+        $requestPayload = is_array($payload['request_payload'] ?? null) ? $payload['request_payload'] : [];
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+
+        foreach ([
+            (int)($payload['carrier_merchant_id'] ?? 0),
+            (int)($config['carrier_merchant_id'] ?? 0),
+            (int)($meta['carrier_merchant_id'] ?? 0),
+            (int)($payload['local_merchant_id'] ?? 0),
+            (int)($meta['local_merchant_id'] ?? 0),
+            (int)($payload['merchant_id'] ?? 0),
+            (int)($meta['merchant_id'] ?? 0),
+        ] as $candidate) {
+            if ($candidate > 0 && self::merchantActive($candidate)) {
+                return $candidate;
             }
         }
 
-        return array_values($candidates);
+        foreach (self::availableLocalMerchantIds() as $merchantId) {
+            if (!self::merchantActive($merchantId)) {
+                continue;
+            }
+
+            if (self::firstAvailableChannelSnapshot($merchantId, $requestedMethod, $amount) !== null) {
+                return $merchantId;
+            }
+        }
+
+        foreach (self::availableLocalMerchantIds() as $merchantId) {
+            if (!self::merchantActive($merchantId)) {
+                continue;
+            }
+
+            if (self::firstAvailableChannelSnapshot($merchantId, '', $amount) !== null) {
+                return $merchantId;
+            }
+        }
+
+        foreach (self::availableLocalMerchantIds() as $merchantId) {
+            if (self::merchantActive($merchantId)) {
+                return $merchantId;
+            }
+        }
+
+        return 0;
+    }
+
+    private static function availableLocalMerchantIds(): array
+    {
+        $ids = [];
+
+        foreach (JsonStoreService::load('merchant_channels', []) as $row) {
+            if (is_array($row) && (int)($row['merchant_id'] ?? 0) > 0) {
+                $ids[] = (int)$row['merchant_id'];
+            }
+        }
+
+        foreach (JsonStoreService::load('merchant_auth_users', []) as $row) {
+            if (is_array($row)) {
+                $merchantId = (int)($row['merchant_id'] ?? $row['id'] ?? 0);
+                if ($merchantId > 0) {
+                    $ids[] = $merchantId;
+                }
+            }
+        }
+
+        foreach (JsonStoreService::load('merchant_accounts', []) as $row) {
+            if (is_array($row)) {
+                $merchantId = (int)($row['merchant_id'] ?? $row['id'] ?? 0);
+                if ($merchantId > 0) {
+                    $ids[] = $merchantId;
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
     }
 
     private static function hasConfiguredCarrierRoute(array $config, array $payload): bool
@@ -330,7 +506,8 @@ class SystemBusinessPaymentService
         string $provider,
         string $mode,
         string $requestedMethod,
-        float $amount
+        float $amount,
+        string $minAmount
     ): ?array {
         $carrierMerchantId = 0;
         foreach ([
@@ -383,6 +560,7 @@ class SystemBusinessPaymentService
             'provider' => $provider,
             'mode' => $mode,
             'appswitch' => self::appswitch((string)($config['appswitch'] ?? ''), $mode),
+            'min_amount' => $minAmount,
             'payment_url' => self::paymentUrlForMode(ConfigService::gatewayBaseUrl(), $mode),
             'merchant_id' => (string)$carrierMerchantId,
             'merchant_md5' => $merchantMd5,
@@ -399,7 +577,8 @@ class SystemBusinessPaymentService
         string $provider,
         string $mode,
         string $requestedMethod,
-        float $amount
+        float $amount,
+        string $minAmount
     ): ?array {
         if ($merchantId <= 0 || !self::merchantActive($merchantId)) {
             return null;
@@ -417,7 +596,8 @@ class SystemBusinessPaymentService
         return [
             'provider' => $provider,
             'mode' => $mode,
-            'appswitch' => self::appswitch((string)($config['appswitch'] ?? ''), $mode),
+            'appswitch' => self::appswitch('', $mode),
+            'min_amount' => $minAmount,
             'payment_url' => self::paymentUrlForMode(ConfigService::gatewayBaseUrl(), $mode),
             'merchant_id' => (string)$merchantId,
             'merchant_md5' => $merchantMd5,
@@ -429,33 +609,6 @@ class SystemBusinessPaymentService
         ];
     }
 
-    private static function syntheticLocalGatewayConfig(int $merchantId): ?array
-    {
-        if ($merchantId <= 0 || !self::merchantActiveOrPending($merchantId)) {
-            return null;
-        }
-
-        $credential = AccountService::merchantCredentialById($merchantId) ?? [];
-        $userId = (int)($credential['id'] ?? $merchantId);
-        $merchantMd5 = MerchantApiService::ensureMd5Key($merchantId, $userId, (string)($credential['mch_key'] ?? ''));
-        if ($merchantMd5 === '') {
-            return null;
-        }
-
-        return [
-            'provider' => self::PROVIDER_EPAY,
-            'mode' => self::MODE_V1,
-            'appswitch' => '0',
-            'payment_url' => self::paymentUrlForMode(ConfigService::gatewayBaseUrl(), self::MODE_V1),
-            'merchant_id' => (string)$merchantId,
-            'merchant_md5' => $merchantMd5,
-            'platform_public_key' => trim((string)ConfigService::platformPublicKey()),
-            'merchant_private_key' => trim((string)($credential['rsa_private_key'] ?? '')),
-            'source' => 'synthetic_local',
-            'carrier_merchant_id' => $merchantId,
-        ];
-    }
-
     private static function merchantActive(int $merchantId): bool
     {
         $credential = AccountService::merchantCredentialById($merchantId);
@@ -464,16 +617,6 @@ class SystemBusinessPaymentService
         }
 
         return (int)($credential['status'] ?? 0) === 1;
-    }
-
-    private static function merchantActiveOrPending(int $merchantId): bool
-    {
-        $credential = AccountService::merchantCredentialById($merchantId);
-        if (!is_array($credential)) {
-            return false;
-        }
-
-        return in_array((int)($credential['status'] ?? 0), [0, 1], true);
     }
 
     private static function firstAvailableChannelSnapshot(int $merchantId, string $requestedMethod, float $amount): ?array
@@ -531,6 +674,10 @@ class SystemBusinessPaymentService
                 continue;
             }
 
+            if (!self::channelRuntimeAvailable($item)) {
+                continue;
+            }
+
             $config = is_array($item['config'] ?? null) ? $item['config'] : [];
 
             return [
@@ -566,6 +713,16 @@ class SystemBusinessPaymentService
         );
 
         return array_values(array_unique(array_filter($accepted, static fn(string $code): bool => $code !== '')));
+    }
+
+    private static function channelRuntimeAvailable(array $item): bool
+    {
+        $runtimeState = MerchantChannelService::runtimeStateForPayload($item);
+        if (!($runtimeState['runtime_requires_online'] ?? false)) {
+            return true;
+        }
+
+        return (bool)($runtimeState['runtime_online'] ?? false);
     }
 
     private static function amountWithinChannelLimits(array $item, float $amount): bool
@@ -696,6 +853,32 @@ class SystemBusinessPaymentService
         return self::mode($mode) === self::MODE_V1 ? '0' : '1';
     }
 
+    private static function normalizeMinimumAmount(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '' || !is_numeric($trimmed)) {
+            return self::MIN_AMOUNT_DEFAULT;
+        }
+
+        $amount = (float)$trimmed;
+        if ($amount <= 0) {
+            return self::MIN_AMOUNT_DEFAULT;
+        }
+
+        return number_format($amount, 2, '.', '');
+    }
+
+    private static function assertMinimumAmount(string $amount, string $minimumAmount): void
+    {
+        $minimum = (float)self::normalizeMinimumAmount($minimumAmount);
+        if ($minimum > 0 && (float)$amount < $minimum) {
+            throw new BusinessException(
+                '当前支付配置最低起付金额为 ' . number_format($minimum, 2, '.', '') . ' 元',
+                StatusCode::VALIDATION_ERROR
+            );
+        }
+    }
+
     private static function tradeNo(): string
     {
         return date('YmdHis') . random_int(100000, 999999);
@@ -709,5 +892,16 @@ class SystemBusinessPaymentService
         }
 
         return $tradeNo;
+    }
+
+    private static function truthy(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = strtolower(trim((string)$value));
+
+        return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
     }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import QRCode from 'qrcode'
 import { ElMessage } from 'element-plus'
 import { CopyDocument, Key, RefreshRight, Tickets } from '@element-plus/icons-vue'
 import {
@@ -101,7 +102,7 @@ const interfaceSections = computed(() => {
 })
 
 const merchantIdText = computed(() => String(info.value.merchant_id || info.value.user_id || ''))
-const siteUrlText = computed(() => String(info.value.site_url || info.value.interface_url || info.value.base_url || ''))
+const siteUrlText = computed(() => String(info.value.monitor_site_url || info.value.site_url || info.value.interface_url || info.value.base_url || ''))
 const merchantPublicKeyRaw = computed(() => String(info.value.merchant_public_key || info.value.rsa_public_key || ''))
 const merchantPrivateKeyRaw = computed(() => String(info.value.merchant_private_key || info.value.rsa_private_key || ''))
 const platformPublicKeyRaw = computed(() => String(info.value.platform_public_key || ''))
@@ -111,6 +112,56 @@ const merchantPrivateKeyText = computed(() => formatKeyBlock(merchantPrivateKeyR
 const platformPublicKeyText = computed(() => formatKeyBlock(platformPublicKeyRaw.value))
 const generatedPublicKeyText = computed(() => formatKeyBlock(generatedPair.public_key))
 const generatedPrivateKeyText = computed(() => formatKeyBlock(generatedPair.private_key, 128))
+const merchantQrImage = ref('')
+const merchantQrError = ref('')
+
+const merchantKeyText = computed(() => String(info.value.mch_key || '').trim())
+const merchantQrPayload = computed(() => {
+  const serverPayload = info.value.monitor_payload
+  if (serverPayload && typeof serverPayload === 'object') {
+    return {
+      site: String(serverPayload.site || siteUrlText.value).trim(),
+      pid: serverPayload.pid ?? merchantIdText.value.trim(),
+      key: String(serverPayload.key || merchantKeyText.value).trim(),
+    }
+  }
+
+  const merchantId = merchantIdText.value.trim()
+  const parsedMerchantId = Number.parseInt(merchantId, 10)
+
+  return {
+    site: siteUrlText.value.trim(),
+    pid: Number.isNaN(parsedMerchantId) ? merchantId : parsedMerchantId,
+    key: merchantKeyText.value,
+  }
+})
+const merchantQrReady = computed(() => {
+  return (
+    merchantQrPayload.value.site !== ''
+    && String(merchantQrPayload.value.pid ?? '').trim() !== ''
+    && merchantQrPayload.value.key !== ''
+  )
+})
+const merchantQrEncodedText = computed(() => {
+  const serverEncoded = String(info.value.monitor_payload_base64 || '').trim()
+  if (serverEncoded) {
+    return serverEncoded
+  }
+
+  if (!merchantQrReady.value) {
+    return ''
+  }
+
+  return encodeBase64Utf8(JSON.stringify(merchantQrPayload.value))
+})
+
+watch(
+  merchantQrEncodedText,
+  async (value) => {
+    await renderMerchantQr(value)
+  },
+  { immediate: true },
+)
 
 onMounted(load)
 
@@ -195,6 +246,42 @@ function formatKeyBlock(value: string, chunkSize = 64) {
   if (!clean) return '未生成'
   const chunkPattern = new RegExp(`(.{${chunkSize}})`, 'g')
   return clean.replace(chunkPattern, '$1\n')
+}
+
+function encodeBase64Utf8(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte)
+  })
+
+  return btoa(binary)
+}
+
+async function renderMerchantQr(value: string) {
+  const text = value.trim()
+  merchantQrError.value = ''
+
+  if (!text) {
+    merchantQrImage.value = ''
+    return
+  }
+
+  try {
+    merchantQrImage.value = await QRCode.toDataURL(text, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 220,
+      color: {
+        dark: '#1f2a37',
+        light: '#ffffffff',
+      },
+    })
+  } catch {
+    merchantQrImage.value = ''
+    merchantQrError.value = '商户二维码生成失败，请刷新后重试'
+  }
 }
 </script>
 
@@ -358,7 +445,7 @@ function formatKeyBlock(value: string, chunkSize = 64) {
         </div>
 
         <aside class="api-side">
-          <section class="api-side-card">
+          <section class="api-side-card api-side-card--sticky">
             <header class="api-side-card__head">
               <span class="settings-workspace__eyebrow">适配接口</span>
               <h3>对接程序 / 接口</h3>
@@ -393,6 +480,29 @@ function formatKeyBlock(value: string, chunkSize = 64) {
                 <strong>V2 签名</strong>
                 <span>使用商户私钥签名，使用平台公钥验签。</span>
               </div>
+            </div>
+          </section>
+
+          <section class="api-side-card merchant-qr-card">
+            <header class="api-side-card__head merchant-qr-card__head">
+              <div>
+                <span class="settings-workspace__eyebrow">商户二维码</span>
+                <h3>一键扫码配置</h3>
+                <p>扫码后可自动获取当前站点、商户 ID 和商户密钥。</p>
+              </div>
+              <button class="copy-action merchant-qr-copy" type="button" @click="copyValue(merchantQrEncodedText, '商户二维码编码')">
+                <el-icon><CopyDocument /></el-icon>
+                复制编码
+              </button>
+            </header>
+
+            <div class="merchant-qr-card__body">
+              <div class="merchant-qr-box" :class="{ 'is-empty': !merchantQrImage }">
+                <img v-if="merchantQrImage" :src="merchantQrImage" alt="商户二维码" class="merchant-qr-image" />
+                <span v-else>{{ merchantQrError || '当前商户信息未就绪，暂时无法生成二维码' }}</span>
+              </div>
+              <p class="merchant-qr-note">扫描二维码获取商户信息</p>
+              <p class="merchant-qr-warning">此二维码涉及商户信息，请勿泄露</p>
             </div>
           </section>
         </aside>
@@ -451,6 +561,9 @@ function formatKeyBlock(value: string, chunkSize = 64) {
 
 .api-side {
   min-width: 0;
+  display: grid;
+  gap: 18px;
+  align-content: start;
 }
 
 .api-card,
@@ -715,7 +828,7 @@ function formatKeyBlock(value: string, chunkSize = 64) {
   font-size: 12px;
 }
 
-.api-side-card {
+.api-side-card--sticky {
   position: sticky;
   top: 16px;
 }
@@ -797,6 +910,68 @@ function formatKeyBlock(value: string, chunkSize = 64) {
   line-height: 1.6;
 }
 
+.merchant-qr-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.merchant-qr-copy {
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.merchant-qr-card__body {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 0 26px 26px;
+  text-align: center;
+}
+
+.merchant-qr-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 228px);
+  aspect-ratio: 1;
+  padding: 14px;
+  border: 1px solid rgba(13, 102, 255, 0.1);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 255, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.merchant-qr-box.is-empty {
+  color: var(--brand-subtle);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.merchant-qr-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.merchant-qr-note,
+.merchant-qr-warning {
+  margin: 0;
+}
+
+.merchant-qr-note {
+  color: var(--brand-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.merchant-qr-warning {
+  color: var(--brand-danger);
+  font-size: 12px;
+}
+
 .api-key-dialog {
   gap: 14px;
 }
@@ -810,7 +985,7 @@ function formatKeyBlock(value: string, chunkSize = 64) {
     grid-template-columns: 1fr;
   }
 
-  .api-side-card {
+  .api-side-card--sticky {
     position: static;
   }
 }
@@ -833,6 +1008,14 @@ function formatKeyBlock(value: string, chunkSize = 64) {
 
   .copy-action {
     justify-content: flex-start;
+  }
+
+  .merchant-qr-card__head {
+    flex-direction: column;
+  }
+
+  .merchant-qr-copy {
+    padding-top: 0;
   }
 
   .api-row-placeholder {

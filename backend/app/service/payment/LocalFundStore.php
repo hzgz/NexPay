@@ -5,6 +5,7 @@ namespace app\service\payment;
 use app\model\MerchantBalance;
 use app\service\system\JsonStoreService;
 use app\service\system\PackageService;
+use app\service\system\PaymentMetaService;
 use stdClass;
 use Throwable;
 
@@ -37,6 +38,7 @@ class LocalFundStore
         }
 
         if ($business === 'merchant_recharge') {
+            $methodCode = PaymentMetaService::normalizeMethodCode((string)($order->channel_code ?? ''));
             return self::credit(
                 $merchantId,
                 (string)($order->amount ?? '0.00'),
@@ -47,6 +49,8 @@ class LocalFundStore
                 [
                     'trade_no' => $tradeNo,
                     'out_trade_no' => (string)($order->out_trade_no ?? ''),
+                    'channel_code' => $methodCode,
+                    'method_name' => $methodCode !== '' ? PaymentMetaService::friendlyMethodName($methodCode) : '',
                 ]
             );
         }

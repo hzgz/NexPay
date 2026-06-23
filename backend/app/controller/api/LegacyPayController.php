@@ -9,6 +9,35 @@ use support\Request;
 
 class LegacyPayController
 {
+    public function dispatch(Request $request, string $action, string $trade_no)
+    {
+        $normalized = strtolower(trim($action));
+
+        return match ($normalized) {
+            'submit' => $this->submit($request, $trade_no),
+            'qrcode' => $this->qrcode($request, $trade_no),
+            'submitwap' => $this->submitWap($request, $trade_no),
+            'jspay' => $this->jsPay($request, $trade_no),
+            'pay' => $this->pay($request, $trade_no),
+            'alipay' => $this->alipay($request, $trade_no),
+            'wxpay' => $this->wxpay($request, $trade_no),
+            'qqpay' => $this->qqpay($request, $trade_no),
+            'bank' => $this->bank($request, $trade_no),
+            'jdpay' => $this->jdpay($request, $trade_no),
+            'douyinpay' => $this->douyinpay($request, $trade_no),
+            'notify' => $this->notify($request, $trade_no),
+            'refundnotify' => $this->refundNotify($request, $trade_no),
+            'transfernotify' => $this->transferNotify($request, $trade_no),
+            'preauthnotify' => $this->preauthNotify($request, $trade_no),
+            'complainnotify' => $this->complainNotify($request, $trade_no),
+            'dividenotify' => $this->divideNotify($request, $trade_no),
+            'cashiernotify' => $this->cashierNotify($request, $trade_no),
+            'return' => $this->legacyReturn($request, $trade_no),
+            'ok' => $this->ok($request, $trade_no),
+            default => LegacyPaymentGatewayService::execute($trade_no, $normalized, $request),
+        };
+    }
+
     public function submit(Request $request, string $trade_no)
     {
         return LegacyPaymentGatewayService::execute($trade_no, 'submit', $request);

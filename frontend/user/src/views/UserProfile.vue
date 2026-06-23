@@ -2,7 +2,14 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
-import { getUserProfile, saveUserPassword, saveUserProfile, startUserOAuth } from '../lib/api'
+import {
+  getUserProfile,
+  saveUserPassword,
+  saveUserProfile,
+  setUserSessionUser,
+  startUserOAuth,
+  uploadUserAvatar,
+} from '../lib/api'
 
 const route = useRoute()
 
@@ -36,6 +43,8 @@ const password = reactive({
 })
 
 const bindingLoading = ref('')
+const avatarUploading = ref(false)
+const avatarInputRef = ref<HTMLInputElement | null>(null)
 
 const oauthChannels = [
   { key: 'qq', label: 'QQ' },
@@ -62,23 +71,19 @@ const activeSection = computed<'profile' | 'realname' | 'security' | 'notificati
 const realnameStatusLabelMap: Record<string, string> = {
   approved: '已认证',
   success: '已认证',
-  '已认证': '已认证',
   pending: '待审核',
   reviewing: '待审核',
-  '审核中': '待审核',
   failed: '未通过',
   rejected: '未通过',
   denied: '未通过',
-  '未通过': '未通过',
   unsubmitted: '未提交',
-  '未提交': '未提交',
 }
 
 const realnameResultLabelMap: Record<string, string> = {
   manual_approved: '人工审核通过',
-  provider_approved: '接口核验通过',
+  provider_approved: '接口校验通过',
   manual_rejected: '人工审核驳回',
-  provider_rejected: '接口核验驳回',
+  provider_rejected: '接口校验驳回',
   pending_manual_review: '待人工审核',
   provider_disabled: '待人工审核',
   provider_pending: '接口处理中',
@@ -159,7 +164,7 @@ async function submitProfile() {
     phone: profile.phone,
   })
   if (resp.code === 0) {
-    sessionStorage.setItem('user:user', JSON.stringify(resp.data || {}))
+    setUserSessionUser(resp.data || {}, { bumpAvatarVersion: true })
     ElMessage.success(resp.message || '资料已保存')
     await load()
   }
@@ -239,6 +244,42 @@ async function bindOAuth(channel: string) {
   }
 }
 
+function openAvatarPicker() {
+  if (avatarUploading.value) {
+    return
+  }
+
+  avatarInputRef.value?.click()
+}
+
+async function handleAvatarChange(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (!file) {
+    return
+  }
+
+  avatarUploading.value = true
+  try {
+    const resp = await uploadUserAvatar(file)
+    if (resp.code === 0 && resp.data?.avatar) {
+      profile.avatar = String(resp.data.avatar)
+      setUserSessionUser(resp.data.user || { avatar: profile.avatar }, { bumpAvatarVersion: true })
+      ElMessage.success(resp.message || '头像上传成功')
+      return
+    }
+
+    ElMessage.error(resp.message || '头像上传失败')
+  } catch {
+    ElMessage.error('头像上传失败')
+  } finally {
+    avatarUploading.value = false
+    if (input) {
+      input.value = ''
+    }
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -256,7 +297,16 @@ onMounted(load)
           </div>
         </div>
         <div class="field-grid compact">
-          <label class="field"><span class="field-label">头像地址</span><input v-model="profile.avatar" type="text" /></label>
+          <label class="field">
+            <span class="field-label">头像地址</span>
+            <div class="avatar-input-row">
+              <input v-model="profile.avatar" class="avatar-input-row__main" type="text" />
+              <button class="ghost-btn avatar-input-row__upload" :disabled="avatarUploading" type="button" @click="openAvatarPicker">
+                {{ avatarUploading ? '上传中...' : '上传图片' }}
+              </button>
+              <input ref="avatarInputRef" class="avatar-input-row__native" type="file" accept="image/*" @change="handleAvatarChange" />
+            </div>
+          </label>
           <label class="field"><span class="field-label">显示名称</span><input v-model="profile.nickname" type="text" /></label>
           <label class="field"><span class="field-label">商户名称</span><input v-model="profile.merchant_name" type="text" /></label>
           <label class="field"><span class="field-label">商户 ID</span><input :value="profile.merchant_id || ''" type="text" readonly /></label>
@@ -403,6 +453,27 @@ onMounted(load)
   margin-top: 0;
 }
 
+.avatar-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.avatar-input-row__main {
+  min-width: 0;
+}
+
+.avatar-input-row__upload {
+  width: 132px;
+  min-width: 132px;
+  justify-content: center;
+}
+
+.avatar-input-row__native {
+  display: none;
+}
+
 .login-grid {
   display: grid;
   grid-template-columns: 1fr 0.8fr 1fr 0.8fr;
@@ -462,6 +533,15 @@ onMounted(load)
 
   .settings-block-head--split .toolbar-actions {
     justify-content: flex-start;
+  }
+
+  .avatar-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .avatar-input-row__upload {
+    width: 100%;
+    min-width: 0;
   }
 
   .login-grid {

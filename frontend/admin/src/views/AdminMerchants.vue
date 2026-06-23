@@ -91,6 +91,9 @@ const activeSection = computed<'merchants' | 'groups'>(() =>
   route.meta.section === 'groups' ? 'groups' : 'merchants',
 )
 const gatewayBaseUrl = computed(() => window.location.origin)
+const merchantGroups = computed<MerchantGroup[]>(() =>
+  Array.isArray(merchantData.value.groups) ? (merchantData.value.groups as MerchantGroup[]) : [],
+)
 
 const summaryCards = computed(() => {
   return [
@@ -214,7 +217,7 @@ function openCreateMerchant() {
     email: '',
     phone: '',
     password: '',
-    group_name: '',
+    group_name: merchantGroups.value[0]?.name || '',
     rate: '0.80',
     status_code: 1,
   })
@@ -385,6 +388,12 @@ function registerFeeText(item: MerchantItem) {
   return '未收费'
 }
 
+function registerFeeStatusClass(item: MerchantItem) {
+  if (item.register_fee_status === 'paid') return 'success'
+  if (item.register_fee_status === 'pending') return 'warning'
+  return 'muted'
+}
+
 onMounted(load)
 </script>
 
@@ -431,9 +440,9 @@ onMounted(load)
               <span>操作</span>
             </div>
             <div v-for="item in filteredMerchants" :key="item.id" class="table-row merchant-grid">
-              <div>
-                <strong>{{ item.name }}</strong>
-                <div class="minor-copy">{{ item.email }}</div>
+              <div class="merchant-primary">
+                <strong class="merchant-primary__name" :title="item.name || '-'">{{ item.name || '-' }}</strong>
+                <div class="minor-copy merchant-primary__email" :title="item.email || '-'">{{ item.email || '-' }}</div>
               </div>
               <span>{{ merchantNo(item) || '-' }}</span>
               <span>{{ item.group_name || '-' }}</span>
@@ -447,7 +456,9 @@ onMounted(load)
                 <span class="status-chip audit-chip" :class="auditStatusClass(item)">
                   {{ auditStatusText(item.audit_status, item.status_code) }}
                 </span>
-                <span class="minor-copy">{{ registerFeeText(item) }}</span>
+                <span class="status-chip fee-chip" :class="registerFeeStatusClass(item)">
+                  {{ registerFeeText(item) }}
+                </span>
               </span>
               <span class="status-column">
                 <span class="status-chip" :class="realnameStatusClass(item)">
@@ -567,7 +578,10 @@ onMounted(load)
             </label>
             <label class="field">
               <span class="field-label">用户组</span>
-              <input v-model="createMerchantForm.group_name" type="text" />
+              <select v-model="createMerchantForm.group_name">
+                <option value="">请选择用户组</option>
+                <option v-for="group in merchantGroups" :key="group.id" :value="group.name">{{ group.name }}</option>
+              </select>
             </label>
             <label class="field">
               <span class="field-label">平台费率</span>
@@ -658,19 +672,50 @@ onMounted(load)
   font-size: 11px;
 }
 
+.merchant-primary {
+  min-width: 0;
+}
+
+.merchant-primary__name,
+.merchant-primary__email {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merchant-primary__name {
+  max-width: 100%;
+}
+
+.merchant-primary__email {
+  max-width: 100%;
+}
+
 .audit-chip {
   display: inline-flex;
   margin-top: 4px;
 }
 
+.fee-chip {
+  display: inline-flex;
+}
+
+.fee-chip.muted {
+  background: #eef2f7;
+  color: #5f6f82;
+}
+
 .status-column {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+  align-content: start;
 }
 
 .merchant-grid {
   display: grid;
-  grid-template-columns: 1.1fr 0.75fr 0.65fr 0.8fr 0.62fr 0.55fr 0.75fr 0.75fr 1.05fr;
+  grid-template-columns: minmax(0, 1.25fr) 0.7fr 0.62fr 0.78fr 0.58fr 0.5fr 0.82fr 0.72fr 1fr;
   gap: 12px;
   align-items: center;
   min-width: 0;

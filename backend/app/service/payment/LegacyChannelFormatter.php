@@ -124,6 +124,8 @@ class LegacyChannelFormatter
         $runtimeSettings = PluginRuntimeService::settingsFor($pluginCode);
         $pluginConfig = is_array($config['plugin_config'] ?? null) ? $config['plugin_config'] : [];
         $merged = array_replace($runtimeSettings, $pluginConfig);
+        $collectorMerchantId = trim((string)($pluginConfig['merchant_id'] ?? $merged['merchant_id'] ?? ''));
+        $collectorChannelId = trim((string)($pluginConfig['channel_id'] ?? $merged['channel_id'] ?? ''));
         $display = self::displayValue($config);
         $resolvedPaymentAddress = trim((string)($config['payment_address'] ?? ''));
         if ($resolvedPaymentAddress === '') {
@@ -166,6 +168,11 @@ class LegacyChannelFormatter
             'appkey' => (string)($merged['appkey'] ?? ''),
             'appsecret' => (string)($merged['appsecret'] ?? ''),
             'appurl' => (string)($merged['appurl'] ?? $config['appurl'] ?? ''),
+            'collector_merchant_id' => $collectorMerchantId,
+            'custom_merchant_id' => $collectorMerchantId,
+            'upstream_merchant_id' => $collectorMerchantId,
+            'channel_id' => $collectorChannelId,
+            'collector_channel_id' => $collectorChannelId,
             'appmchid' => (string)($merged['appmchid'] ?? ''),
             'appswitch' => (string)($merged['appswitch'] ?? '0'),
             'apptype' => $merged['apptype'] ?? ['1'],

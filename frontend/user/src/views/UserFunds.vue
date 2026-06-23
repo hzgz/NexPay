@@ -14,6 +14,7 @@ const rechargeAmount = ref('')
 const selectedRechargeMethod = ref('')
 const fundData = ref<Record<string, any>>({
   balance: {},
+  flow_stats: {},
   recharge_options: [],
   payout_summary: { refunds: {}, transfers: {} },
   pending_payouts: [],
@@ -79,19 +80,51 @@ const pendingPayouts = computed<Record<string, any>[]>(() => {
   return Array.isArray(fundData.value.pending_payouts) ? fundData.value.pending_payouts : []
 })
 
+const flowSummaryCards = computed(() => {
+  const stats = fundData.value.flow_stats || {}
+
+  return [
+    { label: '可用余额', value: `${formatSummaryMoney(stats.available_balance)} 元` },
+    { label: '提现金额', value: `${formatSummaryMoney(stats.withdraw_amount)} 元` },
+    { label: '订单数', value: String(Number(stats.order_count ?? 0)) },
+  ]
+})
+
+const currentAvailableBalance = computed(() => {
+  const balance = fundData.value.balance || {}
+  return formatSummaryMoney(balance.available ?? fundData.value.flow_stats?.available_balance ?? 0)
+})
+
+const selectedRechargeOptionData = computed<RechargeOption | null>(() => {
+  const methodCode = selectedRechargeMethod.value.trim()
+  if (!methodCode) {
+    return null
+  }
+
+  return rechargeOptions.value.find((item) => rechargeMethodCode(item) === methodCode) || null
+})
+
+const selectedRechargeActionKey = computed(() => {
+  return selectedRechargeOptionData.value ? rechargeActionKey(selectedRechargeOptionData.value) : ''
+})
+
 async function loadFunds() {
   const resp = await getUserFunds()
   if (resp.code === 0 && resp.data) {
     fundData.value = resp.data
 
-    if (rechargeAmount.value.trim() === '') {
+    if (String(rechargeAmount.value ?? '').trim() === '') {
       rechargeAmount.value = resolveDefaultRechargeAmount(resp.data.recharge_options || [])
     }
 
-    if (!selectedRechargeMethod.value) {
-      const firstMethod = Array.isArray(resp.data.recharge_options) && resp.data.recharge_options.length > 0
-        ? String(resp.data.recharge_options[0]?.method_code || resp.data.recharge_options[0]?.code || '')
-        : ''
+    const availableMethods = Array.isArray(resp.data.recharge_options)
+      ? resp.data.recharge_options
+        .map((item: Record<string, any>) => String(item?.method_code || item?.code || item?.channel_code || '').trim())
+        .filter((value: string) => value)
+      : []
+
+    if (!selectedRechargeMethod.value || !availableMethods.includes(selectedRechargeMethod.value)) {
+      const firstMethod = availableMethods[0] || ''
       selectedRechargeMethod.value = firstMethod
     }
 
@@ -127,6 +160,15 @@ function formatMoney(value: string | number) {
   return amount.toFixed(2)
 }
 
+function formatSummaryMoney(value: string | number) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) {
+    return '0.00'
+  }
+
+  return amount.toFixed(2)
+}
+
 function rechargeActionKey(item: RechargeOption) {
   return String(item.method_code || item.code || item.channel_code || item.name || 'recharge')
 }
@@ -154,8 +196,17 @@ function rechargeLimitText(item: RechargeOption) {
   return '支持自由填写充值金额'
 }
 
+function rechargeMethodSummary(item: RechargeOption) {
+  const desc = String(item.desc || '').trim()
+  if (desc) {
+    return desc
+  }
+
+  return '使用后台系统业务支付配置创建充值订单。'
+}
+
 function normalizedRechargeAmount() {
-  return rechargeAmount.value.replace(/,/g, '').trim()
+  return String(rechargeAmount.value ?? '').replace(/,/g, '').trim()
 }
 
 function validateRechargeAmount(item: RechargeOption) {
@@ -186,11 +237,7 @@ function validateRechargeAmount(item: RechargeOption) {
   return amount.toFixed(2)
 }
 
-function selectedRechargeOption() {
-  return rechargeOptions.value.find((item) => rechargeMethodCode(item) === selectedRechargeMethod.value) || null
-}
-
-async function recharge(item: RechargeOption | null = selectedRechargeOption()) {
+async function recharge(item: RechargeOption | null = selectedRechargeOptionData.value) {
   if (!item) {
     ElMessage.warning('请先选择充值方式')
     return
@@ -244,6 +291,13 @@ function settlementStatusClass(item: Record<string, any>) {
   return 'warning'
 }
 
+function flowStatusClass(item: Record<string, any>) {
+  const status = String(item.status || '').trim()
+  if (status === '成功') return 'success'
+  if (status === '失败' || status === '已关闭' || status === '已驳回') return 'danger'
+  return 'warning'
+}
+
 onMounted(loadFunds)
 </script>
 
@@ -258,32 +312,55 @@ onMounted(loadFunds)
       </header>
 
       <div class="funds-recharge-editor">
-        <label class="field funds-recharge-field">
-          <span class="field-label">充值金额</span>
-          <input v-model="rechargeAmount" type="number" min="0.01" step="0.01" placeholder="请输入充值金额" />
-        </label>
+        <div class="funds-recharge-row">
+          <label class="funds-recharge-inline">
+            <span class="field-label funds-recharge-inline__label">充值金额</span>
+            <input v-model="rechargeAmount" type="number" min="0.01" step="0.01" placeholder="请输入充值金额" />
+          </label>
+          <div class="funds-balance-panel">
+            <span class="funds-balance-panel__label">当前余额</span>
+            <strong class="funds-balance-panel__value">{{ currentAvailableBalance }} 元</strong>
+          </div>
+        </div>
         <p class="funds-recharge-hint">支持自由填写金额，提交时会自动按当前充值方式的限额校验。</p>
       </div>
 
-      <div v-if="rechargeOptions.length" class="funds-option-list">
-        <label
-          v-for="item in rechargeOptions"
-          :key="rechargeActionKey(item)"
-          class="funds-option-row funds-option-row--select"
-          :class="{ 'is-active': selectedRechargeMethod === rechargeMethodCode(item) }"
-        >
-          <div class="funds-option-copy">
-            <strong>{{ item.name }}</strong>
-            <span v-if="item.desc">{{ item.desc }}</span>
-            <span>{{ rechargeLimitText(item) }}</span>
+      <div v-if="rechargeOptions.length" class="funds-option-section">
+        <div class="funds-option-section__head">
+          <div>
+            <h3>支付方式</h3>
+            <p>选择一个当前可用的充值方式后创建订单。</p>
           </div>
-          <div class="funds-option-side">
-            <input v-model="selectedRechargeMethod" type="radio" :value="rechargeMethodCode(item)" />
-          </div>
-        </label>
-        <div class="workspace-actions">
-          <button class="primary-btn" :disabled="loadingKey === selectedRechargeMethod || !selectedRechargeMethod" @click="recharge()">
-            {{ loadingKey === selectedRechargeMethod ? '创建中...' : '立即充值' }}
+          <span v-if="selectedRechargeOptionData" class="status-chip success funds-option-current">
+            已选 {{ selectedRechargeOptionData.name }}
+          </span>
+        </div>
+
+        <div class="funds-option-grid">
+          <label
+            v-for="item in rechargeOptions"
+            :key="rechargeActionKey(item)"
+            class="funds-option-card funds-option-card--select"
+            :class="{ 'is-active': selectedRechargeMethod === rechargeMethodCode(item) }"
+          >
+            <div class="funds-option-card__top">
+              <div class="funds-option-copy">
+                <strong>{{ item.name }}</strong>
+                <span>{{ rechargeMethodSummary(item) }}</span>
+              </div>
+              <span class="funds-option-card__radio">
+                <input v-model="selectedRechargeMethod" type="radio" :value="rechargeMethodCode(item)" />
+              </span>
+            </div>
+            <div class="funds-option-meta">
+              <span class="status-chip muted funds-option-meta__chip">{{ rechargeLimitText(item) }}</span>
+            </div>
+          </label>
+        </div>
+
+        <div class="workspace-actions workspace-actions--recharge">
+          <button class="primary-btn" :disabled="loadingKey === selectedRechargeActionKey || !selectedRechargeMethod" @click="recharge()">
+            {{ loadingKey === selectedRechargeActionKey ? '创建中...' : '立即充值' }}
           </button>
         </div>
       </div>
@@ -381,21 +458,36 @@ onMounted(loadFunds)
       <header class="workspace-section__head">
         <div>
           <h2>资金流水</h2>
-          <p>所有余额变动按时间顺序展示，便于排查订单、充值和结算影响。</p>
+          <p>系统内商户消费和余额变动统一在这里记录；商户通道业务订单仍归订单管理。</p>
         </div>
       </header>
+
+      <div class="funds-overview-grid">
+        <article v-for="item in flowSummaryCards" :key="item.label" class="funds-summary-card funds-summary-card--metric">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </article>
+      </div>
 
       <div class="table-wrap">
         <div class="table-head flow-grid">
           <span>类型</span>
+          <span>订单号</span>
+          <span>支付方式</span>
           <span>变动金额</span>
           <span>变动后余额</span>
+          <span>状态</span>
+          <span>备注</span>
           <span>时间</span>
         </div>
-        <div v-for="item in fundData.flows || []" :key="item.type + item.created_at" class="table-row flow-grid">
+        <div v-for="item in fundData.flows || []" :key="item.row_key || (item.type + item.created_at + item.remark)" class="table-row flow-grid">
           <strong>{{ item.type }}</strong>
+          <span>{{ item.trade_no || item.out_trade_no || '-' }}</span>
+          <span>{{ item.method_name || '-' }}</span>
           <span>{{ item.amount }}</span>
-          <span>{{ item.balance_after }}</span>
+          <span>{{ item.balance_after || '-' }}</span>
+          <span><span class="status-chip" :class="flowStatusClass(item)">{{ item.status || '-' }}</span></span>
+          <span>{{ item.remark || '-' }}</span>
           <span>{{ item.created_at }}</span>
         </div>
       </div>
@@ -437,8 +529,54 @@ onMounted(loadFunds)
   padding: 18px 22px 12px;
 }
 
-.funds-recharge-field {
-  max-width: 320px;
+.funds-recharge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.funds-recharge-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+
+.funds-recharge-inline__label {
+  flex: 0 0 auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.funds-recharge-inline input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.funds-balance-panel {
+  display: grid;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 148px;
+  padding: 10px 12px;
+  border: 1px solid var(--brand-border);
+  background: #f8fbff;
+}
+
+.funds-balance-panel__label {
+  color: #72829b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.funds-balance-panel__value {
+  color: #20344f;
+  font-size: 18px;
+  line-height: 1.2;
 }
 
 .funds-recharge-hint {
@@ -448,38 +586,135 @@ onMounted(loadFunds)
   line-height: 1.6;
 }
 
-.funds-option-list {
+.funds-option-section {
   display: grid;
-}
-
-.funds-option-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 16px 22px;
+  gap: 0;
   border-top: 1px solid var(--brand-border);
 }
 
-.funds-option-copy {
-  display: grid;
-  gap: 6px;
+.funds-option-section__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 22px 14px;
+  border-bottom: 1px solid var(--brand-border);
+  background: #fbfdff;
 }
 
-.funds-option-copy strong {
-  color: #20344f;
-  font-size: 14px;
+.funds-option-section__head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
 }
 
-.funds-option-copy span {
+.funds-option-section__head p {
+  margin: 6px 0 0;
   color: #72829b;
   font-size: 12px;
   line-height: 1.6;
 }
 
+.funds-option-current {
+  min-width: auto;
+  white-space: nowrap;
+}
+
+.funds-option-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px 22px 0;
+}
+
+.funds-option-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.funds-option-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.funds-option-card__radio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding-top: 2px;
+}
+
+.funds-option-card__radio input {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--brand-primary);
+  cursor: pointer;
+}
+
+.funds-option-card__radio input:focus {
+  box-shadow: none;
+}
+
+.funds-option-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.funds-option-copy strong {
+  color: #20344f;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.funds-option-copy span {
+  color: #72829b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.funds-option-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.funds-option-meta__chip {
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .funds-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 22px 0;
+}
+
+.funds-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 18px 22px 0;
 }
@@ -502,9 +737,13 @@ onMounted(loadFunds)
   font-size: 18px;
 }
 
+.funds-summary-card--metric strong {
+  font-size: 20px;
+}
+
 .flow-grid {
   display: grid;
-  grid-template-columns: 1fr 0.8fr 0.8fr 1fr;
+  grid-template-columns: 0.9fr 1.2fr 0.9fr 0.7fr 0.8fr 0.8fr 1.2fr 1fr;
   gap: 12px;
   align-items: center;
 }
@@ -530,13 +769,52 @@ onMounted(loadFunds)
 }
 
 @media (max-width: 900px) {
-  .funds-option-row,
+  .funds-option-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .funds-option-grid,
+  .funds-overview-grid,
   .flow-grid,
   .settlement-grid {
     grid-template-columns: 1fr;
   }
 
-  .funds-option-row .primary-btn {
+  .funds-recharge-row {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .funds-recharge-inline {
+    width: 100%;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+
+  .funds-recharge-inline input {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .funds-balance-panel {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .funds-option-section__head,
+  .workspace-actions--recharge {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .funds-option-current,
+  .workspace-actions__hint {
+    white-space: normal;
+  }
+
+  .workspace-actions--recharge .primary-btn {
     width: 100%;
   }
 
@@ -544,23 +822,31 @@ onMounted(loadFunds)
     justify-content: flex-start;
   }
 }
-</style>
-.funds-option-row--select {
+
+.funds-option-card--select {
   cursor: pointer;
 }
 
-.funds-option-row--select.is-active {
-  background: #f7fbff;
+.funds-option-card--select:hover {
+  border-color: #cfe0ff;
+  background: #fbfdff;
 }
 
-.funds-option-side {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+.funds-option-card--select.is-active {
+  border-color: rgba(13, 102, 255, 0.34);
+  background: rgba(13, 102, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(13, 102, 255, 0.08);
 }
 
 .workspace-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
   padding: 14px 22px 18px;
 }
+
+.workspace-actions--recharge {
+  padding-top: 2px;
+}
+</style>

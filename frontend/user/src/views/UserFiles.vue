@@ -92,12 +92,12 @@ onMounted(load)
           <span>操作</span>
         </div>
         <div v-for="item in items" :key="item.id" class="table-row file-grid">
-          <strong>{{ item.file_name }}</strong>
-          <span>{{ item.category }}</span>
-          <span>{{ item.size }}</span>
-          <span>{{ item.status }}</span>
-          <span>{{ item.uploaded_at }}</span>
-          <div class="inline-actions">
+          <strong class="file-cell file-cell--name" data-label="文件名称">{{ item.file_name }}</strong>
+          <span class="file-cell file-cell--category" data-label="分类">{{ item.category }}</span>
+          <span class="file-cell file-cell--size" data-label="大小">{{ item.size }}</span>
+          <span class="file-cell file-cell--status" data-label="状态">{{ item.status }}</span>
+          <span class="file-cell file-cell--uploaded" data-label="上传时间">{{ item.uploaded_at }}</span>
+          <div class="inline-actions file-cell file-cell--actions" data-label="操作">
             <button class="link-action" @click="currentFile = item">查看</button>
             <button class="link-action" @click="downloadFile(item)">下载</button>
             <button class="link-action" @click="removeFile(item)">删除</button>
@@ -159,9 +159,27 @@ onMounted(load)
 
 .file-grid {
   display: grid;
-  grid-template-columns: 1.4fr 0.8fr 0.6fr 0.7fr 1fr 1fr;
+  grid-template-columns: minmax(260px, 1.6fr) minmax(110px, 0.8fr) minmax(90px, 0.6fr) minmax(90px, 0.7fr) minmax(160px, 1fr) minmax(120px, auto);
   gap: 12px;
   align-items: center;
+  min-width: 920px;
+}
+
+.file-cell {
+  min-width: 0;
+}
+
+.file-cell--name {
+  word-break: break-all;
+}
+
+.file-cell--actions {
+  justify-self: end;
+}
+
+.table-row.file-grid {
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 .file-preview-block {
@@ -200,13 +218,128 @@ onMounted(load)
 }
 
 @media (max-width: 1200px) {
+  .table-head.file-grid {
+    display: none;
+  }
+
   .file-grid {
-    grid-template-columns: 1fr;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px 18px;
+  }
+
+  .table-row.file-grid {
+    grid-template-areas:
+      "name actions"
+      "category size"
+      "status uploaded";
+    align-items: stretch;
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+
+  .file-cell {
+    display: grid;
+    gap: 4px;
+  }
+
+  .file-cell::before {
+    content: attr(data-label);
+    color: #72829b;
+    font-size: 12px;
+    line-height: 1.4;
+    font-weight: 500;
+  }
+
+  .file-cell--name {
+    grid-area: name;
+    gap: 0;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .file-cell--category {
+    grid-area: category;
+  }
+
+  .file-cell--size {
+    grid-area: size;
+  }
+
+  .file-cell--status {
+    grid-area: status;
+  }
+
+  .file-cell--uploaded {
+    grid-area: uploaded;
+  }
+
+  .file-cell--actions {
+    grid-area: actions;
+    gap: 8px;
+    justify-self: end;
+    justify-content: flex-end;
+    align-content: start;
+    text-align: right;
+  }
+
+  .file-cell--name::before {
+    display: none;
+  }
+
+  .file-cell--actions::before {
+    display: none;
+  }
+
+  .file-cell--category,
+  .file-cell--size,
+  .file-cell--status,
+  .file-cell--uploaded {
+    padding: 10px 12px;
+    border: 1px solid #e4edf8;
+    border-radius: 10px;
+    background: #f8fbff;
   }
 
   .file-preview-fallback {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 760px) {
+  .file-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .table-row.file-grid {
+    grid-template-areas:
+      "name"
+      "category"
+      "size"
+      "status"
+      "uploaded"
+      "actions";
+  }
+
+  .file-cell--name {
+    gap: 4px;
+  }
+
+  .file-cell--name::before,
+  .file-cell--actions {
+    display: grid;
+  }
+
+  .file-cell--actions::before {
+    display: block;
+  }
+
+  .file-cell--actions {
+    justify-self: stretch;
+    justify-content: flex-start;
+    text-align: left;
   }
 }
 </style>

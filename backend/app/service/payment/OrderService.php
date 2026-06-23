@@ -581,6 +581,7 @@ class OrderService
             throw new BusinessException('仅待支付订单可标记为已支付', StatusCode::VALIDATION_ERROR);
         }
 
+        $order = self::repairHomepageTestOrderMerchant($order);
         $merchant = self::resolveMerchantById((int)$order->merchant_id);
         if (!$merchant) {
             throw new BusinessException('商户不存在', StatusCode::NOT_FOUND);
@@ -961,17 +962,14 @@ class OrderService
     {
         $code = self::normalizeMethodCode($requestedType);
         $rotation = self::merchantRotationConfig($merchantId);
-        $records = self::filterChannelRecordsByAmount($merchantId, self::activeChannelRecords($merchantId, $code), $amount);
-
-        if ($records === [] && trim((string)($rotation['fallback_channel'] ?? '')) !== '') {
-            $fallbackCode = self::normalizeMethodCode((string)$rotation['fallback_channel']);
-            if ($fallbackCode !== $code) {
-                $records = self::filterChannelRecordsByAmount($merchantId, self::activeChannelRecords($merchantId, $fallbackCode), $amount);
-                $code = $fallbackCode;
-            }
-        }
+        $rawRecords = self::filterChannelRecordsByAmount($merchantId, self::activeChannelRecords($merchantId, $code, false), $amount);
+        $records = self::filterRuntimeAvailableRecords($rawRecords);
 
         if ($records === []) {
+            $runtimeMessage = self::runtimeUnavailableMessageFromRecords($rawRecords);
+            if ($runtimeMessage !== '') {
+                throw new BusinessException($runtimeMessage, StatusCode::BUSINESS_ERROR);
+            }
             throw new BusinessException('当前商户暂无可用支付通道', StatusCode::NOT_FOUND);
         }
 
@@ -1007,7 +1005,7 @@ class OrderService
         ];
     }
 
-    protected static function activeChannelRecords(int $merchantId, string $code): array
+    protected static function activeChannelRecords(int $merchantId, string $code, bool $filterRuntime = true): array
     {
         if (self::canUseDatabase()) {
             $query = MerchantChannel::alias('mc')
@@ -1059,11 +1057,11 @@ class OrderService
             }
 
             if ($items !== []) {
-                return $items;
+                return $filterRuntime ? self::filterRuntimeAvailableRecords($items) : $items;
             }
         }
 
-        return self::activeChannelRecordsFromStore($merchantId, $code);
+        return self::activeChannelRecordsFromStore($merchantId, $code, $filterRuntime);
     }
 
     protected static function filterChannelRecordsByAmount(int $merchantId, array $records, float $amount): array
@@ -1173,7 +1171,7 @@ class OrderService
         return LocalOrderStore::businessOrdersByMerchant($merchantId);
     }
 
-    protected static function activeChannelRecordsFromStore(int $merchantId, string $code): array
+    protected static function activeChannelRecordsFromStore(int $merchantId, string $code, bool $filterRuntime = true): array
     {
         $channelPayload = MerchantChannelService::all($merchantId);
         $items = $channelPayload['items'] ?? [];
@@ -1245,7 +1243,7 @@ class OrderService
             ];
         }
 
-        return $matched;
+        return $filterRuntime ? self::filterRuntimeAvailableRecords($matched) : $matched;
     }
 
     protected static function localMerchantByPid(string $pid): ?object
@@ -1778,6 +1776,53 @@ class OrderService
             ['usdttrc20', 'erc20', 'bsc', 'usdtpolygon', 'avaxc', 'usdtaptos', 'trx'],
             true
         );
+    }
+
+    private static function filterRuntimeAvailableRecords(array $records): array
+    {
+        return array_values(array_filter(
+            $records,
+            static fn(mixed $record): bool => self::recordRuntimeAvailable($record)
+        ));
+    }
+
+    private static function recordRuntimeAvailable(mixed $record): bool
+    {
+        $runtimeState = self::recordRuntimeState($record);
+        if (!($runtimeState['runtime_requires_online'] ?? false)) {
+            return true;
+        }
+
+        return (bool)($runtimeState['runtime_online'] ?? false);
+    }
+
+    private static function runtimeUnavailableMessageFromRecords(array $records): string
+    {
+        foreach ($records as $record) {
+            $runtimeState = self::recordRuntimeState($record);
+            if (($runtimeState['runtime_requires_online'] ?? false) && !($runtimeState['runtime_online'] ?? false)) {
+                return MerchantChannelService::runtimeUnavailableMessageForState($runtimeState);
+            }
+        }
+
+        return '';
+    }
+
+    private static function recordRuntimeState(mixed $record): array
+    {
+        $channel = is_array($record) ? ($record['merchant_channel'] ?? null) : $record;
+        if (!is_object($channel)) {
+            return MerchantChannelService::runtimeStateForPayload([]);
+        }
+
+        $config = is_array($channel->config ?? null) ? $channel->config : [];
+        return MerchantChannelService::runtimeStateForPayload([
+            'plugin_code' => (string)($config['plugin_code'] ?? ''),
+            'plugin_kind' => (string)($config['plugin_kind'] ?? ''),
+            'plugin_config' => is_array($config['plugin_config'] ?? null) ? $config['plugin_config'] : [],
+            'config' => $config,
+            'status_code' => (int)($channel->status ?? 1),
+        ]);
     }
 
     private static function toObject(array $row): object
@@ -2960,6 +3005,55 @@ class OrderService
     {
         $merchant = self::resolveMerchantById($merchantId);
         return $merchant ? (string)($merchant->id ?? $merchantId) : (string)$merchantId;
+    }
+
+    private static function repairHomepageTestOrderMerchant(object $order): object
+    {
+        $merchantId = (int)($order->merchant_id ?? 0);
+        if ($merchantId > 0 && self::resolveMerchantById($merchantId) !== null) {
+            return $order;
+        }
+
+        $requestPayload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+        if (($meta['business'] ?? '') !== 'homepage_payment_test') {
+            return $order;
+        }
+
+        $resolvedMerchantId = 0;
+        foreach ([
+            (int)($meta['local_merchant_id'] ?? 0),
+            (int)($meta['carrier_merchant_id'] ?? 0),
+            (int)($meta['merchant_id'] ?? 0),
+        ] as $candidate) {
+            if ($candidate > 0 && self::resolveMerchantById($candidate) !== null) {
+                $resolvedMerchantId = $candidate;
+                break;
+            }
+        }
+
+        if ($resolvedMerchantId <= 0) {
+            $resolvedMerchantId = \app\service\system\SystemBusinessPaymentService::resolveFrontendTestLocalMerchantId([
+                'merchant_id' => (int)($meta['merchant_id'] ?? 0),
+                'local_merchant_id' => (int)($meta['local_merchant_id'] ?? 0),
+                'carrier_merchant_id' => (int)($meta['carrier_merchant_id'] ?? 0),
+                'channel_code' => (string)($order->channel_code ?? $meta['requested_method'] ?? ''),
+                'amount' => (float)($order->amount ?? 0),
+                'request_payload' => ['_meta' => $meta],
+            ]);
+        }
+
+        if ($resolvedMerchantId <= 0 || self::resolveMerchantById($resolvedMerchantId) === null) {
+            return $order;
+        }
+
+        $meta['local_merchant_id'] = $resolvedMerchantId;
+        $requestPayload['_meta'] = $meta;
+
+        return self::saveOrder($order, [
+            'merchant_id' => $resolvedMerchantId,
+            'request_payload' => $requestPayload,
+        ]);
     }
 
     private static function orderContext(object $order): array

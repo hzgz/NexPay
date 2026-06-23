@@ -7,9 +7,12 @@ use app\service\system\AccountService;
 use app\service\system\AuthPolicyService;
 use app\service\system\FileService;
 use app\service\system\MerchantApiService;
+use app\service\system\MerchantChannelAlipayCkService;
 use app\service\system\MerchantFundService;
+use app\service\system\MerchantOrderService;
 use app\service\system\MerchantChannelService;
 use app\service\system\MerchantChannelQrConfigService;
+use app\service\system\MerchantAvatarUploadService;
 use app\service\system\PackageService;
 use app\service\system\ResourceDataService;
 use app\service\system\SettlementService;
@@ -116,11 +119,76 @@ class ResourceController extends BaseApiController
         });
     }
 
+    public function channelAlipayCkQrcode(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+            $this->requireRealname($claims);
+            $payload = $this->payload($request);
+
+            return $this->success(
+                MerchantChannelAlipayCkService::refreshLoginQrcode(
+                    (int)$claims['merchant_id'],
+                    (int)($payload['id'] ?? 0)
+                ),
+                '支付宝 CK 登录二维码已刷新'
+            );
+        });
+    }
+
+    public function channelAlipayCkStatus(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+            $this->requireRealname($claims);
+            $payload = $this->payload($request);
+
+            return $this->success(
+                MerchantChannelAlipayCkService::queryLoginStatus(
+                    (int)$claims['merchant_id'],
+                    (int)($payload['id'] ?? 0)
+                ),
+                '支付宝 CK 登录状态已更新'
+            );
+        });
+    }
+
     public function orders(Request $request)
     {
         return $this->execute(function () use ($request) {
             $claims = $this->requireGuard($request, 'merchant');
             return $this->success(ResourceDataService::merchantOrders((int)$claims['merchant_id']));
+        });
+    }
+
+    public function orderCallbackRetry(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+            $result = MerchantOrderService::retryCallback(
+                (int)$claims['merchant_id'],
+                $this->payload($request),
+                (string)($claims['username'] ?? $claims['nickname'] ?? 'merchant')
+            );
+
+            return $this->success(
+                $result,
+                (string)($result['action'] ?? '') === 'confirm'
+                    ? '订单已人工确认成功并发起回调'
+                    : '手动回调已执行'
+            );
+        });
+    }
+
+    public function orderDelete(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+
+            return $this->success(
+                MerchantOrderService::deleteOrder((int)$claims['merchant_id'], $this->payload($request)),
+                '订单已删除'
+            );
         });
     }
 
@@ -250,6 +318,17 @@ class ResourceController extends BaseApiController
         });
     }
 
+    public function profileAvatarUpload(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+            return $this->success(
+                MerchantAvatarUploadService::upload((int)$claims['merchant_id'], $request->file('file')),
+                '头像上传成功'
+            );
+        });
+    }
+
     public function passwordSave(Request $request)
     {
         return $this->execute(function () use ($request) {
@@ -270,6 +349,17 @@ class ResourceController extends BaseApiController
         });
     }
 
+    public function ticketDetail(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+            $payload = $this->payload($request);
+            return $this->success(
+                TicketService::merchantTicketDetail((int)$claims['merchant_id'], (int)($payload['id'] ?? $request->get('id', 0)))
+            );
+        });
+    }
+
     public function ticketCreate(Request $request)
     {
         return $this->execute(function () use ($request) {
@@ -278,6 +368,22 @@ class ResourceController extends BaseApiController
             return $this->success(
                 TicketService::createTicket((int)$claims['merchant_id'], (string)($claims['nickname'] ?? $claims['username'] ?? '商户'), $this->payload($request)),
                 '工单已提交'
+            );
+        });
+    }
+
+    public function ticketReply(Request $request)
+    {
+        return $this->execute(function () use ($request) {
+            $claims = $this->requireGuard($request, 'merchant');
+
+            return $this->success(
+                TicketService::replyByMerchant(
+                    (int)$claims['merchant_id'],
+                    (string)($claims['nickname'] ?? $claims['username'] ?? '商户'),
+                    $this->payload($request)
+                ),
+                '回复成功'
             );
         });
     }

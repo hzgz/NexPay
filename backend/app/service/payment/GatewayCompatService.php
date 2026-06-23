@@ -344,8 +344,61 @@ class GatewayCompatService
 
         return self::signV2Response([
             'code' => $code,
-            'msg' => $exception->getMessage(),
+            'msg' => self::normalizeGatewayErrorMessageSafe($exception->getMessage()),
         ]);
+    }
+
+    public static function normalizeGatewayErrorMessage(string $message): string
+    {
+        $normalized = trim($message);
+        if ($normalized === '') {
+            return '支付请求失败';
+        }
+
+        if (
+            str_contains($normalized, 'cashier?')
+            && str_contains($normalized, 'other=1')
+        ) {
+            return '上游易支付商户未配置当前支付方式的可用自定义通道';
+        }
+
+        foreach ([
+            '未配置当前支付方式的可用通道',
+            '未配置当前支付方式的可用自定义通道',
+            '涓婃父鏄撴敮浠',
+            '褰撳墠鏀粯鏂瑰紡',
+        ] as $needle) {
+            if (str_contains($normalized, $needle)) {
+                return '上游易支付商户未配置当前支付方式的可用自定义通道';
+            }
+        }
+
+        return $normalized;
+    }
+
+    public static function normalizeGatewayErrorMessageSafe(string $message): string
+    {
+        $normalized = trim($message);
+        if ($normalized === '') {
+            return '支付请求失败';
+        }
+
+        if (str_contains($normalized, 'cashier?') && str_contains($normalized, 'other=1')) {
+            return '上游易支付商户未配置当前支付方式的可用自定义通道';
+        }
+
+        foreach ([
+            '未配置当前支付方式的可用通道',
+            '未配置当前支付方式的可用自定义通道',
+            '涓婃父鏄撴敮浠',
+            '褰撳墠鏀粯鏂瑰紡',
+        ] as $needle) {
+            if (str_contains($normalized, $needle)) {
+                return '上游易支付商户未配置当前支付方式的可用自定义通道';
+            }
+        }
+
+        return $normalized;
     }
 
     private static function buildV1OrderQueryResponse(object $merchant, array $query): array

@@ -6,9 +6,9 @@ return [
         'mysql' => [
             'type' => 'mysql',
             'hostname' => env('DB_HOST', '127.0.0.1'),
-            'database' => env('DB_DATABASE', 'nexpay'),
+            'database' => env('DB_DATABASE', 'epay_plus'),
             'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'password' => env('DB_PASSWORD', '123456'),
             'hostport' => env('DB_PORT', '3306'),
             'params' => [
                 \PDO::ATTR_TIMEOUT => 3,

@@ -30,6 +30,7 @@ class MerchantFundService
             }
 
             $methodName = trim((string)($item['name'] ?? PaymentMetaService::friendlyMethodName($methodCode)));
+            $minAmount = number_format((float)($context['min_amount'] ?? '0.10'), 2, '.', '');
             $options[] = [
                 'method_code' => $methodCode,
                 'code' => $methodCode,
@@ -37,9 +38,9 @@ class MerchantFundService
                 'method_name' => $methodName,
                 'icon' => trim((string)($item['icon'] ?? '')),
                 'desc' => '使用后台系统业务支付配置创建充值订单。',
-                'min' => '0.01',
+                'min' => $minAmount,
                 'max' => '0.00',
-                'single_min_amount' => '0.01',
+                'single_min_amount' => $minAmount,
                 'single_max_amount' => '0.00',
                 'daily_limit' => '0.00',
                 'daily_count_limit' => 0,

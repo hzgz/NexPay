@@ -17,7 +17,7 @@ import {
 } from '@element-plus/icons-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getAdminSessionUser } from '../lib/api'
+import { ADMIN_SESSION_UPDATED_EVENT, getAdminSessionUser, resolveAdminAvatarUrl } from '../lib/api'
 import { useSidebarAccordion, type MenuItem } from '../lib/sidebar'
 
 const route = useRoute()
@@ -210,7 +210,7 @@ const shellClass = computed(() => ({
 }))
 const sidebarSwitchIcon = computed(() => (sidebarCollapsed.value ? Expand : Fold))
 const avatarSrc = computed(() => {
-  const avatar = String(sessionUser.value.avatar || '').trim()
+  const avatar = resolveAdminAvatarUrl(sessionUser.value.avatar, sessionUser.value.avatar_version)
   return avatar || defaultAvatar
 })
 watch(
@@ -226,10 +226,12 @@ onMounted(() => {
   syncViewport()
   syncExpandedByRoute()
   window.addEventListener('resize', syncViewport)
+  window.addEventListener(ADMIN_SESSION_UPDATED_EVENT, loadUser as EventListener)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewport)
+  window.removeEventListener(ADMIN_SESSION_UPDATED_EVENT, loadUser as EventListener)
 })
 </script>
 

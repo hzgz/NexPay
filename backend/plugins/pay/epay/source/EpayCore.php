@@ -22,9 +22,10 @@ class EpayCore
     {
         $this->pid = $config['pid'];
         $this->key = $config['key'];
-        $this->submit_url = $config['apiurl'] . 'submit.php';
-        $this->mapi_url = $config['apiurl'] . 'mapi.php';
-        $this->api_url = $config['apiurl'] . 'api.php';
+        $baseUrl = $this->normalizeApiBaseUrl((string)($config['apiurl'] ?? ''));
+        $this->submit_url = $baseUrl . 'submit.php';
+        $this->mapi_url = $baseUrl . 'mapi.php';
+        $this->api_url = $baseUrl . 'api.php';
     }
 
     // 发起支付（页面跳转）
@@ -147,5 +148,10 @@ class EpayCore
         $response = curl_exec($ch);
         curl_close($ch);
         return $response;
+    }
+
+    private function normalizeApiBaseUrl(string $url): string
+    {
+        return rtrim(trim($url), '/') . '/';
     }
 }

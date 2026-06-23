@@ -31,9 +31,6 @@ frontend/**/dist/
 frontend/**/dist-ssr/
 frontend/**/.vite/
 
-# Local helper scripts
-scripts/
-
 # Test caches
 backend/tests/tmp/
 backend/tests/.phpunit.result.cache

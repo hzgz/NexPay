@@ -40,7 +40,7 @@ class StaticAppController
     private function renderBuild(string $path): Response
     {
         if (!is_file($path)) {
-            $message = "Static build not found: {$path}\nBuild each frontend app with npm run build and publish dist files into backend/public, backend/public/admin and backend/public/user.";
+            $message = "Static build not found: {$path}\nRun: powershell -ExecutionPolicy Bypass -File .\\scripts\\build-release.ps1";
             return new Response(503, ['Content-Type' => 'text/plain; charset=utf-8'], $message);
         }
 

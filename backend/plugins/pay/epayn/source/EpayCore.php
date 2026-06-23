@@ -20,7 +20,7 @@ class EpayCore
 
     public function __construct(array $config)
     {
-        $this->apiurl = $config['apiurl'];
+        $this->apiurl = $this->normalizeApiBaseUrl((string)($config['apiurl'] ?? ''));
         $this->pid = $config['pid'];
         $this->platform_public_key = $config['platform_public_key'];
         $this->merchant_private_key = $config['merchant_private_key'];
@@ -219,5 +219,10 @@ class EpayCore
         $response = curl_exec($ch);
         curl_close($ch);
         return $response;
+    }
+
+    private function normalizeApiBaseUrl(string $url): string
+    {
+        return rtrim(trim($url), '/') . '/';
     }
 }

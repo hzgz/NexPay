@@ -3,6 +3,7 @@ export type PageKind = 'home' | 'demo' | 'doc'
 export type DemoMethod = {
   code: string
   name: string
+  icon?: string
 }
 
 export type DemoProvider = {
@@ -15,6 +16,7 @@ export type DemoConfig = {
   title: string
   subtitle: string
   default_amount: string
+  min_amount?: string
   auto_complete: boolean
   methods: DemoMethod[]
   providers: DemoProvider[]
@@ -37,12 +39,12 @@ export const heroStats = [
 ]
 
 export const paymentMethods = [
-  { name: '银联支付', icon: 'payment-icons/unionpay.png' },
   { name: '支付宝', icon: 'payment-icons/alipay.png' },
   { name: '微信支付', icon: 'payment-icons/wechat.png' },
-  { name: 'Visa', icon: 'payment-icons/paypal.png' },
-  { name: 'Mastercard', icon: 'payment-icons/qqpay.png' },
-  { name: 'Apple Pay', icon: 'payment-icons/jdpay.png' },
+  { name: '银联支付', icon: 'payment-icons/unionpay.png' },
+  { name: 'QQ 钱包', icon: 'payment-icons/qqpay.png' },
+  { name: '京东支付', icon: 'payment-icons/jdpay.png' },
+  { name: 'PayPal', icon: 'payment-icons/paypal.png' },
 ]
 
 export const accessSteps = [
@@ -63,7 +65,7 @@ export const accessSteps = [
   },
 ]
 
-export const trustBrands = ['SHEIN', 'mi', 'Trip.com', 'XPENG', 'Joyoung 九阳', '影石 Insta360']
+export const trustBrands = ['SHEIN', 'mi', 'Trip.com', 'XPENG', 'Joyoung 九阳', 'Insta360']
 
 export const docMenus = [
   '快速开始',
@@ -78,7 +80,7 @@ export const docMenus = [
 
 export const docRequestRows = [
   ['merchant_id', 'string', '是', '商户 PID'],
-  ['out_trade_no', 'string', '是', '商户订单号，需保持唯一'],
+  ['out_trade_no', 'string', '是', '商户订单号，需要保持唯一'],
   ['amount', 'integer', '是', '订单金额，单位分'],
   ['currency', 'string', '否', '货币类型，默认 CNY'],
   ['subject', 'string', '是', '商品或订单标题'],
@@ -107,6 +109,7 @@ export const initialDemoConfig: DemoConfig = {
   title: 'NexPay 支付测试',
   subtitle: '在这里联调支付链路或快速发起测试订单，验证流程是否正常。',
   default_amount: '',
+  min_amount: '0.10',
   auto_complete: false,
   methods: [
     { code: 'alipay', name: '支付宝' },

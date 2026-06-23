@@ -1,7 +1,56 @@
 import { authHeaders as createAuthHeaders, request, type ApiResponse } from './request'
 
+export const USER_SESSION_UPDATED_EVENT = 'user-user-updated'
+
 function authHeaders(): Record<string, string> {
   return createAuthHeaders('user:token')
+}
+
+function normalizeAvatarValue(value: unknown): string {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw
+  return raw.startsWith('/') ? raw : `/${raw}`
+}
+
+function withVersion(url: string, version: unknown): string {
+  const stamp = String(version || '').trim()
+  if (!url || !stamp || url.startsWith('data:')) {
+    return url
+  }
+
+  const [base, hash = ''] = url.split('#', 2)
+  const separator = base.includes('?') ? '&' : '?'
+  const next = `${base}${separator}v=${encodeURIComponent(stamp)}`
+  return hash ? `${next}#${hash}` : next
+}
+
+export function resolveUserAvatarUrl(value: unknown, version?: unknown): string {
+  return withVersion(normalizeAvatarValue(value), version)
+}
+
+export function setUserSessionUser(
+  payload: Record<string, any>,
+  options: { merge?: boolean; bumpAvatarVersion?: boolean } = {},
+) {
+  const current = getUserSessionUser()
+  const merge = options.merge !== false
+  const next = merge ? { ...current, ...(payload || {}) } : { ...(payload || {}) }
+  const avatarChanged = Object.prototype.hasOwnProperty.call(payload || {}, 'avatar')
+    && String(payload?.avatar || '').trim() !== String(current.avatar || '').trim()
+
+  if (options.bumpAvatarVersion || avatarChanged) {
+    next.avatar_version = Date.now()
+  } else if (current.avatar_version && !Object.prototype.hasOwnProperty.call(next, 'avatar_version')) {
+    next.avatar_version = current.avatar_version
+  }
+
+  sessionStorage.setItem('user:user', JSON.stringify(next))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(USER_SESSION_UPDATED_EVENT))
+  }
+
+  return next
 }
 
 export async function loginUser(payload: Record<string, any>) {
@@ -11,7 +60,7 @@ export async function loginUser(payload: Record<string, any>) {
   })
   if (resp.code === 0 && resp.data?.token) {
     sessionStorage.setItem('user:token', resp.data.token)
-    sessionStorage.setItem('user:user', JSON.stringify(resp.data.user || {}))
+    setUserSessionUser(resp.data.user || {}, { merge: false })
   }
   return resp
 }
@@ -47,7 +96,7 @@ export async function registerUser(payload: Record<string, any>) {
   })
   if (resp.code === 0 && resp.data?.token) {
     sessionStorage.setItem('user:token', resp.data.token)
-    sessionStorage.setItem('user:user', JSON.stringify(resp.data.user || {}))
+    setUserSessionUser(resp.data.user || {}, { merge: false })
   }
   return resp
 }
@@ -137,6 +186,22 @@ export async function uploadUserChannelConfigFile(payload: {
   })
 }
 
+export async function refreshUserAlipayCkQrcode(id: number) {
+  return request<ApiResponse<Record<string, any>>>('/api/merchant/channels/alipay-ck/qrcode', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ id }),
+  })
+}
+
+export async function syncUserAlipayCkStatus(id: number) {
+  return request<ApiResponse<Record<string, any>>>('/api/merchant/channels/alipay-ck/status', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ id }),
+  })
+}
+
 export async function saveUserChannelRotation(payload: Record<string, any>) {
   return request<ApiResponse<Record<string, any>>>('/api/merchant/channels/rotation/save', {
     method: 'POST',
@@ -155,6 +220,28 @@ export async function saveUserPaymentSettings(payload: Record<string, any>) {
 
 export async function getUserOrders() {
   return request<ApiResponse<Record<string, any>>>('/api/merchant/orders', { headers: authHeaders() })
+}
+
+export async function retryUserOrderCallback(payload: {
+  trade_no?: string
+  out_trade_no?: string
+  proof_no?: string
+  txid?: string
+  remark?: string
+}) {
+  return request<ApiResponse<Record<string, any>>>('/api/merchant/orders/callback-retry', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteUserOrder(payload: { trade_no?: string; out_trade_no?: string }) {
+  return request<ApiResponse<Record<string, any>>>('/api/merchant/orders/delete', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  })
 }
 
 export async function getUserFunds() {
@@ -233,6 +320,17 @@ export async function saveUserProfile(payload: Record<string, any>) {
   })
 }
 
+export async function uploadUserAvatar(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+
+  return request<ApiResponse<Record<string, any>>>('/api/merchant/profile/avatar/upload', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+}
+
 export async function saveUserPassword(payload: Record<string, any>) {
   return request<ApiResponse<Record<string, any>>>('/api/merchant/profile/password', {
     method: 'POST',
@@ -245,8 +343,20 @@ export async function getUserTickets() {
   return request<ApiResponse<Record<string, any>>>('/api/merchant/tickets', { headers: authHeaders() })
 }
 
+export async function getUserTicketDetail(id: number) {
+  return request<ApiResponse<Record<string, any>>>(`/api/merchant/tickets/detail?id=${id}`, { headers: authHeaders() })
+}
+
 export async function createUserTicket(payload: Record<string, any>) {
   return request<ApiResponse<Record<string, any>>>('/api/merchant/tickets/create', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function replyUserTicket(payload: Record<string, any>) {
+  return request<ApiResponse<Record<string, any>>>('/api/merchant/tickets/reply', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(payload),

@@ -52,8 +52,8 @@ onMounted(async () => {
 
     <template v-if="activeTab === 'orders'">
       <div class="table-head order-grid">
-        <span>平台订单号</span>
-        <span>商户订单号</span>
+        <span>订单号</span>
+        <span>商品名称</span>
         <span>商户</span>
         <span>支付方式</span>
         <span>金额</span>
@@ -61,12 +61,19 @@ onMounted(async () => {
         <span>创建时间</span>
       </div>
       <div v-for="item in rows" :key="item.trade_no" class="table-row order-grid">
-        <strong>{{ item.trade_no }}</strong>
-        <span>{{ item.out_trade_no }}</span>
+        <div class="order-no-stack">
+          <div class="order-no-line">
+            <strong>{{ item.trade_no || '-' }}</strong>
+          </div>
+          <div class="order-no-line">
+            <span>{{ item.out_trade_no || '-' }}</span>
+          </div>
+        </div>
+        <span class="order-subject">{{ item.subject || '-' }}</span>
         <span>{{ item.merchant }}</span>
-        <span>{{ item.channel_code }}</span>
+        <span>{{ item.method_name || item.channel_code || '-' }}</span>
         <span>{{ item.amount }}</span>
-        <span>{{ item.status }}</span>
+        <span><span class="status-chip">{{ item.status }}</span></span>
         <span>{{ item.created_at }}</span>
       </div>
     </template>
@@ -149,9 +156,41 @@ onMounted(async () => {
 }
 .order-grid {
   display: grid;
-  grid-template-columns: 1.15fr 1.1fr 1fr .8fr .7fr .7fr 1fr;
+  grid-template-columns: 1.85fr 1fr 0.8fr 0.85fr 0.6fr 0.75fr 1fr;
   gap: 12px;
   align-items: center;
+}
+.order-no-head {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.order-no-head span {
+  color: inherit;
+  line-height: 1.4;
+}
+.order-no-stack {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.order-no-line {
+  display: block;
+  min-width: 0;
+}
+.order-no-line + .order-no-line {
+  margin-top: 2px;
+}
+.order-no-line > strong,
+.order-no-line > span:last-child,
+.order-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.order-no-line > span:last-child {
+  color: #667085;
 }
 .recharge-grid,
 .package-grid {
@@ -171,6 +210,18 @@ onMounted(async () => {
 }
 .table-row {
   font-size: 13px;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff4df;
+  color: #b26a00;
+  font-size: 12px;
+  font-weight: 700;
 }
 @media (max-width: 1200px) {
   .order-grid,
