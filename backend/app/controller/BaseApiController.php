@@ -6,6 +6,7 @@ use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\service\auth\TokenService;
 use app\service\system\EncodingRepairService;
+use support\Log;
 use support\Request;
 use support\Response;
 use Throwable;
@@ -39,6 +40,12 @@ class BaseApiController
         } catch (BusinessException $exception) {
             return $this->fail($exception->getMessage(), $exception->errorCode(), $exception->payload());
         } catch (Throwable $exception) {
+            Log::error('API request failed', [
+                'message' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => $exception->getTraceAsString(),
+            ]);
             return $this->fail($exception->getMessage(), StatusCode::BUSINESS_ERROR);
         }
     }
