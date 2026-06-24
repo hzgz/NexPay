@@ -13,7 +13,7 @@ abstract class ChainPaymentPlugin extends BasePayment
     protected const PAY_CONTEXT_VERSION = 1;
     protected const DEFAULT_RATE = 7.00;
     protected const DEFAULT_DECIMALS = 2;
-    protected const DEFAULT_PAYTIME = 1200;
+    protected const DEFAULT_PAYTIME = 360;
     protected const DEFAULT_AMOUNT_FIELD = 'pay_amount';
     protected const NETWORK_NAME = 'Chain';
     protected const TOKEN_SYMBOL = 'USDT';

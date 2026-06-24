@@ -71,10 +71,6 @@ const demoMethods = computed(() => {
   }))
 })
 
-function homeAnchor(anchor: string) {
-  return pageKind.value === 'home' ? `#${anchor}` : `/#${anchor}`
-}
-
 function resetDemoState() {
   demoState.error = ''
   demoState.result = ''
@@ -243,7 +239,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="public-shell" :class="`public-shell--${pageKind}`">
     <div class="white-stage" :class="{ 'white-stage--home': pageKind === 'home' }">
-      <PublicHeader :page-kind="pageKind" :logo-src="siteLogo" :home-anchor="homeAnchor" />
+      <PublicHeader :page-kind="pageKind" :logo-src="siteLogo" />
 
       <HomePage
         v-if="pageKind === 'home'"

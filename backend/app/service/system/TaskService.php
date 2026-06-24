@@ -395,7 +395,7 @@ class TaskService
 
     private static function sanitizeStatus(string $status): string
     {
-        $value = trim($status);
+        $value = trim(EncodingRepairService::repair($status));
         $lower = strtolower($value);
 
         return match (true) {
@@ -409,35 +409,28 @@ class TaskService
             $lower === 'running',
             $lower === 'processing',
             str_contains($value, '执行中'),
-            str_contains($value, '运行中'),
-            str_contains($value, '杩愯') => '执行中',
+            str_contains($value, '运行中') => '执行中',
             str_contains($value, '待命'),
-            str_contains($value, '寰呭懡'),
             str_contains($value, '启用') => '待命',
-            str_contains($value, '鍚敤') => '待命',
             $lower === 'disabled',
             $lower === 'disable',
             $lower === 'stopped',
             $lower === 'stop',
             str_contains($value, '已停用'),
-            str_contains($value, '宸插仠鐢'),
-            str_contains($value, '停用'),
-            str_contains($value, '鍋滅敤') => '已停用',
+            str_contains($value, '停用') => '已停用',
             $lower === 'success',
             $lower === 'succeeded',
-            str_contains($value, '最近成功'),
-            str_contains($value, '鎴愬姛') => '最近成功',
+            str_contains($value, '最近成功') => '最近成功',
             $lower === 'failed',
             $lower === 'error',
-            str_contains($value, '最近失败'),
-            str_contains($value, '澶辫触') => '最近失败',
+            str_contains($value, '最近失败') => '最近失败',
             default => $value,
         };
     }
 
     private static function sanitizeRunStatus(string $status): string
     {
-        $raw = trim($status);
+        $raw = trim(EncodingRepairService::repair($status));
         $value = strtolower($raw);
 
         return match (true) {
@@ -446,22 +439,20 @@ class TaskService
             $value === 'ok',
             $value === 'succeeded',
             str_contains($value, 'success'),
-            str_contains($raw, '成功'),
-            str_contains($value, '鎴愬姛') => 'success',
+            str_contains($raw, '成功') => 'success',
             $value === 'failed',
             $value === 'error',
             $value === 'errored',
             str_contains($value, 'fail'),
             str_contains($value, 'error'),
-            str_contains($raw, '失败'),
-            str_contains($value, '澶辫触') => 'failed',
+            str_contains($raw, '失败') => 'failed',
             default => $value,
         };
     }
 
     private static function sanitizeResult(string $result): string
     {
-        $value = trim($result);
+        $value = trim(EncodingRepairService::repair($result));
         $lower = strtolower($value);
 
         return match (true) {
@@ -470,14 +461,12 @@ class TaskService
             $value === 'ok',
             $value === '成功',
             $value === '执行成功',
-            $lower === 'succeeded',
-            $value === '鎴愬姛' => '执行成功',
+            $lower === 'succeeded' => '执行成功',
             $value === 'failed',
             $value === 'error',
             $value === '失败',
             $value === '执行失败',
-            $lower === 'errored',
-            $value === '澶辫触' => '执行失败',
+            $lower === 'errored' => '执行失败',
             default => $value,
         };
     }

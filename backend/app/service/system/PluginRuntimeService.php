@@ -71,6 +71,8 @@ class PluginRuntimeService
                     continue;
                 }
 
+                $basename = basename($pluginDir);
+
                 $configPath = $pluginDir . DIRECTORY_SEPARATOR . 'config.php';
                 $routePath = $pluginDir . DIRECTORY_SEPARATOR . 'routes.php';
                 $providerPath = $pluginDir . DIRECTORY_SEPARATOR . 'PluginProvider.php';
@@ -79,8 +81,13 @@ class PluginRuntimeService
                 $sourceConfig = is_array($config['source'] ?? null) ? $config['source'] : [];
                 $sourceInfo = self::readJsonFile($sourceInfoPath);
 
-                $code = trim((string)($manifest['code'] ?? basename($pluginDir)));
-                $name = trim((string)($manifest['name'] ?? $code));
+                $code = PluginCodeService::normalize(trim((string)($manifest['code'] ?? $basename)));
+                $canonicalDir = legacy_plugin_directory_name($code);
+                if ($canonicalDir !== '' && $canonicalDir !== $basename) {
+                    continue;
+                }
+
+                $name = trim((string)EncodingRepairService::repair((string)($manifest['name'] ?? $code)));
                 if ($code === '' || $name === '') {
                     continue;
                 }
@@ -95,9 +102,18 @@ class PluginRuntimeService
                     ?? ($sourceInfo['pay_types'] ?? [])))
                 );
                 $kind = trim((string)($manifest['kind'] ?? (string)($config['kind'] ?? 'general')));
-                $defaultSettings = is_array($config['default_settings'] ?? null) ? $config['default_settings'] : [];
+                $configuredDefaults = is_array($config['default_settings'] ?? null) ? $config['default_settings'] : [];
+                $defaultSettings = array_replace(
+                    self::defaultSettingsFromSourceInfo($sourceInfo),
+                    $configuredDefaults
+                );
                 $settingsSchema = self::normalizeSettingsSchema(
-                    is_array($config['settings_schema'] ?? null) ? $config['settings_schema'] : [],
+                    self::resolveSettingsSchema(
+                        $config['settings_schema'] ?? [],
+                        $sourceInfo,
+                        $defaultSettings,
+                        $kind
+                    ),
                     $defaultSettings,
                     $kind
                 );
@@ -106,14 +122,14 @@ class PluginRuntimeService
                     'code' => $code,
                     'name' => $name,
                     'version' => trim((string)($manifest['version'] ?? '1.0.0')),
-                    'description' => trim((string)($manifest['description'] ?? '')),
+                    'description' => trim((string)EncodingRepairService::repair((string)($manifest['description'] ?? ''))),
                     'group' => $group,
                     'kind' => $kind,
                     'provider' => trim((string)($manifest['provider'] ?? '')),
                     'provider_file' => is_file($providerPath) ? self::relativePath($providerPath) : '',
                     'config_file' => is_file($configPath) ? self::relativePath($configPath) : '',
                     'route_file' => is_file($routePath) ? self::relativePath($routePath) : '',
-                    'developer' => trim((string)($manifest['author'] ?? $sourceConfig['author'] ?? $sourceInfo['author'] ?? '')),
+                    'developer' => trim((string)EncodingRepairService::repair((string)($manifest['author'] ?? $sourceConfig['author'] ?? $sourceInfo['author'] ?? ''))),
                     'capabilities' => $capabilities,
                     'payment_methods' => $paymentMethods,
                     'display_payment_methods' => self::normalizeList(
@@ -340,17 +356,301 @@ class PluginRuntimeService
         return is_array($payload) ? $payload : [];
     }
 
-    private static function normalizeSettingsSchema(array $schema, array $defaultSettings = [], string $kind = ''): array
+    private static function defaultSettingsFromSourceInfo(array $sourceInfo): array
+    {
+        $defaults = [];
+        $inputs = is_array($sourceInfo['inputs'] ?? null) ? $sourceInfo['inputs'] : [];
+        foreach ($inputs as $key => $input) {
+            $name = trim((string)$key);
+            if ($name === '' || !is_array($input)) {
+                continue;
+            }
+
+            if (!array_key_exists('value', $input)) {
+                continue;
+            }
+
+            $defaults[$name] = $input['value'];
+        }
+
+        return $defaults;
+    }
+
+    private static function resolveSettingsSchema(
+        mixed $schema,
+        array $sourceInfo,
+        array $defaultSettings = [],
+        string $kind = ''
+    ): array {
+        $configured = self::schemaFieldList($schema);
+        $defaultDerived = self::derivedSchemaFromDefaults($defaultSettings, $kind);
+        $sourceDerived = self::schemaFromSourceInfo($sourceInfo, $defaultSettings);
+
+        return self::mergeSchemaSources($configured, $defaultDerived, $sourceDerived);
+    }
+
+    private static function schemaFieldList(mixed $schema): array
     {
         if (is_array($schema['fields'] ?? null)) {
             $schema = $schema['fields'];
         }
 
-        $normalized = [];
-        foreach ($schema as $field) {
-            if (!is_array($field)) {
+        if (!is_array($schema)) {
+            return [];
+        }
+
+        return array_values(array_filter($schema, static fn(mixed $field): bool => is_array($field)));
+    }
+
+    private static function schemaFromSourceInfo(array $sourceInfo, array $defaultSettings = []): array
+    {
+        $inputs = is_array($sourceInfo['inputs'] ?? null) ? $sourceInfo['inputs'] : [];
+        $fields = [];
+
+        foreach ($inputs as $key => $input) {
+            $fieldKey = trim((string)$key);
+            if ($fieldKey === '' || !is_array($input)) {
                 continue;
             }
+
+            $type = self::sourceInputTypeToSchemaType($fieldKey, $input);
+            $field = [
+                'key' => $fieldKey,
+                'label' => trim((string)EncodingRepairService::repair((string)($input['name'] ?? $fieldKey))),
+                'type' => $type,
+            ];
+
+            if (array_key_exists('required', $input)) {
+                $field['required'] = (bool)$input['required'];
+            }
+
+            $note = trim((string)EncodingRepairService::repair((string)($input['note'] ?? '')));
+            if ($note !== '') {
+                $field['note'] = $note;
+            }
+
+            $placeholder = trim((string)EncodingRepairService::repair((string)($input['placeholder'] ?? '')));
+            if ($placeholder !== '') {
+                $field['placeholder'] = $placeholder;
+            }
+
+            $show = trim((string)($input['show'] ?? ''));
+            if ($show !== '') {
+                $field['show'] = $show;
+            }
+
+            $accept = trim((string)($input['accept'] ?? ''));
+            if ($accept !== '') {
+                $field['accept'] = $accept;
+            }
+
+            $options = $input['options'] ?? null;
+            if (is_array($options) && $options !== []) {
+                $field['options'] = self::normalizeFieldOptions($options, $fieldKey, $defaultSettings, '');
+            }
+
+            $fields[] = $field;
+        }
+
+        return $fields;
+    }
+
+    private static function sourceInputTypeToSchemaType(string $fieldKey, array $input): string
+    {
+        $type = strtolower(trim((string)($input['type'] ?? 'input')));
+
+        return match ($type) {
+            'textarea' => 'textarea',
+            'password' => 'password',
+            'select' => 'select',
+            'radio' => 'radio',
+            'checkbox', 'switch' => 'checkbox',
+            'upload', 'file' => self::inferUploadSchemaType($fieldKey, $input),
+            default => 'text',
+        };
+    }
+
+    private static function inferUploadSchemaType(string $fieldKey, array $input): string
+    {
+        $accept = strtolower(trim((string)($input['accept'] ?? '')));
+        $fieldKey = strtolower(trim($fieldKey));
+
+        if (
+            str_contains($accept, '.png')
+            || str_contains($accept, '.jpg')
+            || str_contains($accept, '.jpeg')
+            || str_contains($accept, '.gif')
+            || str_contains($accept, '.webp')
+            || str_contains($fieldKey, 'image')
+            || str_contains($fieldKey, 'qrcode')
+        ) {
+            return 'image';
+        }
+
+        return 'file';
+    }
+
+    private static function derivedSchemaFromDefaults(array $defaultSettings, string $kind = ''): array
+    {
+        $fields = [];
+        $kind = strtolower(trim($kind));
+
+        foreach ($defaultSettings as $key => $value) {
+            $fieldKey = trim((string)$key);
+            if ($fieldKey === '') {
+                continue;
+            }
+
+            $field = match ($fieldKey) {
+                'confirmations' => [
+                    'key' => 'confirmations',
+                    'label' => '确认次数',
+                    'type' => 'number',
+                    'required' => true,
+                    'placeholder' => (string)($value !== '' ? $value : '2'),
+                    'note' => '链上到账达到该确认次数后，订单才会确认为支付成功。',
+                ],
+                'listener' => [
+                    'key' => 'listener',
+                    'label' => '监听方式',
+                    'type' => 'select',
+                    'required' => true,
+                    'options' => self::listenerFieldOptions((string)$value),
+                ],
+                'address_strategy' => [
+                    'key' => 'address_strategy',
+                    'label' => '地址策略',
+                    'type' => 'select',
+                    'required' => true,
+                    'options' => [
+                        ['label' => '单地址收款', 'value' => (string)($value !== '' ? $value : 'single')],
+                    ],
+                ],
+                'appurl' => $kind === 'chain' ? [
+                    'key' => 'appurl',
+                    'label' => '订单有效期(秒)',
+                    'type' => 'number',
+                    'required' => true,
+                    'placeholder' => (string)($value !== '' ? $value : '360'),
+                    'note' => '默认 360 秒，即 6 分钟有效期。',
+                ] : null,
+                'xiaoshu' => [
+                    'key' => 'xiaoshu',
+                    'label' => '金额小数位',
+                    'type' => 'number',
+                    'required' => true,
+                    'placeholder' => (string)($value !== '' ? $value : '2'),
+                    'note' => '建议设置 2 到 6 位，避免链上金额重复。',
+                ],
+                'botid' => [
+                    'key' => 'botid',
+                    'label' => 'Telegram 用户 ID',
+                    'type' => 'text',
+                    'placeholder' => '可选',
+                    'note' => '选填，用于接收链上订单提醒。',
+                ],
+                'bottoken' => [
+                    'key' => 'bottoken',
+                    'label' => 'Telegram Bot Token',
+                    'type' => 'text',
+                    'placeholder' => '可选',
+                    'note' => '选填，配合 Telegram 用户 ID 使用。',
+                ],
+                default => null,
+            };
+
+            if (is_array($field)) {
+                $fields[] = $field;
+            }
+        }
+
+        return $fields;
+    }
+
+    private static function listenerFieldOptions(string $defaultValue): array
+    {
+        $normalized = strtolower(trim($defaultValue));
+        if ($normalized === 'manual') {
+            return [
+                ['label' => '手动监听', 'value' => 'manual'],
+            ];
+        }
+
+        if ($normalized === 'mock-listener' || $normalized === 'mock') {
+            return [
+                ['label' => '模拟监听', 'value' => $defaultValue !== '' ? $defaultValue : 'mock-listener'],
+            ];
+        }
+
+        if ($defaultValue !== '') {
+            return [
+                ['label' => $defaultValue, 'value' => $defaultValue],
+            ];
+        }
+
+        return [
+            ['label' => '模拟监听', 'value' => 'mock-listener'],
+        ];
+    }
+
+    private static function mergeSchemaSources(array ...$sources): array
+    {
+        if ($sources === []) {
+            return [];
+        }
+
+        $lists = array_map([self::class, 'schemaFieldList'], $sources);
+        $fallbackByKey = [];
+
+        for ($index = 1; $index < count($lists); $index++) {
+            foreach ($lists[$index] as $field) {
+                $key = trim((string)($field['key'] ?? ''));
+                if ($key === '' || isset($fallbackByKey[$key])) {
+                    continue;
+                }
+
+                $fallbackByKey[$key] = $field;
+            }
+        }
+
+        $merged = [];
+        $seen = [];
+
+        foreach ($lists[0] as $field) {
+            $key = trim((string)($field['key'] ?? ''));
+            if ($key !== '' && isset($fallbackByKey[$key])) {
+                $field = array_replace($fallbackByKey[$key], $field);
+            }
+
+            if ($key !== '') {
+                $seen[$key] = true;
+            }
+
+            $merged[] = $field;
+        }
+
+        for ($index = 1; $index < count($lists); $index++) {
+            foreach ($lists[$index] as $field) {
+                $key = trim((string)($field['key'] ?? ''));
+                if ($key !== '' && isset($seen[$key])) {
+                    continue;
+                }
+
+                if ($key !== '') {
+                    $seen[$key] = true;
+                }
+
+                $merged[] = $field;
+            }
+        }
+
+        return $merged;
+    }
+
+    private static function normalizeSettingsSchema(array $schema, array $defaultSettings = [], string $kind = ''): array
+    {
+        $normalized = [];
+        foreach (self::schemaFieldList($schema) as $field) {
 
             $normalized[] = self::normalizeSettingsField($field, $defaultSettings, $kind);
         }
@@ -362,6 +662,11 @@ class PluginRuntimeService
     {
         $type = strtolower(trim((string)($field['type'] ?? 'text')));
         $key = trim((string)($field['key'] ?? ''));
+        foreach (['label', 'name', 'title', 'placeholder', 'note', 'help', 'description', 'tip', 'remark'] as $textKey) {
+            if (isset($field[$textKey]) && is_string($field[$textKey])) {
+                $field[$textKey] = trim((string)EncodingRepairService::repair($field[$textKey]));
+            }
+        }
         $field['type'] = $type !== '' ? $type : 'text';
 
         if (in_array($field['type'], ['select', 'radio'], true)) {
@@ -392,7 +697,9 @@ class PluginRuntimeService
             foreach ($options as $key => $item) {
                 if (is_array($item)) {
                     $value = self::normalizeOptionScalar($item['value'] ?? $item['key'] ?? $item['id'] ?? $key);
-                    $label = trim((string)($item['label'] ?? $item['name'] ?? $item['text'] ?? $value));
+                    $label = trim((string)EncodingRepairService::repair(
+                        (string)($item['label'] ?? $item['name'] ?? $item['text'] ?? $value)
+                    ));
                     if ($label === '' && $value === '') {
                         continue;
                     }
@@ -404,7 +711,7 @@ class PluginRuntimeService
                     continue;
                 }
 
-                $label = trim((string)$item);
+                $label = trim((string)EncodingRepairService::repair((string)$item));
                 $value = self::normalizeOptionScalar($key);
 
                 if (is_int($key)) {
@@ -440,9 +747,7 @@ class PluginRuntimeService
         return match ($fieldKey) {
             'mode' => self::defaultModeOptions($kind, $defaultValue),
             'device' => self::defaultDeviceOptions($defaultValue),
-            'listener' => [
-                ['label' => '模拟监听', 'value' => $defaultValue !== '' ? $defaultValue : 'mock-listener'],
-            ],
+            'listener' => self::listenerFieldOptions($defaultValue),
             'address_strategy' => [
                 ['label' => '单地址收款', 'value' => $defaultValue !== '' ? $defaultValue : 'single'],
             ],
@@ -581,3 +886,4 @@ class PluginRuntimeService
         return base_path() . DIRECTORY_SEPARATOR . $relativePath;
     }
 }
+

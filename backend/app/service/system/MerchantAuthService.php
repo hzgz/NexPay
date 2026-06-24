@@ -526,7 +526,7 @@ class MerchantAuthService
             'return_url' => '/user/login',
             'client_ip' => $ip,
             'param' => 'merchant-register-fee',
-            'expire_time' => date('Y-m-d H:i:s', time() + 86400),
+            'expire_time' => date('Y-m-d H:i:s', time() + \app\service\payment\OrderService::DEFAULT_EXPIRE_SECONDS),
             'request_payload' => [
                 '_meta' => [
                     'business' => 'merchant_register_fee',

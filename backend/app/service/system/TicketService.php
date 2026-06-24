@@ -427,7 +427,7 @@ class TicketService
         $normalized['merchant_avatar'] = trim((string)($normalized['merchant_avatar'] ?? self::merchantIdentity((int)($normalized['merchant_id'] ?? 0), $normalized['merchant_name'])['avatar']));
         $normalized['merchant_name'] = (string)($merchantIdentity['name'] ?? trim((string)($normalized['merchant_name'] ?? '')));
         if ($normalized['merchant_name'] === '') {
-            $normalized['merchant_name'] = '鍟嗘埛' . (int)($normalized['merchant_id'] ?? 0);
+            $normalized['merchant_name'] = '商户' . (int)($normalized['merchant_id'] ?? 0);
         }
         $normalized['merchant_avatar'] = trim((string)($merchantIdentity['avatar'] ?? $normalized['merchant_avatar'] ?? ''));
         $normalized['messages'] = self::resolveTicketMessagesNormalized($normalized);

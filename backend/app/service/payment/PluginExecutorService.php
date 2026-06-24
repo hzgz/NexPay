@@ -7,6 +7,7 @@ namespace app\service\payment;
 use app\service\system\PluginCodeService;
 use app\service\system\PluginRuntimeService;
 use app\service\system\PluginSchemaService;
+use plugins\payment\common\StaticPaymentPlugin;
 use Throwable;
 
 class PluginExecutorService
@@ -278,13 +279,38 @@ class PluginExecutorService
 
     private static function pluginClass(string $pluginCode): string
     {
-        $pluginDir = legacy_plugin_directory_name(PluginCodeService::normalize($pluginCode));
+        $normalizedCode = PluginCodeService::normalize($pluginCode);
+        $pluginDir = legacy_plugin_directory_name($normalizedCode);
         if ($pluginDir === '') {
             return '';
         }
 
         $classBase = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $pluginDir)));
-        return 'plugins\\payment\\' . $pluginDir . '\\' . $classBase . 'Plugin';
+        $className = 'plugins\\payment\\' . $pluginDir . '\\' . $classBase . 'Plugin';
+        if (class_exists($className)) {
+            return $className;
+        }
+
+        $definition = self::pluginDefinition($normalizedCode);
+        $kind = strtolower(trim((string)($definition['kind'] ?? '')));
+
+        return in_array($kind, ['qrcode', 'ck', 'app'], true) ? StaticPaymentPlugin::class : '';
+    }
+
+    private static function pluginDefinition(string $pluginCode): array
+    {
+        $definitions = PluginRuntimeService::discoverMap();
+        if (isset($definitions[$pluginCode]) && is_array($definitions[$pluginCode])) {
+            return $definitions[$pluginCode];
+        }
+
+        foreach ($definitions as $code => $definition) {
+            if (PluginCodeService::normalize((string)$code) === $pluginCode && is_array($definition)) {
+                return $definition;
+            }
+        }
+
+        return [];
     }
 
     private static function missingRequiredSettings(string $pluginCode, array $channel): array

@@ -7,8 +7,14 @@ use app\exception\BusinessException;
 use app\model\ChannelType;
 use app\model\Order;
 use app\model\MerchantChannel;
+use app\service\payment\GatewayCompatService;
+use app\service\payment\LegacyPaymentGatewayService;
 use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderService;
 use app\service\payment\PluginExecutorService;
+use app\service\payment\QrCodeService;
+use support\Context;
+use support\Request;
 use Throwable;
 
 /**
@@ -37,13 +43,13 @@ class MerchantChannelService
         '[商品名称]' => '{{product_name}}',
         '[实付价格]' => '{{paid_amount}}',
         '[订单价格]' => '{{order_amount}}',
-        '[收款方式]' => '{{payment_method}}',
+        '[支付方式]' => '{{payment_method}}',
         '{{平台订单号}}' => '{{platform_order_no}}',
         '{{商户订单号}}' => '{{merchant_order_no}}',
         '{{商品名称}}' => '{{product_name}}',
         '{{实付价格}}' => '{{paid_amount}}',
         '{{订单价格}}' => '{{order_amount}}',
-        '{{收款方式}}' => '{{payment_method}}',
+        '{{支付方式}}' => '{{payment_method}}',
     ];
 
     public static function all(int $merchantId): array
@@ -61,6 +67,16 @@ class MerchantChannelService
             'plugins' => self::pluginOptions(),
         ];
     }
+
+    public static function findItem(int $merchantId, int $id): ?array
+    {
+        if ($merchantId <= 0 || $id <= 0) {
+            return null;
+        }
+
+        return self::findSerializedItem($merchantId, $id);
+    }
+
     protected static function channelItemsForRotation(int $merchantId): array
     {
         $items = self::canUseDatabase()
@@ -256,7 +272,7 @@ class MerchantChannelService
             }
 
             $item['status_code'] = $statusCode === 1 ? 1 : 0;
-            $item['status'] = $item['status_code'] === 1 ? '启用' : '停用';
+            $item['status'] = $item['status_code'] === 1 ? '启用' : '关闭';
             $found = true;
             break;
         }
@@ -418,6 +434,18 @@ class MerchantChannelService
         $displayValue = self::testOrderSourceValue($item);
         $channelCategory = PaymentMetaService::normalizeCategory((string)($item['category'] ?? ''), $methodCode);
 
+        $legacySnapshot = [
+            'merchant_channel_id' => $id,
+            'merchant_id' => $merchantId,
+            'channel_type_id' => 0,
+            'channel_code' => $methodCode,
+            'channel_category' => $channelCategory,
+            'config' => is_array($item['config'] ?? null) ? $item['config'] : [],
+            'rate' => (float)str_replace('%', '', (string)($item['rate'] ?? '0')),
+            'remark' => (string)($item['remark'] ?? ''),
+        ];
+        $payableAmount = OrderService::resolvePayableAmountForChannelSnapshot($legacySnapshot, $amount);
+
         $orderPayload = [
             'trade_no' => $tradeNo,
             'out_trade_no' => 'test-' . $tradeNo,
@@ -427,12 +455,12 @@ class MerchantChannelService
             'channel_category' => $channelCategory,
             'subject' => $subject,
             'amount' => $amount,
-            'payable_amount' => $amount,
+            'payable_amount' => $payableAmount,
             'status' => 0,
             'payment_address' => $displayValue,
             'txid' => '',
             'confirmations' => 0,
-            'expire_time' => date('Y-m-d H:i:s', time() + 600),
+            'expire_time' => date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS),
             'pay_time' => null,
             'platform_fee' => '0.00000000',
             'fee_deducted' => 0,
@@ -442,7 +470,10 @@ class MerchantChannelService
             'return_url' => $returnUrl,
             'client_ip' => '127.0.0.1',
             'param' => 'channel-test',
-            'request_payload' => ['_meta' => ['source_protocol' => 'channel_test']],
+            'request_payload' => [
+                '_meta' => ['source_protocol' => 'channel_test'],
+                '_legacy_channel' => $legacySnapshot,
+            ],
             'notify_payload' => [],
             'remark' => '通道测试订单',
         ];
@@ -451,8 +482,11 @@ class MerchantChannelService
             $order = new Order();
             $order->save($orderPayload);
         } else {
-            LocalOrderStore::createOrder($orderPayload);
+            $order = LocalOrderStore::createOrder($orderPayload);
         }
+
+        $order = OrderService::findByTradeNo($tradeNo);
+        self::bootstrapTestOrderSource($order, $item);
 
         return [
             'pay_url' => $returnUrl,
@@ -899,28 +933,148 @@ class MerchantChannelService
         }
     }
 
+    private static function bootstrapTestOrderSource(object $order, array $item): void
+    {
+        $pluginCode = PluginCodeService::normalize((string)($item['plugin_code'] ?? ''));
+        if ($pluginCode === '') {
+            return;
+        }
+
+        $kind = strtolower(trim((string)($item['plugin_kind'] ?? '')));
+        if (in_array($kind, ['qrcode', 'chain'], true) && QrCodeService::hasDisplayableQr($order)) {
+            return;
+        }
+
+        $tradeNo = trim((string)($order->trade_no ?? ''));
+        if ($tradeNo === '') {
+            return;
+        }
+
+        $request = request();
+        $requestPath = $request instanceof Request ? $request->path() : null;
+        if (!$request instanceof Request || !is_string($requestPath) || $requestPath === '') {
+            $requestUri = '/pay/submit/' . rawurlencode($tradeNo);
+            $buffer = "GET {$requestUri} HTTP/1.1\r\n"
+                . "Host: 127.0.0.1\r\n"
+                . "X-Forwarded-Proto: http\r\n"
+                . "User-Agent: NexPay-ChannelTest/1.0\r\n"
+                . "Connection: close\r\n\r\n";
+            $gatewayBaseUrl = rtrim(ConfigService::gatewayBaseUrl(), '/');
+            $request = new class($buffer, $gatewayBaseUrl, $requestUri) extends Request {
+                private string $requestPath;
+                private string $requestUri;
+                private string $requestHost;
+
+                public function __construct(
+                    string $buffer,
+                    private readonly string $gatewayBaseUrl,
+                    string $requestUri
+                )
+                {
+                    parent::__construct($buffer);
+                    $parts = parse_url($gatewayBaseUrl);
+                    $this->requestHost = (string)($parts['host'] ?? '127.0.0.1');
+                    if (($parts['port'] ?? null) !== null) {
+                        $this->requestHost .= ':' . (string)$parts['port'];
+                    }
+                    $this->requestPath = $requestUri !== '' ? $requestUri : '/pay/submit';
+                    $this->requestUri = $this->requestPath;
+                }
+
+                public function siteUrl(): string
+                {
+                    return $this->gatewayBaseUrl !== '' ? $this->gatewayBaseUrl . '/' : 'http://127.0.0.1/';
+                }
+
+                public function clientIp(): string
+                {
+                    return '127.0.0.1';
+                }
+
+                public function host(bool $withoutPort = false): string
+                {
+                    if (!$withoutPort) {
+                        return $this->requestHost;
+                    }
+
+                    return (string)parse_url('http://' . $this->requestHost, PHP_URL_HOST);
+                }
+
+                public function uri(): string
+                {
+                    return $this->requestUri;
+                }
+
+                public function path(): string
+                {
+                    return $this->requestPath;
+                }
+
+                public function url(): string
+                {
+                    return $this->requestUri;
+                }
+            };
+        }
+
+        try {
+            Context::set(Request::class, $request);
+            Context::set(\Webman\Http\Request::class, $request);
+            $result = LegacyPaymentGatewayService::run(
+                $tradeNo,
+                'submit',
+                $request
+            );
+        } catch (Throwable $exception) {
+            $message = GatewayCompatService::normalizeGatewayErrorMessageSafe($exception->getMessage());
+            throw new BusinessException(($message !== '' ? $message : '测试订单拉起失败') . ' [' . $exception->getMessage() . ']', StatusCode::BUSINESS_ERROR);
+        } finally {
+            Context::set(Request::class, null);
+            Context::set(\Webman\Http\Request::class, null);
+        }
+
+        $resultType = strtolower(trim((string)($result['type'] ?? '')));
+        if ($resultType === 'error') {
+            $message = GatewayCompatService::normalizeGatewayErrorMessageSafe((string)($result['msg'] ?? ''));
+            throw new BusinessException($message !== '' ? $message : '测试订单拉起失败', StatusCode::BUSINESS_ERROR);
+        }
+
+        if (!in_array($resultType, ['qrcode', 'jump', 'redirect', 'return', 'scheme'], true)) {
+            return;
+        }
+
+        $source = trim(QrCodeService::extractGatewaySource($result));
+        if ($source === '') {
+            return;
+        }
+
+        $meta = array_filter([
+            'type' => $resultType,
+            'page' => trim((string)($result['page'] ?? '')),
+        ], static fn(mixed $value): bool => is_string($value) && $value !== '');
+
+        QrCodeService::rememberOrderSource($tradeNo, $source, $meta);
+
+        try {
+            QrCodeService::probeSourceContentForOrder($order, $source);
+        } catch (Throwable $exception) {
+            $message = GatewayCompatService::normalizeGatewayErrorMessageSafe($exception->getMessage());
+            throw new BusinessException(
+                $message !== '' ? $message : '测试订单拉起失败',
+                StatusCode::BUSINESS_ERROR
+            );
+        }
+    }
+
     private static function testOrderSourceValue(array $payload, int $depth = 0): string
     {
         if ($depth > 2) {
             return '';
         }
 
-        foreach ([
-            'display_value',
-            'payment_address',
-            'address',
-            'qrcode_url',
-            'url',
-            'link',
-            'appreciate_qrcode_url',
-            'qrcode_image',
-            'appreciate_image',
-            'resolved_qrcode_content',
-        ] as $key) {
-            $value = trim((string)($payload[$key] ?? ''));
-            if ($value !== '') {
-                return $value;
-            }
+        $value = QrCodeService::extractSourceValue($payload);
+        if ($value !== '') {
+            return $value;
         }
 
         foreach (['plugin_config', 'config', 'channel'] as $key) {
@@ -1071,6 +1225,22 @@ class MerchantChannelService
             $normalized[$name] = trim((string)$value);
         }
 
+        $pluginCode = PluginCodeService::normalize((string)($normalized['plugin_code'] ?? ''));
+        $mode = strtolower(trim((string)($normalized['mode'] ?? '')));
+        if ($pluginCode === 'wechat-qrcode' && $mode === 'appreciate') {
+            foreach (['payment_address', 'display_value', 'qrcode_url', 'qrcode_image', 'resolved_qrcode_content'] as $field) {
+                $normalized[$field] = '';
+            }
+            $normalized['resolved_qrcode_source'] = 'image';
+        } elseif ($pluginCode === 'wechat-qrcode' && $mode === 'qrcode') {
+            foreach (['appreciate_image', 'appreciate_qrcode_url'] as $field) {
+                if (!array_key_exists($field, $normalized)) {
+                    continue;
+                }
+                $normalized[$field] = trim((string)$normalized[$field]);
+            }
+        }
+
         return $normalized;
     }
 
@@ -1101,7 +1271,7 @@ class MerchantChannelService
 
             if (trim((string)$value) === '') {
                 $label = trim((string)($field['label'] ?? $key));
-                throw new BusinessException($label . ' 不能为空', StatusCode::VALIDATION_ERROR);
+                throw new BusinessException($label . ' 涓嶈兘涓虹┖', StatusCode::VALIDATION_ERROR);
             }
         }
     }
@@ -1118,9 +1288,9 @@ class MerchantChannelService
     {
         $methodCode = PaymentMetaService::normalizeMethodCode((string)($method['code'] ?? ''));
         $methodName = (string)($method['name'] ?? PaymentMetaService::friendlyMethodName($methodCode));
-        $display = $displayValue !== '' ? $displayValue : self::displayValueFromPluginConfig($pluginConfig);
-
         $normalizedPluginCode = PluginCodeService::normalize((string)($plugin['code'] ?? ''));
+        $pluginConfig['plugin_code'] = $normalizedPluginCode;
+        $display = $displayValue !== '' ? $displayValue : self::displayValueFromPluginConfig($pluginConfig);
 
         $config = [
             'method_code' => $methodCode,
@@ -1159,7 +1329,20 @@ class MerchantChannelService
 
     private static function displayValueFromPluginConfig(array $pluginConfig): string
     {
-        foreach (['payment_address', 'display_value', 'qrcode_url', 'address', 'url', 'link'] as $key) {
+        $pluginCode = PluginCodeService::normalize((string)($pluginConfig['plugin_code'] ?? ''));
+        $mode = strtolower(trim((string)($pluginConfig['mode'] ?? '')));
+        $resolvedSource = strtolower(trim((string)($pluginConfig['resolved_qrcode_source'] ?? '')));
+
+        if ($resolvedSource === 'image' || ($pluginCode === 'wechat-qrcode' && $mode === 'appreciate')) {
+            foreach (['appreciate_image', 'appreciate_qrcode_url', 'qrcode_image'] as $key) {
+                $value = trim((string)($pluginConfig[$key] ?? ''));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach (['payment_address', 'display_value', 'qrcode_url', 'address', 'url', 'link', 'appreciate_qrcode_url', 'qrcode_image', 'appreciate_image'] as $key) {
             $value = trim((string)($pluginConfig[$key] ?? ''));
             if ($value !== '') {
                 return $value;
@@ -1238,11 +1421,11 @@ class MerchantChannelService
             'daily_count_limit' => $limits['daily_count_limit'],
             'single_min_amount' => $limits['single_min_amount'],
             'single_max_amount' => $limits['single_max_amount'],
-            'status' => $statusCode === 1 ? '启用' : '停用',
+            'status' => $statusCode === 1 ? '启用' : '关闭',
             'status_code' => $statusCode === 1 ? 1 : 0,
             'remark' => $safeRemark,
             'config' => $config,
-            'execution' => self::executionStatus($pluginCode, $plugin, $statusCode),
+            'execution' => self::executionStatus($pluginCode, $plugin, $statusCode, $config, $methodCode),
         ] + $runtimeState;
     }
 
@@ -1280,7 +1463,7 @@ class MerchantChannelService
         $requiresOnline = self::pluginRequiresOnlineRuntime($pluginKind, $runtime) || $pluginCode === 'alipay-ck';
         $isMonitorPlugin = $requiresOnline || $runtime !== [];
         $online = true;
-        $statusLabel = '无需心跳';
+        $statusLabel = '无需在线';
         $statusKey = 'not_required';
         $offlineReason = '';
 
@@ -1368,14 +1551,29 @@ class MerchantChannelService
             default => '当前通道已离线，请稍后重试。',
         };
     }
-    private static function executionStatus(string $pluginCode, array $plugin, int $statusCode): array
+
+    private static function executionStatus(
+        string $pluginCode,
+        array $plugin,
+        int $statusCode,
+        array $config = [],
+        string $methodCode = ''
+    ): array
     {
         $pluginCode = PluginCodeService::normalize($pluginCode);
         $capability = PluginExecutorService::capability($pluginCode);
         $health = is_array($plugin['health'] ?? null) ? $plugin['health'] : [];
-        $issues = is_array($health['issues'] ?? null) ? $health['issues'] : [];
-        $level = (string)($health['level'] ?? '');
-        $label = (string)($health['label'] ?? '');
+        $issues = array_values(array_filter(
+            array_map('strval', is_array($health['issues'] ?? null) ? $health['issues'] : []),
+            static fn(string $issue): bool => $issue !== ''
+                && !str_starts_with($issue, '缺少必填配置：')
+                && !str_starts_with($issue, '缺少必填运行配置:')
+                && !str_starts_with($issue, '缺少必填运行配置：')
+        ));
+        $level = '';
+        $label = '';
+        $pluginConfig = is_array($config['plugin_config'] ?? null) ? $config['plugin_config'] : [];
+        $missingRequired = self::missingRequiredPluginSettings($plugin, $methodCode, $pluginConfig);
 
         if ($statusCode !== 1) {
             $level = 'disabled';
@@ -1383,19 +1581,26 @@ class MerchantChannelService
             $issues[] = '通道已停用';
         } elseif ($pluginCode === '') {
             $level = 'blocked';
-            $label = '不可执行';
+            $label = '未绑定插件';
             $issues[] = '通道未绑定支付插件';
         } elseif (!(bool)($capability['exists'] ?? false)) {
             $level = 'blocked';
-            $label = '不可自动执行';
+            $label = '不可执行';
             $issues[] = in_array((string)($plugin['kind'] ?? ''), ['qrcode', 'app', 'ck'], true)
                 ? '缺少可执行插件类，仅可展示静态收款信息'
                 : '缺少可执行插件类';
+        } elseif ($missingRequired !== []) {
+            $level = 'blocked';
+            $label = '待配置';
+            $issues[] = '缺少必填配置：' . implode('、', $missingRequired);
         } elseif (!(bool)($capability['query'] ?? false)) {
             $level = 'blocked';
-            $label = '不可自动查单';
+            $label = '不可查单';
             $issues[] = '支付插件未实现 query 方法';
-        } elseif ($level === '') {
+        } elseif (!(bool)($capability['refund'] ?? false) || !(bool)($capability['transfer'] ?? false)) {
+            $level = 'partial';
+            $label = '部分能力';
+        } else {
             $level = 'ready';
             $label = '可执行';
         }
@@ -1413,9 +1618,59 @@ class MerchantChannelService
         ];
     }
 
+    private static function missingRequiredPluginSettings(array $plugin, string $methodCode, array $pluginConfig): array
+    {
+        $missing = [];
+
+        foreach ((array)($plugin['settings_schema'] ?? []) as $field) {
+            if (!is_array($field) || !self::toBool($field['required'] ?? false)) {
+                continue;
+            }
+
+            if (!PluginSchemaService::isFieldVisible(
+                $field,
+                $methodCode,
+                $pluginConfig,
+                is_array($plugin['payment_methods'] ?? null) ? $plugin['payment_methods'] : []
+            )) {
+                continue;
+            }
+
+            $key = trim((string)($field['key'] ?? ''));
+            if ($key === '') {
+                continue;
+            }
+
+            $value = $pluginConfig[$key] ?? null;
+            $isMissing = is_array($value)
+                ? $value === []
+                : trim((string)$value) === '';
+
+            if ($isMissing) {
+                $missing[] = trim((string)($field['label'] ?? $key)) ?: $key;
+            }
+        }
+
+        return array_values(array_unique($missing));
+    }
+
     private static function displayValueFromStoredConfig(array $config): string
     {
-        foreach (['display_value', 'payment_address', 'address', 'qrcode_url'] as $key) {
+        $pluginConfig = is_array($config['plugin_config'] ?? null) ? $config['plugin_config'] : [];
+        $pluginCode = PluginCodeService::normalize((string)($config['plugin_code'] ?? $pluginConfig['plugin_code'] ?? ''));
+        $mode = strtolower(trim((string)($pluginConfig['mode'] ?? $config['mode'] ?? '')));
+        $resolvedSource = strtolower(trim((string)($pluginConfig['resolved_qrcode_source'] ?? $config['resolved_qrcode_source'] ?? '')));
+
+        if ($resolvedSource === 'image' || ($pluginCode === 'wechat-qrcode' && $mode === 'appreciate')) {
+            foreach (['appreciate_image', 'appreciate_qrcode_url', 'qrcode_image'] as $key) {
+                $value = trim((string)($pluginConfig[$key] ?? $config[$key] ?? ''));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach (['display_value', 'payment_address', 'address', 'qrcode_url', 'appreciate_qrcode_url', 'qrcode_image', 'appreciate_image'] as $key) {
             $value = trim((string)($config[$key] ?? ''));
             if ($value !== '') {
                 return $value;
@@ -1495,6 +1750,7 @@ class MerchantChannelService
 
     private static function normalizeStoredJsonItem(array $item): array
     {
+        $item = self::stripComputedItemFields($item);
         $methodCode = PaymentMetaService::normalizeMethodCode((string)($item['method_code'] ?? $item['code'] ?? $item['channel_code'] ?? ''));
         $pluginCode = PluginCodeService::normalize((string)($item['plugin_code'] ?? ''));
         $statusCode = (int)($item['status_code'] ?? 0) === 1 ? 1 : 0;
@@ -1527,8 +1783,21 @@ class MerchantChannelService
         $item['plugin_config'] = $pluginConfig;
         $item['config'] = $config;
         $item['status_code'] = $statusCode;
-        $item['status'] = $statusCode === 1 ? '启用' : '停用';
+        $item['status'] = $statusCode === 1 ? '启用' : '关闭';
         $item['remark'] = PaymentMetaService::safeRemark((string)($item['remark'] ?? ''), $methodCode);
+
+        return $item;
+    }
+
+    private static function stripComputedItemFields(array $item): array
+    {
+        unset($item['execution'], $item['plugin_schema'], $item['payment_methods'], $item['monitor_runtime']);
+
+        foreach (array_keys($item) as $key) {
+            if (str_starts_with((string)$key, 'runtime_')) {
+                unset($item[$key]);
+            }
+        }
 
         return $item;
     }
@@ -1634,13 +1903,13 @@ class MerchantChannelService
             '[商品名称]' => '{{product_name}}',
             '[实付价格]' => '{{paid_amount}}',
             '[订单价格]' => '{{order_amount}}',
-            '[收款方式]' => '{{payment_method}}',
+            '[支付方式]' => '{{payment_method}}',
             '{{平台订单号}}' => '{{platform_order_no}}',
             '{{商户订单号}}' => '{{merchant_order_no}}',
             '{{商品名称}}' => '{{product_name}}',
             '{{实付价格}}' => '{{paid_amount}}',
             '{{订单价格}}' => '{{order_amount}}',
-            '{{收款方式}}' => '{{payment_method}}',
+            '{{支付方式}}' => '{{payment_method}}',
         ]);
     }
 
@@ -1656,3 +1925,4 @@ class MerchantChannelService
     }
 
 }
+

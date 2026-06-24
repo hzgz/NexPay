@@ -6,18 +6,40 @@ return [
     'payment_methods' => ['qqpay'],
     'default_settings' => [
         'enabled' => true,
-        'mode' => 'native',
+        'mode' => 'qrcode',
         'device' => 'pc',
         'notify_retry' => 5,
+        'qrcode_image' => '',
+        'payment_address' => '',
+        'display_value' => '',
+        'qrcode_url' => '',
     ],
     'settings_schema' => [
         [
             'key' => 'mode',
-            'label' => '支付模式',
+            'label' => '码类型',
             'type' => 'select',
+            'required' => true,
             'options' => [
-                ['label' => '二维码', 'value' => 'native'],
+                ['label' => 'QQ 收款码', 'value' => 'qrcode'],
             ],
+        ],
+        [
+            'key' => 'qrcode_image',
+            'label' => 'QQ 收款码图片',
+            'type' => 'image',
+            'required' => true,
+            'upload_action' => 'merchant_channel_qrcode',
+            'accept' => '.jpg,.jpeg,.png,.gif,.webp,.bmp',
+            'note' => '上传后系统会自动解析二维码内容，并回填发起支付所需的二维码地址。',
+        ],
+        [
+            'key' => 'payment_address',
+            'label' => '解析后的二维码地址',
+            'type' => 'text',
+            'required' => true,
+            'readonly' => true,
+            'note' => '由后台解析二维码图片后自动回填。',
         ],
         [
             'key' => 'device',
@@ -28,6 +50,10 @@ return [
                 ['label' => '手机/H5', 'value' => 'mobile'],
             ],
         ],
-        ['key' => 'notify_retry', 'label' => '回调重试次数', 'type' => 'number'],
+        [
+            'key' => 'notify_retry',
+            'label' => '回调重试次数',
+            'type' => 'number',
+        ],
     ],
 ];

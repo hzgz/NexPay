@@ -31,7 +31,7 @@ return [
             'required' => true,
             'upload_action' => 'merchant_channel_qrcode',
             'accept' => '.jpg,.jpeg,.png,.gif,.webp,.bmp',
-            'note' => '上传后将调用后台解析二维码内容，并保存为发起支付时的生码地址。',
+            'note' => '上传后系统会自动解析二维码内容，并回填发起支付所需的二维码地址。',
         ],
         [
             'key' => 'payment_address',
@@ -50,6 +50,10 @@ return [
                 ['label' => '手机/H5', 'value' => 'mobile'],
             ],
         ],
-        ['key' => 'notify_retry', 'label' => '回调重试次数', 'type' => 'number'],
+        [
+            'key' => 'notify_retry',
+            'label' => '回调重试次数',
+            'type' => 'number',
+        ],
     ],
 ];

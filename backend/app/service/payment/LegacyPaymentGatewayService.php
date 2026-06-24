@@ -428,7 +428,7 @@ class LegacyPaymentGatewayService
 
     private static function qrcodeResponse(string $tradeNo, array $result): Response
     {
-        $rawUrl = self::normalizeResultUrl((string)($result['url'] ?? ''));
+        $rawUrl = self::normalizeResultUrl(QrCodeService::extractGatewaySource($result));
         if ($rawUrl !== '') {
             QrCodeService::rememberOrderSource($tradeNo, $rawUrl, array_filter([
                 'type' => 'qrcode',

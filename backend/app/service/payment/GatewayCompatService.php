@@ -7,6 +7,7 @@ namespace app\service\payment;
 use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\service\system\ConfigService;
+use app\service\system\EncodingRepairService;
 use app\service\system\SettlementService;
 use Throwable;
 
@@ -350,7 +351,7 @@ class GatewayCompatService
 
     public static function normalizeGatewayErrorMessage(string $message): string
     {
-        $normalized = trim($message);
+        $normalized = trim((string)EncodingRepairService::repair($message));
         if ($normalized === '') {
             return '支付请求失败';
         }
@@ -365,8 +366,6 @@ class GatewayCompatService
         foreach ([
             '未配置当前支付方式的可用通道',
             '未配置当前支付方式的可用自定义通道',
-            '涓婃父鏄撴敮浠',
-            '褰撳墠鏀粯鏂瑰紡',
         ] as $needle) {
             if (str_contains($normalized, $needle)) {
                 return '上游易支付商户未配置当前支付方式的可用自定义通道';
@@ -378,7 +377,7 @@ class GatewayCompatService
 
     public static function normalizeGatewayErrorMessageSafe(string $message): string
     {
-        $normalized = trim($message);
+        $normalized = trim((string)EncodingRepairService::repair($message));
         if ($normalized === '') {
             return '支付请求失败';
         }
@@ -390,8 +389,6 @@ class GatewayCompatService
         foreach ([
             '未配置当前支付方式的可用通道',
             '未配置当前支付方式的可用自定义通道',
-            '涓婃父鏄撴敮浠',
-            '褰撳墠鏀粯鏂瑰紡',
         ] as $needle) {
             if (str_contains($normalized, $needle)) {
                 return '上游易支付商户未配置当前支付方式的可用自定义通道';

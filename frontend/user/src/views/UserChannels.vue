@@ -173,6 +173,7 @@ const alipayCkLoading = reactive({
   qrcode: false,
   status: false,
 })
+const alipayCkAutoSyncing = ref(false)
 let alipayCkPollTimer: number | null = null
 let alipayCkSuccessToastShown = false
 const alipayCkPanel = reactive<AlipayCkPanelState>({
@@ -319,8 +320,18 @@ const selectedConfigPlugin = computed<ChannelPlugin | null>(() => {
 })
 
 const isAlipayCkConfig = computed(() => String(configForm.plugin_code || '') === 'alipay-ck')
+const isAlipayQrcodeConfig = computed(() => String(configForm.plugin_code || '') === 'alipay-qrcode')
+const isWechatQrcodeConfig = computed(() => String(configForm.plugin_code || '') === 'wechat-qrcode')
+const isQqQrcodeConfig = computed(() => String(configForm.plugin_code || '') === 'qqpay-qrcode')
+const usesDedicatedQrConfig = computed(
+  () => isAlipayQrcodeConfig.value || isWechatQrcodeConfig.value || isQqQrcodeConfig.value,
+)
 
 const configSchema = computed<Record<string, any>[]>(() => {
+  if (isAlipayCkConfig.value || usesDedicatedQrConfig.value) {
+    return []
+  }
+
   const rawSchema = selectedConfigPlugin.value?.settings_schema
   const rawSchemaObject = rawSchema && typeof rawSchema === 'object' ? (rawSchema as Record<string, any>) : null
   const schema = Array.isArray(rawSchema)
@@ -555,7 +566,12 @@ async function loadAlipayCkStatus(options: { silent?: boolean } = {}) {
   if (!Number(configForm.id || 0) || !isAlipayCkConfig.value) return
 
   stopAlipayCkPolling()
-  alipayCkLoading.status = true
+  const silent = options.silent === true
+  if (silent) {
+    alipayCkAutoSyncing.value = true
+  } else {
+    alipayCkLoading.status = true
+  }
   try {
     const resp = await syncUserAlipayCkStatus(Number(configForm.id || 0))
     if (resp.code === 0 && resp.data) {
@@ -563,7 +579,7 @@ async function loadAlipayCkStatus(options: { silent?: boolean } = {}) {
       mergeAlipayCkPluginConfig(resp.data)
       const nextStatus = String((resp.data.status || resp.data.login_state || alipayCkPanel.status || '')).trim().toLowerCase()
 
-      if (!options.silent) {
+      if (!silent) {
         ElMessage.success(resp.message || '登录状态已更新')
       } else if (nextStatus === 'authenticated' && previousStatus !== 'authenticated' && !alipayCkSuccessToastShown) {
         ElMessage.success('支付宝 CK 已登录成功')
@@ -576,19 +592,23 @@ async function loadAlipayCkStatus(options: { silent?: boolean } = {}) {
       return
     }
 
-    if (!options.silent) {
+    if (!silent) {
       ElMessage.error(resp.message || '登录状态更新失败')
     } else {
       scheduleAlipayCkPolling(2400)
     }
   } catch {
-    if (!options.silent) {
+    if (!silent) {
       ElMessage.error('登录状态更新失败')
     } else {
       scheduleAlipayCkPolling(2400)
     }
   } finally {
-    alipayCkLoading.status = false
+    if (silent) {
+      alipayCkAutoSyncing.value = false
+    } else {
+      alipayCkLoading.status = false
+    }
   }
 }
 
@@ -890,7 +910,7 @@ async function openConfig(item: Record<string, any>) {
   }
 
   if (String(configForm.plugin_config?.login_id || '').trim()) {
-    await loadAlipayCkStatus()
+    await loadAlipayCkStatus({ silent: true })
     return
   }
 
@@ -989,7 +1009,7 @@ onBeforeUnmount(() => {
 
 function syncDisplayValueFromConfig() {
   const config = configForm.plugin_config || {}
-  for (const key of ['payment_address', 'display_value', 'qrcode_url', 'address', 'url', 'link']) {
+  for (const key of ['payment_address', 'display_value', 'qrcode_url', 'address', 'url', 'link', 'appreciate_qrcode_url', 'qrcode_image', 'appreciate_image']) {
     const value = String(config[key] ?? '').trim()
     if (value) {
       configForm.display_value = value
@@ -1159,6 +1179,37 @@ function fieldReadonly(field: Record<string, any>) {
   return Boolean(field?.readonly)
 }
 
+function fieldPlaceholder(field: Record<string, any>) {
+  const custom = String(field?.placeholder || '').trim()
+  if (custom) return custom
+
+  const label = String(field?.label || field?.key || '').trim()
+  const type = fieldType(field)
+
+  if (type === 'image') {
+    return label ? `可手动填写${label}，也可右侧上传` : '可手动填写，也可右侧上传'
+  }
+
+  if (type === 'file') {
+    return label ? `可手动填写${label}路径，也可右侧上传` : '可手动填写文件路径，也可右侧上传'
+  }
+
+  if (type === 'number') {
+    return label ? `请输入${label}` : '请输入数值'
+  }
+
+  return label ? `请输入${label}` : '请输入内容'
+}
+
+function fieldNote(field: Record<string, any>) {
+  for (const key of ['note', 'help', 'description', 'tip', 'remark']) {
+    const value = String(field?.[key] ?? '').trim()
+    if (value) return value
+  }
+
+  return ''
+}
+
 function uploadFieldButtonText(field: Record<string, any>) {
   const type = fieldType(field)
   if (type === 'image') return '上传图片'
@@ -1167,15 +1218,23 @@ function uploadFieldButtonText(field: Record<string, any>) {
 }
 
 function fieldAccept(field: Record<string, any>) {
-  return String(field.accept || '.jpg,.jpeg,.png,.gif,.webp,.bmp')
+  const accept = String(field.accept || '').trim()
+  if (accept) return accept
+  return fieldType(field) === 'file'
+    ? '.crt,.cer,.pem,.key,.pfx,.p12,.txt'
+    : '.jpg,.jpeg,.png,.gif,.webp,.bmp'
 }
 
-function uploadHint(field: Record<string, any>) {
-  return String(field.note || '')
+function uploadHint(_field: Record<string, any>) {
+  return ''
 }
 
-function uploadPreviewValue(fieldKey: string) {
-  return String(configForm.plugin_config?.[fieldKey] ?? '')
+function patchUploadedPluginConfig(data: Record<string, any>) {
+  configForm.plugin_config = {
+    ...(configForm.plugin_config || {}),
+    ...(data.plugin_config || {}),
+  }
+  syncDisplayValueFromConfig()
 }
 
 async function handleConfigFileChange(field: Record<string, any>, event: Event) {
@@ -1199,11 +1258,7 @@ async function handleConfigFileChange(field: Record<string, any>, event: Event) 
     })
 
     if (resp.code === 0 && resp.data) {
-      configForm.plugin_config = {
-        ...(configForm.plugin_config || {}),
-        ...(resp.data.plugin_config || {}),
-      }
-      syncDisplayValueFromConfig()
+      patchUploadedPluginConfig(resp.data)
       ElMessage.success(resp.message || '上传成功')
     } else {
       ElMessage.error(resp.message || '上传失败')
@@ -1559,7 +1614,6 @@ onMounted(load)
                   <span class="alipay-ck-panel__title">支付宝 CK 登录</span>
                   <span class="status-chip" :class="alipayCkPanel.status_tone">{{ alipayCkPanel.status_label }}</span>
                 </div>
-                <p class="alipay-ck-panel__message">{{ alipayCkPanel.message }}</p>
               </div>
               <div class="alipay-ck-panel__actions">
                 <button class="ghost-btn" type="button" :disabled="alipayCkLoading.qrcode" @click="loadAlipayCkQrcode">
@@ -1600,12 +1654,100 @@ onMounted(load)
             </div>
           </div>
 
+          <div v-else-if="usesDedicatedQrConfig" class="qr-config-panel">
+            <div class="field-grid compact">
+              <label v-if="isWechatQrcodeConfig" class="field">
+                <span class="field-label">码类型</span>
+                <select v-model="configForm.plugin_config.mode">
+                  <option value="qrcode">微信收款码</option>
+                  <option value="appreciate">微信赞赏码</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="field-label">设备场景</span>
+                <select v-model="configForm.plugin_config.device">
+                  <option value="pc">PC/网页</option>
+                  <option value="mobile">手机/H5</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="field-label">回调重试次数</span>
+                <input v-model="configForm.plugin_config.notify_retry" type="number" min="0" step="1" />
+              </label>
+            </div>
+
+            <div
+              v-if="isAlipayQrcodeConfig || String(configForm.plugin_config?.mode || 'qrcode') === 'qrcode'"
+              class="qr-config-row"
+            >
+              <label class="field qr-config-row__main">
+                <span class="field-label">二维码地址</span>
+                <input
+                  v-model="configForm.plugin_config.payment_address"
+                  type="text"
+                  placeholder="上传后自动回填，也可手动修正二维码地址"
+                />
+              </label>
+              <label class="field qr-config-row__upload">
+                <span class="field-label">上传图片</span>
+                <label class="ghost-btn upload-field__button qr-config-row__button">
+                  <span>{{ configUploadLoading.qrcode_image ? '上传中...' : '上传收款码' }}</span>
+                  <input
+                    class="upload-field__input"
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.gif,.webp,.bmp"
+                    :disabled="Boolean(configUploadLoading.qrcode_image)"
+                    @change="
+                      handleConfigFileChange(
+                        { key: 'qrcode_image', type: 'image', accept: '.jpg,.jpeg,.png,.gif,.webp,.bmp' },
+                        $event,
+                      )
+                    "
+                  />
+                </label>
+              </label>
+            </div>
+
+            <div v-if="isWechatQrcodeConfig && String(configForm.plugin_config?.mode || 'qrcode') === 'appreciate'" class="qr-config-row">
+              <label class="field qr-config-row__main">
+                <span class="field-label">赞赏码图片地址</span>
+                <input
+                  v-model="configForm.plugin_config.appreciate_qrcode_url"
+                  type="text"
+                  readonly
+                  placeholder="上传后自动回填图片地址"
+                />
+              </label>
+              <label class="field qr-config-row__upload">
+                <span class="field-label">上传图片</span>
+                <label class="ghost-btn upload-field__button qr-config-row__button">
+                  <span>{{ configUploadLoading.appreciate_image ? '上传中...' : '上传赞赏码' }}</span>
+                  <input
+                    class="upload-field__input"
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.gif,.webp,.bmp"
+                    :disabled="Boolean(configUploadLoading.appreciate_image)"
+                    @change="
+                      handleConfigFileChange(
+                        { key: 'appreciate_image', type: 'image', accept: '.jpg,.jpeg,.png,.gif,.webp,.bmp' },
+                        $event,
+                      )
+                    "
+                  />
+                </label>
+              </label>
+            </div>
+
+          </div>
+
           <div v-else-if="configSchema.length" class="field-grid compact">
             <label
               v-for="field in configSchema"
               :key="field.key"
               class="field"
-              :class="{ 'field-span-2': ['textarea', 'html'].includes(fieldType(field)) }"
+              :class="{ 'field-span-2': ['textarea', 'html', 'image', 'file'].includes(fieldType(field)) }"
             >
               <span class="field-label">{{ field.label || field.key }}</span>
 
@@ -1613,6 +1755,7 @@ onMounted(load)
                 v-if="fieldType(field) === 'textarea'"
                 v-model="configForm.plugin_config[field.key]"
                 rows="4"
+                :placeholder="fieldPlaceholder(field)"
                 :readonly="fieldReadonly(field)"
               />
 
@@ -1620,6 +1763,7 @@ onMounted(load)
                 v-else-if="fieldType(field) === 'number'"
                 v-model="configForm.plugin_config[field.key]"
                 type="number"
+                :placeholder="fieldPlaceholder(field)"
                 :readonly="fieldReadonly(field)"
               />
 
@@ -1627,12 +1771,14 @@ onMounted(load)
                 v-else-if="fieldType(field) === 'password'"
                 v-model="configForm.plugin_config[field.key]"
                 type="password"
+                :placeholder="fieldPlaceholder(field)"
                 :readonly="fieldReadonly(field)"
               />
 
               <select
                 v-else-if="fieldType(field) === 'select' || fieldType(field) === 'radio'"
                 v-model="configForm.plugin_config[field.key]"
+                :disabled="fieldReadonly(field)"
               >
                 <option
                   v-for="option in normalizeOptions(field.options)"
@@ -1654,7 +1800,13 @@ onMounted(load)
 
               <div v-else-if="fieldType(field) === 'image' || fieldType(field) === 'file'" class="upload-field">
                 <div class="upload-field__row">
-                  <input :value="uploadPreviewValue(field.key)" type="text" readonly />
+                  <input
+                    v-model="configForm.plugin_config[field.key]"
+                    class="upload-field__text"
+                    type="text"
+                    :placeholder="fieldPlaceholder(field)"
+                    :readonly="fieldReadonly(field)"
+                  />
                   <label class="ghost-btn upload-field__button">
                     <span>{{ configUploadLoading[field.key] ? '上传中...' : uploadFieldButtonText(field) }}</span>
                     <input
@@ -1671,13 +1823,23 @@ onMounted(load)
 
               <div v-else-if="fieldType(field) === 'html'" class="field-html" v-html="String(field.note || field.label || '')" />
 
-              <input v-else v-model="configForm.plugin_config[field.key]" type="text" :readonly="fieldReadonly(field)" />
+              <input
+                v-else
+                v-model="configForm.plugin_config[field.key]"
+                type="text"
+                :placeholder="fieldPlaceholder(field)"
+                :readonly="fieldReadonly(field)"
+              />
+
+              <small
+                v-if="!['html', 'image', 'file'].includes(fieldType(field)) && fieldNote(field) && false"
+                class="field-note"
+              >
+                {{ fieldNote(field) }}
+              </small>
             </label>
           </div>
 
-          <div v-else class="info-box">
-            当前插件没有额外配置项。
-          </div>
         </div>
       </div>
       <template #footer>
@@ -2006,6 +2168,10 @@ onMounted(load)
   gap: 8px;
 }
 
+.upload-field__text {
+  min-width: 0;
+}
+
 .upload-field__row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2015,6 +2181,10 @@ onMounted(load)
 
 .upload-field__button {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
   overflow: hidden;
   cursor: pointer;
   white-space: nowrap;
@@ -2028,6 +2198,12 @@ onMounted(load)
 }
 
 .upload-field__hint {
+  color: #7a879c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.field-note {
   color: #7a879c;
   font-size: 12px;
   line-height: 1.6;
@@ -2080,13 +2256,6 @@ onMounted(load)
   color: #355276;
   font-size: 14px;
   font-weight: 600;
-}
-
-.alipay-ck-panel__message {
-  margin: 0;
-  color: #51647f;
-  font-size: 13px;
-  line-height: 1.7;
 }
 
 .alipay-ck-panel__actions {
@@ -2156,6 +2325,28 @@ onMounted(load)
   font-size: 13px;
   line-height: 1.7;
   text-align: center;
+}
+
+.qr-config-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.qr-config-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  gap: 12px;
+  align-items: end;
+}
+
+.qr-config-row__main,
+.qr-config-row__upload {
+  min-width: 0;
+}
+
+.qr-config-row__button {
+  justify-content: center;
+  width: 100%;
 }
 
 .channel-toolbar {
@@ -2472,7 +2663,8 @@ onMounted(load)
   }
 
   .alipay-ck-panel__body,
-  .alipay-ck-panel__meta {
+  .alipay-ck-panel__meta,
+  .qr-config-row {
     grid-template-columns: 1fr;
   }
 

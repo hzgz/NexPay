@@ -114,7 +114,7 @@ class ResourceController extends BaseApiController
                     $request->all(),
                     $request->file('file')
                 ),
-                '二维码配置上传成功'
+                '配置上传成功'
             );
         });
     }

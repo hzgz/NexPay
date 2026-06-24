@@ -5,8 +5,10 @@ namespace app\controller\api;
 use app\constant\StatusCode;
 use app\controller\BaseApiController;
 use app\exception\BusinessException;
+use app\service\payment\LegacyPaymentGatewayService;
 use app\service\payment\OrderService;
 use app\service\payment\QrCodeService;
+use app\service\system\EncodingRepairService;
 use app\service\system\MerchantChannelService;
 use app\service\system\PaymentMetaService;
 use app\service\system\SettingsService;
@@ -41,18 +43,6 @@ class CheckoutController extends BaseApiController
         '{{实付价格}}' => '{{paid_amount}}',
         '{{订单价格}}' => '{{order_amount}}',
         '{{支付方式}}' => '{{payment_method}}',
-        '[骞冲彴璁㈠崟鍙穄' => '{{platform_order_no}}',
-        '[鍟嗘埛璁㈠崟鍙穄' => '{{merchant_order_no}}',
-        '[鍟嗗搧鍚嶇О]' => '{{product_name}}',
-        '[瀹炰粯浠锋牸]' => '{{paid_amount}}',
-        '[璁㈠崟浠锋牸]' => '{{order_amount}}',
-        '[鏀粯鏂瑰紡]' => '{{payment_method}}',
-        '{{骞冲彴璁㈠崟鍙穧}' => '{{platform_order_no}}',
-        '{{鍟嗘埛璁㈠崟鍙穧}' => '{{merchant_order_no}}',
-        '{{鍟嗗搧鍚嶇О}}' => '{{product_name}}',
-        '{{瀹炰粯浠锋牸}}' => '{{paid_amount}}',
-        '{{璁㈠崟浠锋牸}}' => '{{order_amount}}',
-        '{{鏀粯鏂瑰紡}}' => '{{payment_method}}',
     ];
 
     public function show(Request $request, string $trade_no): Response
@@ -336,9 +326,9 @@ class CheckoutController extends BaseApiController
       text-align:center;
     }
     .qr-stage.is-blocked .qr-box img{
-      filter:blur(8px);
-      opacity:.16;
-      transform:scale(.98);
+      filter:blur(2px) saturate(.96) contrast(.95);
+      opacity:.42;
+      transform:scale(.992);
     }
     .qr-mask{
       position:absolute;
@@ -348,25 +338,69 @@ class CheckoutController extends BaseApiController
       justify-content:center;
       padding:24px;
       border-radius:18px;
-      background:rgba(14,24,43,.74);
-      backdrop-filter:blur(6px);
+      overflow:hidden;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,.24) 0%, rgba(239,245,255,.18) 42%, rgba(214,227,246,.14) 100%),
+        rgba(221,232,248,.16);
+      backdrop-filter:blur(8px) saturate(1.02);
+      -webkit-backdrop-filter:blur(8px) saturate(1.02);
+    }
+    .qr-mask::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:inherit;
+      background:
+        linear-gradient(90deg,
+          rgba(255,255,255,.14) 0 25%,
+          rgba(233,240,251,.08) 25% 50%,
+          rgba(255,255,255,.12) 50% 75%,
+          rgba(225,236,249,.06) 75% 100%),
+        linear-gradient(0deg,
+          rgba(255,255,255,.10) 0 25%,
+          rgba(216,228,245,.06) 25% 50%,
+          rgba(255,255,255,.08) 50% 75%,
+          rgba(206,221,242,.04) 75% 100%);
+      background-size:34px 34px;
+      opacity:.9;
+      mix-blend-mode:screen;
+      pointer-events:none;
+    }
+    .qr-mask::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:inherit;
+      border:1px solid rgba(255,255,255,.22);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.16);
+      pointer-events:none;
     }
     .qr-mask__inner{
       max-width:300px;
       text-align:center;
       color:#fff;
+      position:relative;
+      z-index:1;
+      padding:24px 22px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(98,118,158,.22);
+      box-shadow:0 16px 32px rgba(90,114,158,.12);
+      backdrop-filter:blur(3px);
+      -webkit-backdrop-filter:blur(3px);
     }
     .qr-mask__title{
       display:block;
       font-size:20px;
       line-height:1.3;
       font-weight:800;
+      text-shadow:0 1px 2px rgba(16,25,40,.18);
     }
     .qr-mask__copy{
       margin:10px 0 0;
       font-size:13px;
       line-height:1.8;
-      color:rgba(255,255,255,.84);
+      color:rgba(255,255,255,.92);
     }
     .status{
       display:inline-flex;
@@ -755,6 +789,7 @@ HTML;
     private function normalizeCheckoutOrderState(object $order): object
     {
         $order = OrderService::syncHomepageTestOrder($order);
+        $order = $this->bootstrapPendingQrSource($order);
         if (
             (int) ($order->status ?? 0) === OrderService::STATUS_PENDING
             && $this->isOrderExpired($order)
@@ -763,6 +798,39 @@ HTML;
         }
 
         return $order;
+    }
+
+    private function bootstrapPendingQrSource(object $order): object
+    {
+        if ((int)($order->status ?? 0) !== OrderService::STATUS_PENDING) {
+            return $order;
+        }
+
+        if (QrCodeService::hasDisplayableQr($order)) {
+            return $order;
+        }
+
+        try {
+            $result = LegacyPaymentGatewayService::run((string)($order->trade_no ?? ''), 'submit', request());
+            $resultType = strtolower(trim((string)($result['type'] ?? '')));
+            if (in_array($resultType, ['qrcode', 'jump', 'redirect', 'return', 'scheme'], true)) {
+                $source = trim(QrCodeService::extractGatewaySource($result));
+                if ($source !== '') {
+                    QrCodeService::rememberOrderSource(
+                        (string)($order->trade_no ?? ''),
+                        $source,
+                        array_filter([
+                            'type' => $resultType,
+                            'page' => trim((string)($result['page'] ?? '')),
+                        ], static fn(mixed $value): bool => is_string($value) && $value !== '')
+                    );
+                }
+            }
+        } catch (\Throwable) {
+            return $order;
+        }
+
+        return OrderService::findByTradeNo((string)($order->trade_no ?? ''));
     }
 
     private function checkoutTemplateVariables(object $order): array
@@ -781,6 +849,7 @@ HTML;
 
     private function renderTextTemplate(string $template, array $variables): string
     {
+        $template = (string)EncodingRepairService::repair($template);
         $normalized = strtr($template, self::TEMPLATE_TOKEN_ALIAS_MAP);
         return trim(strtr($normalized, $variables));
     }

@@ -16,7 +16,7 @@ class BaseApiController
     {
         return json([
             'code' => $code,
-            'message' => $message,
+            'message' => (string)EncodingRepairService::repair($message),
             'data' => EncodingRepairService::repair($data),
             'timestamp' => time(),
         ])->withHeader('Content-Type', 'application/json; charset=utf-8');
@@ -26,7 +26,7 @@ class BaseApiController
     {
         return json([
             'code' => $code,
-            'message' => $message,
+            'message' => (string)EncodingRepairService::repair($message),
             'data' => EncodingRepairService::repair($data),
             'timestamp' => time(),
         ], $httpCode)->withHeader('Content-Type', 'application/json; charset=utf-8');

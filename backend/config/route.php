@@ -4,6 +4,7 @@ use app\controller\admin\AuthController as AdminAuthController;
 use app\controller\admin\DashboardController as AdminDashboardController;
 use app\controller\admin\ResourceController as AdminResourceController;
 use app\controller\StaticAppController;
+use app\controller\api\AlipayBridgeController;
 use app\controller\api\CheckoutController;
 use app\controller\api\EpayV1Controller;
 use app\controller\api\EpayV2Controller;
@@ -177,6 +178,7 @@ Route::any('/api/report', [SoftwareCompatController::class, 'report']);
 Route::any('/api/report/', [SoftwareCompatController::class, 'report']);
 Route::any('/api/report/{merchantId}', [SoftwareCompatController::class, 'report']);
 Route::any('/api/report/{merchantId}/', [SoftwareCompatController::class, 'report']);
+Route::get('/alipay/bridge', [AlipayBridgeController::class, 'show']);
 
 Route::get('/pay/checkout/{trade_no}', [CheckoutController::class, 'show']);
 Route::get('/pay/checkout/{trade_no}/', [CheckoutController::class, 'show']);

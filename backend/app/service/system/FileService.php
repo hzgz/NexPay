@@ -16,6 +16,8 @@ class FileService
         'merchant_avatar' => '账户头像',
         'channel_qrcode' => '通道二维码',
         'qrcode' => '通道二维码',
+        'channel_config' => '通道配置文件',
+        'config_file' => '通道配置文件',
     ];
 
     public static function adminList(): array
@@ -179,6 +181,7 @@ class FileService
         return match ($category) {
             '账户头像' => '商户头像上传文件',
             '通道二维码' => '商户通道二维码配置上传文件',
+            '通道配置文件' => '商户通道配置文件上传记录。',
             default => '查看文件详情与预览内容。',
         };
     }

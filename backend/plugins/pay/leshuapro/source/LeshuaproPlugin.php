@@ -124,14 +124,16 @@ class LeshuaproPlugin extends BasePayment
             $buyer = trim((string)($data['openid'] ?? $data['sub_openid'] ?? ''));
             $endTime = trim((string)($data['pay_time'] ?? $data['channel_datetime'] ?? ''));
 
-            $this->processNotify(
-                $ctx->order,
-                $apiTradeNo !== '' ? $apiTradeNo : $tradeNo,
-                $buyer !== '' ? $buyer : null,
-                $billTradeNo !== '' ? $billTradeNo : null,
-                $tradeNo,
-                $endTime !== '' ? $endTime : null
-            );
+            ($this->markTrustedCallback($ctx, 'notify', 'leshuapro-sign'))(function () use ($ctx, $apiTradeNo, $tradeNo, $buyer, $billTradeNo, $endTime): void {
+                $this->processNotify(
+                    $ctx->order,
+                    $apiTradeNo !== '' ? $apiTradeNo : $tradeNo,
+                    $buyer !== '' ? $buyer : null,
+                    $billTradeNo !== '' ? $billTradeNo : null,
+                    $tradeNo,
+                    $endTime !== '' ? $endTime : null
+                );
+            });
 
             return ['type' => 'html', 'data' => '000000'];
         } catch (\Throwable $e) {

@@ -396,7 +396,7 @@ onBeforeUnmount(() => {
 
 .art-menu__label {
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -444,7 +444,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: #73839a;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   border-radius: 8px;
 }
 

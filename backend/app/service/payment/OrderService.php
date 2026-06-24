@@ -25,6 +25,7 @@ use think\facade\Db;
 
 class OrderService
 {
+    public const DEFAULT_EXPIRE_SECONDS = 360;
     public const STATUS_PENDING = 0;
     public const STATUS_SUCCESS = 1;
     public const STATUS_FAILED = 2;
@@ -590,6 +591,9 @@ class OrderService
         $paidAt = self::normalizeDateTime((string)($attributes['paid_at'] ?? ''));
         $txid = trim((string)($attributes['txid'] ?? ''));
         $confirmations = max(0, (int)($attributes['confirmations'] ?? 0));
+        $buyer = trim((string)($attributes['buyer'] ?? ''));
+        $billTradeNo = trim((string)($attributes['bill_trade_no'] ?? ''));
+        $billMchTradeNo = trim((string)($attributes['bill_mch_trade_no'] ?? ''));
 
         $notifyPayload = is_array($order->notify_payload) ? $order->notify_payload : [];
         $notifyPayload = array_replace($notifyPayload, [
@@ -601,8 +605,11 @@ class OrderService
         if ($txid !== '') {
             $notifyPayload['api_trade_no'] = $txid;
         }
-        foreach (['buyer', 'bill_trade_no', 'bill_mch_trade_no'] as $key) {
-            $value = trim((string)($attributes[$key] ?? ''));
+        foreach ([
+            'buyer' => $buyer,
+            'bill_trade_no' => $billTradeNo,
+            'bill_mch_trade_no' => $billMchTradeNo,
+        ] as $key => $value) {
             if ($value !== '') {
                 $notifyPayload[$key] = $value;
             }
@@ -621,6 +628,10 @@ class OrderService
             'status' => self::STATUS_SUCCESS,
             'pay_time' => $paidAt,
             'txid' => $txid !== '' ? $txid : (string)$order->txid,
+            'buyer' => $buyer !== '' ? $buyer : (string)($order->buyer ?? ''),
+            'api_trade_no' => $txid !== '' ? $txid : (string)($order->api_trade_no ?? $order->txid ?? ''),
+            'bill_trade_no' => $billTradeNo !== '' ? $billTradeNo : (string)($order->bill_trade_no ?? ''),
+            'bill_mch_trade_no' => $billMchTradeNo !== '' ? $billMchTradeNo : (string)($order->bill_mch_trade_no ?? ''),
             'confirmations' => $confirmations,
             'platform_fee' => self::calculatePlatformFee($order),
             'fee_deducted' => (float)self::calculatePlatformFee($order) > 0 ? 1 : 0,
@@ -976,6 +987,7 @@ class OrderService
 
         $channel = self::resolveMerchantChannel((int)$merchant->id, (string)($data['type'] ?? ''), (float)$amount);
         $data['legacy_channel_snapshot'] = self::legacyChannelSnapshot($channel);
+        $payableAmount = self::resolveGatewayPayableAmount($channel, $amount);
 
         $payload = [
             'trade_no' => self::generateTradeNo(),
@@ -986,13 +998,13 @@ class OrderService
             'channel_category' => (int)$channel['channel_type']->category,
             'subject' => (string)($data['name'] ?? '支付订单'),
             'amount' => $amount,
-            'payable_amount' => $amount,
+            'payable_amount' => $payableAmount,
             'status' => self::STATUS_PENDING,
             'notify_url' => (string)($data['notify_url'] ?? ''),
             'return_url' => (string)($data['return_url'] ?? ''),
             'client_ip' => (string)($data['clientip'] ?? ''),
             'param' => (string)($data['param'] ?? ''),
-            'expire_time' => date('Y-m-d H:i:s', time() + 600),
+            'expire_time' => date('Y-m-d H:i:s', time() + self::DEFAULT_EXPIRE_SECONDS),
             'request_payload' => self::buildStoredRequestPayload($data),
             'notify_payload' => [],
             'payment_address' => self::resolvePaymentAddress($channel),
@@ -1671,43 +1683,42 @@ class OrderService
         return $paymentAddress;
     }
 
+    public static function resolvePayableAmountForChannelSnapshot(array $snapshot, string $amount, string $excludeTradeNo = ''): string
+    {
+        $normalizedAmount = self::formatMoney($amount);
+        if (!self::channelSnapshotRequiresUniquePayableAmount($snapshot)) {
+            return $normalizedAmount;
+        }
+
+        $merchantChannelId = (int)($snapshot['merchant_channel_id'] ?? 0);
+        if ($merchantChannelId <= 0) {
+            return $normalizedAmount;
+        }
+
+        $usedAmounts = self::pendingPayableAmountsForChannel($merchantChannelId, $excludeTradeNo);
+        if (!in_array($normalizedAmount, $usedAmounts, true)) {
+            return $normalizedAmount;
+        }
+
+        $candidates = [];
+        for ($step = 1; $step <= 10; $step++) {
+            $candidate = self::formatMoney((float)$normalizedAmount + ($step / 100));
+            if (!in_array($candidate, $usedAmounts, true)) {
+                $candidates[] = $candidate;
+            }
+        }
+
+        if ($candidates === []) {
+            return $normalizedAmount;
+        }
+
+        shuffle($candidates);
+        return (string)($candidates[0] ?? $normalizedAmount);
+    }
+
     protected static function channelSourceValue(array $payload, int $depth = 0): string
     {
-        if ($depth > 2) {
-            return '';
-        }
-
-        foreach ([
-            'payment_address',
-            'display_value',
-            'qrcode_url',
-            'address',
-            'url',
-            'link',
-            'appreciate_qrcode_url',
-            'qrcode_image',
-            'appreciate_image',
-            'resolved_qrcode_content',
-        ] as $key) {
-            $value = trim((string)($payload[$key] ?? ''));
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        foreach (['plugin_config', 'config', 'channel'] as $key) {
-            $nested = $payload[$key] ?? null;
-            if (!is_array($nested)) {
-                continue;
-            }
-
-            $value = self::channelSourceValue($nested, $depth + 1);
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        return '';
+        return QrCodeService::extractSourceValue($payload);
     }
 
     protected static function normalizeDateTime(string $value): string
@@ -1719,6 +1730,73 @@ class OrderService
     protected static function formatMoney(mixed $amount): string
     {
         return number_format((float)$amount, 2, '.', '');
+    }
+
+    protected static function resolveGatewayPayableAmount(array $channel, string $amount): string
+    {
+        return self::resolvePayableAmountForChannelSnapshot(self::legacyChannelSnapshot($channel), $amount);
+    }
+
+    protected static function channelSnapshotRequiresUniquePayableAmount(array $snapshot): bool
+    {
+        $config = is_array($snapshot['config'] ?? null) ? $snapshot['config'] : [];
+        $pluginCode = self::normalizePluginCode((string)($config['plugin_code'] ?? $snapshot['plugin_code'] ?? ''));
+        if ($pluginCode === 'alipay-ck') {
+            return true;
+        }
+
+        return in_array($pluginCode, ['wechat-qrcode', 'alipay-qrcode', 'qqpay-qrcode'], true);
+    }
+
+    protected static function pendingPayableAmountsForChannel(int $merchantChannelId, string $excludeTradeNo = ''): array
+    {
+        if ($merchantChannelId <= 0) {
+            return [];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $values = [];
+
+        if (self::canUseDatabase()) {
+            $query = Order::where('merchant_channel_id', $merchantChannelId)
+                ->where('status', self::STATUS_PENDING)
+                ->where('expire_time', '>=', $now);
+
+            if ($excludeTradeNo !== '') {
+                $query->where('trade_no', '<>', $excludeTradeNo);
+            }
+
+            foreach ($query->field(['payable_amount'])->select() as $item) {
+                $value = self::formatMoney($item->payable_amount ?? 0);
+                if ($value !== '') {
+                    $values[$value] = true;
+                }
+            }
+
+            return array_keys($values);
+        }
+
+        foreach (LocalOrderStore::allOrders() as $order) {
+            if ((int)($order->merchant_channel_id ?? 0) !== $merchantChannelId) {
+                continue;
+            }
+            if ((int)($order->status ?? -1) !== self::STATUS_PENDING) {
+                continue;
+            }
+            if ($excludeTradeNo !== '' && (string)($order->trade_no ?? '') === $excludeTradeNo) {
+                continue;
+            }
+            if ((string)($order->expire_time ?? '') < $now) {
+                continue;
+            }
+
+            $value = self::formatMoney($order->payable_amount ?? 0);
+            if ($value !== '') {
+                $values[$value] = true;
+            }
+        }
+
+        return array_keys($values);
     }
 
     protected static function normalizeMethodCode(string $code): string

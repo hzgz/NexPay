@@ -316,7 +316,26 @@ function getCertFilePath(string $path = ''): string
         return '';
     }
 
-    if (preg_match('/^[A-Za-z]:\\\\/', $path) === 1 || str_starts_with($path, '/') || str_starts_with($path, '\\')) {
+    if (preg_match('/^[A-Za-z]:\\\\/', $path) === 1) {
+        return $path;
+    }
+
+    if (str_starts_with($path, '/') || str_starts_with($path, '\\')) {
+        if (is_file($path)) {
+            return $path;
+        }
+
+        $normalizedAbsolute = ltrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);
+        $publicCandidate = public_path($normalizedAbsolute);
+        if (is_file($publicCandidate)) {
+            return $publicCandidate;
+        }
+
+        $baseCandidate = base_path() . DIRECTORY_SEPARATOR . $normalizedAbsolute;
+        if (is_file($baseCandidate)) {
+            return $baseCandidate;
+        }
+
         return $path;
     }
 

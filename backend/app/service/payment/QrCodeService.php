@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace app\service\payment;
 
 use app\service\system\ConfigService;
+use app\service\system\EncodingRepairService;
 use app\service\system\MerchantChannelService;
 use app\service\system\SettingsService;
+use support\Context;
+use support\Request;
 use support\Response;
 use Throwable;
 
@@ -15,6 +18,7 @@ class QrCodeService
     private const PROVIDER_CLIIM = 'cliim';
     private const PROVIDER_GOQR = 'goqr';
     private const DEFAULT_SIZE = 320;
+    private const INTERNAL_REFERENCE_DEPTH_LIMIT = 4;
     private const SOURCE_KEYS = [
         'payment_address',
         'display_value',
@@ -28,6 +32,38 @@ class QrCodeService
         'resolved_qrcode_content',
     ];
     private const NESTED_SOURCE_KEYS = ['plugin_config', 'config', 'channel'];
+    private const GATEWAY_SOURCE_KEYS = [
+        'url',
+        'qrcode',
+        'qrcode_url',
+        'qrcodeUrl',
+        'qr_code',
+        'qrCode',
+        'code_url',
+        'codeUrl',
+        'pay_url',
+        'payUrl',
+        'jump_url',
+        'jumpUrl',
+        'mweb_url',
+        'mwebUrl',
+        'h5_url',
+        'h5Url',
+        'scheme_url',
+        'schemeUrl',
+        'scheme_code',
+        'schemeCode',
+        'payment_address',
+        'display_value',
+        'address',
+        'link',
+        'image',
+        'image_url',
+        'imageUrl',
+        'qr_image',
+        'qrImage',
+    ];
+    private const GATEWAY_NESTED_KEYS = ['data', 'result', 'payload', 'response', 'body'];
 
     public static function imageUrl(string $tradeNo, int $size = self::DEFAULT_SIZE): string
     {
@@ -72,37 +108,13 @@ class QrCodeService
         $image = self::imageBinaryForOrder($order, $size);
 
         if ($image['body'] === '') {
-            return self::svgResponse('未生成支付二维码');
+            return self::svgResponse('暂未生成支付二维码');
         }
 
         return new Response(200, [
             'Content-Type' => $image['mime'],
             'Cache-Control' => 'private, max-age=300',
         ], $image['body']);
-
-        try {
-            $content = self::resolveOrderPayload($order, $source);
-            if ($content !== '') {
-                $image = self::encodeQrCode($content, null, $size);
-                return new Response(200, [
-                    'Content-Type' => 'image/png',
-                    'Cache-Control' => 'private, max-age=300',
-                ], $image);
-            }
-        } catch (Throwable) {
-        }
-
-        if (self::isImageValue($source)) {
-            $image = self::fetchImageBinary($source);
-            if ($image['body'] !== '') {
-                return new Response(200, [
-                    'Content-Type' => $image['mime'],
-                    'Cache-Control' => 'private, max-age=300',
-                ], $image['body']);
-            }
-        }
-
-        return self::svgResponse('二维码生成失败');
     }
 
     public static function displayValueForOrder(object $order): string
@@ -112,21 +124,62 @@ class QrCodeService
             return '';
         }
 
-        if (!self::isImageValue($source)) {
-            return $source;
+        try {
+            $content = self::resolveOrderPayload($order, $source);
+            if ($content !== '') {
+                return $content;
+            }
+        } catch (Throwable) {
+        }
+
+        if (self::isInternalGatewayReference($source)) {
+            return '';
+        }
+
+        return $source;
+    }
+
+    public static function resolveSourceContentForOrder(object $order, string $source): string
+    {
+        $source = trim($source);
+        if ($source === '') {
+            return '';
         }
 
         try {
-            $content = self::resolveOrderPayload($order, $source);
-            return $content !== '' ? $content : $source;
+            return self::resolveOrderPayload($order, $source);
         } catch (Throwable) {
-            return $source;
+            return '';
         }
+    }
+
+    public static function probeSourceContentForOrder(object $order, string $source): string
+    {
+        $source = trim($source);
+        if ($source === '') {
+            return '';
+        }
+
+        if (self::isInternalGatewayReference($source)) {
+            return self::resolveInternalGatewayReferenceStrict($order, $source);
+        }
+
+        return self::resolveOrderPayload($order, $source);
     }
 
     public static function hasDisplayableQr(object $order): bool
     {
         return self::resolveOrderSourceValue($order) !== '';
+    }
+
+    public static function extractSourceValue(mixed $payload): string
+    {
+        return self::sourceFromPayload($payload);
+    }
+
+    public static function extractGatewaySource(array $result): string
+    {
+        return self::gatewaySourceFromPayload($result);
     }
 
     public static function rememberOrderSource(string $tradeNo, string $source, array $meta = []): void
@@ -188,7 +241,7 @@ class QrCodeService
 
         foreach ($candidates as $candidate) {
             $value = trim((string)$candidate);
-            if ($value === '' || self::isInternalGatewayReference($value)) {
+            if ($value === '') {
                 continue;
             }
 
@@ -200,6 +253,20 @@ class QrCodeService
 
     private static function resolveOrderPayload(object $order, string $source): string
     {
+        if (self::isInternalGatewayReference($source)) {
+            $cached = self::cachedResolvedPayload($order, $source);
+            if ($cached !== '') {
+                return $cached;
+            }
+
+            $resolved = self::resolveInternalGatewayReference($order, $source);
+            if ($resolved !== '') {
+                self::cacheResolvedPayload($order, $source, $resolved);
+            }
+
+            return $resolved;
+        }
+
         if (!self::isImageValue($source)) {
             self::cacheResolvedPayload($order, $source, $source);
             return $source;
@@ -208,6 +275,10 @@ class QrCodeService
         $cached = self::cachedResolvedPayload($order, $source);
         if ($cached !== '') {
             return $cached;
+        }
+
+        if (self::shouldDisplayRawImage($order, $source)) {
+            return '';
         }
 
         $content = self::decodeQrCodeImage($source);
@@ -243,6 +314,31 @@ class QrCodeService
         }
 
         return ['mime' => 'image/png', 'body' => ''];
+    }
+
+    private static function shouldDisplayRawImage(object $order, string $source): bool
+    {
+        if (!self::isImageValue($source)) {
+            return false;
+        }
+
+        $requestPayload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
+        $legacySnapshot = is_array($requestPayload['_legacy_channel'] ?? null) ? $requestPayload['_legacy_channel'] : [];
+        $legacyConfig = is_array($legacySnapshot['config'] ?? null) ? $legacySnapshot['config'] : [];
+        $pluginConfig = is_array($legacyConfig['plugin_config'] ?? null) ? $legacyConfig['plugin_config'] : [];
+        $pluginCode = strtolower(trim((string)($legacyConfig['plugin_code'] ?? $legacySnapshot['plugin_code'] ?? '')));
+        $mode = strtolower(trim((string)($pluginConfig['mode'] ?? '')));
+
+        if ($pluginCode === 'wechat-qrcode' && $mode === 'appreciate') {
+            return true;
+        }
+
+        $rawImageSources = [
+            trim((string)($pluginConfig['appreciate_image'] ?? '')),
+            trim((string)($pluginConfig['appreciate_qrcode_url'] ?? '')),
+        ];
+
+        return in_array(trim($source), array_filter($rawImageSources), true);
     }
 
     private static function cacheResolvedPayload(object $order, string $source, string $content): void
@@ -304,7 +400,7 @@ class QrCodeService
             return '';
         }
 
-        $direct = self::firstValue($payload, self::SOURCE_KEYS);
+        $direct = self::preferredPayloadSource($payload);
         if ($direct !== '') {
             return $direct;
         }
@@ -322,6 +418,48 @@ class QrCodeService
         }
 
         return '';
+    }
+
+    private static function preferredPayloadSource(array $payload): string
+    {
+        $pluginConfig = is_array($payload['plugin_config'] ?? null) ? $payload['plugin_config'] : [];
+        $config = is_array($payload['config'] ?? null) ? $payload['config'] : [];
+        $resolvedSource = strtolower(trim((string)(
+            $payload['resolved_qrcode_source']
+            ?? $pluginConfig['resolved_qrcode_source']
+            ?? $config['resolved_qrcode_source']
+            ?? ''
+        )));
+        $pluginCode = strtolower(trim((string)(
+            $payload['plugin_code']
+            ?? $config['plugin_code']
+            ?? $pluginConfig['plugin_code']
+            ?? ''
+        )));
+        $mode = strtolower(trim((string)(
+            $payload['mode']
+            ?? $pluginConfig['mode']
+            ?? $config['mode']
+            ?? ''
+        )));
+
+        if ($resolvedSource === 'image' || ($pluginCode === 'wechat-qrcode' && $mode === 'appreciate')) {
+            $preferred = self::firstValue($payload, [
+                'appreciate_image',
+                'appreciate_qrcode_url',
+                'qrcode_image',
+                'image',
+                'image_url',
+                'imageUrl',
+                'qr_image',
+                'qrImage',
+            ]);
+            if ($preferred !== '') {
+                return $preferred;
+            }
+        }
+
+        return self::firstValue($payload, self::SOURCE_KEYS);
     }
 
     private static function sourceFromMerchantChannel(object $order): string
@@ -361,10 +499,53 @@ class QrCodeService
         return '';
     }
 
+    private static function gatewaySourceFromPayload(mixed $payload, int $depth = 0): string
+    {
+        if (!is_array($payload) || $depth > 3) {
+            return '';
+        }
+
+        $direct = self::firstValue($payload, self::GATEWAY_SOURCE_KEYS);
+        if ($direct !== '') {
+            return $direct;
+        }
+
+        foreach (self::GATEWAY_NESTED_KEYS as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) {
+                continue;
+            }
+
+            $value = self::gatewaySourceFromPayload($nested, $depth + 1);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        foreach ($payload as $value) {
+            if (!is_array($value)) {
+                continue;
+            }
+
+            $resolved = self::gatewaySourceFromPayload($value, $depth + 1);
+            if ($resolved !== '') {
+                return $resolved;
+            }
+        }
+
+        return '';
+    }
+
     private static function encodeQrCode(string $content, ?string $provider = null, int $size = self::DEFAULT_SIZE): string
     {
-        $provider = self::normalizeProvider($provider ?: self::encodeProvider());
         $size = self::normalizeSize($size);
+
+        try {
+            return LocalQrEncoder::encodePng($content, $size);
+        } catch (Throwable) {
+        }
+
+        $provider = self::normalizeProvider($provider ?: self::encodeProvider());
 
         if ($provider === self::PROVIDER_GOQR) {
             $url = 'https://api.qrserver.com/v1/create-qr-code/?' . http_build_query([
@@ -403,7 +584,7 @@ class QrCodeService
         $provider = self::normalizeProvider($provider ?: self::decodeProvider());
         $tmp = tempnam(sys_get_temp_dir(), 'qr_');
         if ($tmp === false) {
-            throw new \RuntimeException('无法创建临时文件');
+            throw new \RuntimeException('鏃犳硶鍒涘缓涓存椂鏂囦欢');
         }
 
         $pngPath = $tmp . '.png';
@@ -420,7 +601,7 @@ class QrCodeService
             ]);
 
             if ($response['http_code'] >= 400 || $response['body'] === '') {
-                throw new \RuntimeException('二维码解码失败');
+                throw new \RuntimeException('二维码解析失败');
             }
 
             $json = json_decode($response['body'], true);
@@ -616,9 +797,199 @@ class QrCodeService
         return (bool)preg_match('/\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/', $value);
     }
 
+    private static function resolveInternalGatewayReference(object $order, string $source, int $depth = 0): string
+    {
+        if ($depth >= self::INTERNAL_REFERENCE_DEPTH_LIMIT) {
+            return '';
+        }
+
+        $parsed = self::parseInternalGatewayReference($order, $source);
+        if ($parsed === null) {
+            return '';
+        }
+
+        try {
+            $request = self::internalRequest($parsed['path'], $parsed['query']);
+            Context::set(Request::class, $request);
+            Context::set(\Webman\Http\Request::class, $request);
+            $result = LegacyPaymentGatewayService::run(
+                (string)($order->trade_no ?? ''),
+                $parsed['action'],
+                $request,
+                $parsed['method']
+            );
+        } catch (Throwable) {
+            return '';
+        } finally {
+            Context::set(Request::class, null);
+            Context::set(\Webman\Http\Request::class, null);
+        }
+
+        $nextSource = trim(self::extractGatewaySource($result));
+        if ($nextSource === '') {
+            return '';
+        }
+
+        if (self::isInternalGatewayReference($nextSource)) {
+            return self::resolveInternalGatewayReference($order, $nextSource, $depth + 1);
+        }
+
+        return $nextSource;
+    }
+
+    private static function resolveInternalGatewayReferenceStrict(object $order, string $source, int $depth = 0): string
+    {
+        if ($depth >= self::INTERNAL_REFERENCE_DEPTH_LIMIT) {
+            return '';
+        }
+
+        $parsed = self::parseInternalGatewayReference($order, $source);
+        if ($parsed === null) {
+            return '';
+        }
+
+        $request = self::internalRequest($parsed['path'], $parsed['query']);
+        Context::set(Request::class, $request);
+        Context::set(\Webman\Http\Request::class, $request);
+        try {
+            $result = LegacyPaymentGatewayService::run(
+                (string)($order->trade_no ?? ''),
+                $parsed['action'],
+                $request,
+                $parsed['method']
+            );
+        } finally {
+            Context::set(Request::class, null);
+            Context::set(\Webman\Http\Request::class, null);
+        }
+
+        $resultType = strtolower(trim((string)($result['type'] ?? '')));
+        if ($resultType === 'error') {
+            $message = trim((string)($result['msg'] ?? ''));
+            throw new \RuntimeException($message !== '' ? $message : '内部支付拉起失败');
+        }
+
+        $nextSource = trim(self::extractGatewaySource($result));
+        if ($nextSource === '') {
+            return '';
+        }
+
+        if (self::isInternalGatewayReference($nextSource)) {
+            return self::resolveInternalGatewayReferenceStrict($order, $nextSource, $depth + 1);
+        }
+
+        return $nextSource;
+    }
+
+    private static function parseInternalGatewayReference(object $order, string $source): ?array
+    {
+        $source = trim($source);
+        if ($source === '') {
+            return null;
+        }
+
+        $path = (string)parse_url($source, PHP_URL_PATH);
+        $queryString = (string)parse_url($source, PHP_URL_QUERY);
+        if (!str_starts_with($path, '/pay/')) {
+            return null;
+        }
+
+        $segments = array_values(array_filter(explode('/', trim($path, '/')), static fn(string $item): bool => $item !== ''));
+        if (count($segments) < 3 || ($segments[0] ?? '') !== 'pay') {
+            return null;
+        }
+
+        $action = strtolower(trim((string)($segments[1] ?? '')));
+        $tradeNo = trim((string)($segments[2] ?? ''));
+        if ($action === '' || $tradeNo === '' || $tradeNo !== (string)($order->trade_no ?? '')) {
+            return null;
+        }
+
+        parse_str($queryString, $query);
+        if (!is_array($query)) {
+            $query = [];
+        }
+
+        $method = trim((string)($query['type'] ?? ''));
+        if ($action === 'qrcode') {
+            $action = 'mapi';
+        } elseif (in_array($action, ['alipay', 'wxpay', 'qqpay', 'bank', 'jdpay', 'douyinpay'], true) && $method === '') {
+            $method = $action;
+        } elseif ($action === 'pay') {
+            $action = 'submit';
+        }
+
+        return [
+            'action' => $action,
+            'method' => $method !== '' ? $method : null,
+            'path' => $path,
+            'query' => $query,
+        ];
+    }
+
+    private static function internalRequest(string $path, array $query = []): Request
+    {
+        $gatewayBaseUrl = rtrim((string)ConfigService::gatewayBaseUrl(), '/');
+        $parts = parse_url($gatewayBaseUrl);
+        $host = (string)($parts['host'] ?? '127.0.0.1');
+        if (($parts['port'] ?? null) !== null) {
+            $host .= ':' . (string)$parts['port'];
+        }
+        $uri = $path;
+        if ($query !== []) {
+            $uri .= '?' . http_build_query($query);
+        }
+
+        $buffer = "GET {$uri} HTTP/1.1\r\nHost: {$host}\r\nX-Forwarded-Proto: http\r\nUser-Agent: NexPay-InternalQr/1.0\r\nConnection: close\r\n\r\n";
+
+        return new class($buffer, $gatewayBaseUrl, $uri, $host) extends Request {
+            public function __construct(
+                string $buffer,
+                private readonly string $gatewayBaseUrl,
+                private readonly string $requestUri,
+                private readonly string $requestHost
+            ) {
+                parent::__construct($buffer);
+            }
+
+            public function siteUrl(): string
+            {
+                return $this->gatewayBaseUrl !== '' ? $this->gatewayBaseUrl . '/' : 'http://127.0.0.1/';
+            }
+
+            public function clientIp(): string
+            {
+                return '127.0.0.1';
+            }
+
+            public function host(bool $withoutPort = false): string
+            {
+                if (!$withoutPort) {
+                    return $this->requestHost;
+                }
+
+                return (string)parse_url('http://' . $this->requestHost, PHP_URL_HOST);
+            }
+
+            public function uri(): string
+            {
+                return $this->requestUri;
+            }
+
+            public function path(): string
+            {
+                return (string)parse_url($this->requestUri, PHP_URL_PATH);
+            }
+
+            public function url(): string
+            {
+                return $this->requestUri;
+            }
+        };
+    }
+
     private static function isInternalGatewayReference(string $value): bool
     {
-        $value = trim($value);
         if ($value === '') {
             return false;
         }
@@ -681,3 +1052,7 @@ SVG;
         ], $svg);
     }
 }
+
+
+
+

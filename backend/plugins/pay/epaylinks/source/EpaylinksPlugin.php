@@ -20,7 +20,13 @@ class EpaylinksPlugin extends BasePayment
     {
         $mchId = !empty($this->channel['appmchid']) ? $this->channel['appmchid'] : $this->channel['appid'];
         $mchKeyPath = getCertFilePath($this->channel['mch_key_path'] ?? '');
-        $efpsCerPath = $this->payRoot . 'cert/efps.cer';
+        $efpsCerPath = $this->payRoot . 'source' . DIRECTORY_SEPARATOR . 'cert' . DIRECTORY_SEPARATOR . 'efps.cer';
+        if (!is_file($efpsCerPath)) {
+            $legacyPath = $this->payRoot . 'cert' . DIRECTORY_SEPARATOR . 'efps.cer';
+            if (is_file($legacyPath)) {
+                $efpsCerPath = $legacyPath;
+            }
+        }
         return new EfpsService($mchId, $this->channel['appkey'], $mchKeyPath, $efpsCerPath);
     }
 

@@ -6,8 +6,9 @@ namespace plugins\payment\jiaofeiyi;
 
 use app\common\BasePayment;
 use app\common\PaymentContext;
+use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderService;
 use Exception;
-use think\facade\Db;
 
 class JiaofeiyiPlugin extends BasePayment
 {
@@ -90,6 +91,95 @@ class JiaofeiyiPlugin extends BasePayment
         return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
     }
 
+    public function query(array $order): array
+    {
+        $targets = $this->buildQueryTargets($order);
+        if ($targets === []) {
+            throw new Exception('缴费易订单缺少可查询的上游单号');
+        }
+
+        $lastError = null;
+        $lastResult = null;
+        $pendingResult = null;
+
+        foreach ($targets as $target) {
+            try {
+                $result = $this->queryOrder((string)$target);
+            } catch (\Throwable $e) {
+                $lastError = $e;
+                continue;
+            }
+
+            $lastResult = $result;
+            $normalized = $this->normalizeGatewayQueryResult($order, $result, (string)$target);
+            if ((int)($normalized['status'] ?? 0) === 1) {
+                return $normalized;
+            }
+
+            if ($pendingResult === null) {
+                $pendingResult = $normalized;
+            }
+        }
+
+        if (is_array($pendingResult)) {
+            return $pendingResult;
+        }
+
+        if (is_array($lastResult)) {
+            return $this->normalizeGatewayQueryResult($order, $lastResult, (string)$targets[0]);
+        }
+
+        if ($lastError instanceof \Throwable) {
+            throw new Exception($lastError->getMessage());
+        }
+
+        throw new Exception('query order failed');
+    }
+
+    public function cron(array $channel): int
+    {
+        $channelId = (int)($channel['id'] ?? 0);
+        if ($channelId <= 0) {
+            return 0;
+        }
+
+        $processed = 0;
+        foreach ($this->recentPendingTradeNos($channelId) as $tradeNo) {
+            $order = $this->getOrder($tradeNo);
+            if (!$order) {
+                continue;
+            }
+
+            try {
+                $result = $this->query($order);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ((int)($result['status'] ?? 0) !== 1) {
+                continue;
+            }
+
+            try {
+                ($this->markTrustedQueryResult('notify', 'provider-order-query'))(function () use ($order, $result): void {
+                    $this->processNotify(
+                        $order,
+                        $result['api_trade_no'] ?? ($order['api_trade_no'] ?? ''),
+                        $result['buyer'] ?? null,
+                        $result['bill_trade_no'] ?? null,
+                        $result['bill_mch_trade_no'] ?? null,
+                        $result['endtime'] ?? null
+                    );
+                });
+                $processed++;
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return $processed;
+    }
+
     public function queryOrder(string $outOrderNo): array
     {
         $outOrderNo = trim($outOrderNo);
@@ -145,19 +235,17 @@ class JiaofeiyiPlugin extends BasePayment
             $targets[] = $v;
         };
 
-        $push((string)($order['api_trade_no'] ?? ''));
+        $meta = $this->readOrderExtMeta($order['ext'] ?? '');
+        $payurl = trim((string)($order['payurl'] ?? ''));
+        $payOrderNoByUrl = $this->extractPayOrderNo($payurl);
 
-        $meta = $this->readOrderExtMeta((string)($order['ext'] ?? ''));
+        $push((string)($order['api_trade_no'] ?? ''));
+        $push((string)($order['bill_mch_trade_no'] ?? ''));
+        $push((string)($order['bill_trade_no'] ?? ''));
+        $push($payOrderNoByUrl);
         $push($meta['payOrderNo'] ?? '');
         $push($meta['sysTradeNo'] ?? '');
         $push($meta['channelTradeNo'] ?? '');
-
-        $push((string)($order['bill_mch_trade_no'] ?? ''));
-        $push((string)($order['bill_trade_no'] ?? ''));
-
-        $payurl = trim((string)($order['payurl'] ?? ''));
-        $payOrderNoByUrl = $this->extractPayOrderNo($payurl);
-        $push($payOrderNoByUrl);
 
         return $targets;
     }
@@ -176,6 +264,18 @@ class JiaofeiyiPlugin extends BasePayment
 
     private function createQrcode(PaymentContext $ctx): string
     {
+        $tradeNo = trim((string)($ctx->order['trade_no'] ?? ''));
+        if ($tradeNo === '') {
+            throw new Exception('tradeNo cannot be empty');
+        }
+
+        $cachedMeta = $this->loadCachedGatewayMeta($tradeNo);
+        $cachedPayUrl = trim((string)($cachedMeta['payUrl'] ?? ''));
+        if ($cachedPayUrl !== '') {
+            $this->syncGatewayMetaToOrder($tradeNo, $cachedMeta);
+            return $cachedPayUrl;
+        }
+
         $channel = $this->channel;
         $merchId = trim((string)($channel['appurl'] ?? ''));
         if ($merchId === '') {
@@ -244,13 +344,13 @@ class JiaofeiyiPlugin extends BasePayment
             throw new Exception('No trade number returned');
         }
 
-        $this->updateOrder($ctx->order['trade_no'], $apiTradeNo);
+        $this->updateOrder($tradeNo, $apiTradeNo);
         $orderUpdate = ['payurl' => substr((string)$payUrl, 0, 500)];
         if ($payOrderNo !== '') {
             $orderUpdate['bill_mch_trade_no'] = $payOrderNo;
         }
-        Db::name('order')->where('trade_no', $ctx->order['trade_no'])->update($orderUpdate);
-        $this->mergeOrderExtMeta($ctx->order['trade_no'], [
+        $this->saveOrderChanges($tradeNo, $orderUpdate);
+        $this->mergeOrderExtMeta($tradeNo, [
             'sysTradeNo' => (string)$sysTradeNo,
             'payOrderNo' => (string)$payOrderNo,
             'channelTradeNo' => trim((string)$channelTradeNo),
@@ -641,32 +741,233 @@ class JiaofeiyiPlugin extends BasePayment
     private function mergeOrderExtMeta(string $tradeNo, array $meta): void
     {
         try {
-            $ext = Db::name('order')->where('trade_no', $tradeNo)->value('ext');
-            $data = [];
-            if (is_string($ext) && $ext !== '') {
-                $decoded = @unserialize($ext);
-                if (is_array($decoded)) {
-                    $data = $decoded;
-                }
+            $order = OrderService::findByTradeNoOrNull($tradeNo);
+            if (!$order) {
+                return;
             }
-            $data['jiaofeiyi'] = array_merge(is_array($data['jiaofeiyi'] ?? null) ? $data['jiaofeiyi'] : [], $meta);
-            Db::name('order')->where('trade_no', $tradeNo)->update(['ext' => serialize($data)]);
+
+            $notifyPayload = is_array($order->notify_payload ?? null) ? $order->notify_payload : [];
+            $legacyExt = $notifyPayload['legacy_ext'] ?? ($order->legacy_ext ?? $order->ext ?? []);
+            $current = $this->readOrderExtMeta($legacyExt);
+            $this->updateOrderExt($tradeNo, [
+                'jiaofeiyi' => array_merge($current, $meta),
+            ]);
         } catch (\Throwable $e) {
             // Ignore ext update failure, do not block pay flow.
         }
     }
 
-    private function readOrderExtMeta(string $ext): array
+    private function readOrderExtMeta(mixed $ext): array
     {
-        if ($ext === '') {
+        if (is_array($ext)) {
+            $meta = $ext['jiaofeiyi'] ?? $ext;
+            if (!is_array($meta)) {
+                return [];
+            }
+
+            $result = [];
+            foreach ([
+                'sysTradeNo',
+                'payOrderNo',
+                'channelTradeNo',
+                'payUrl',
+                'updatedAt',
+                'buyer',
+                'billTradeNo',
+                'billMchTradeNo',
+            ] as $key) {
+                if (!array_key_exists($key, $meta) || is_array($meta[$key]) || is_object($meta[$key])) {
+                    continue;
+                }
+
+                $result[$key] = trim((string)$meta[$key]);
+            }
+
+            return $result;
+        }
+
+        $ext = trim((string)$ext);
+        if ($ext === '' || $ext === 'Array') {
             return [];
         }
+
         $decoded = @unserialize($ext);
         if (!is_array($decoded)) {
             return [];
         }
-        $meta = $decoded['jiaofeiyi'] ?? [];
-        return is_array($meta) ? $meta : [];
+
+        return $this->readOrderExtMeta($decoded);
+    }
+
+    private function normalizeGatewayQueryResult(array $order, array $result, string $fallbackTradeNo): array
+    {
+        $status = $result['orderStatus'] ?? null;
+        $normalizedStatus = $this->isPaidStatus($status)
+            ? 1
+            : ($this->isUnpaidStatus($status) ? 0 : 2);
+
+        $apiTradeNo = trim((string)($result['sysTradeNo'] ?? $result['payOrderNo'] ?? $result['channelTradeNo'] ?? $fallbackTradeNo));
+        $billTradeNo = trim((string)($result['billTradeNo'] ?? ''));
+        $billMchTradeNo = trim((string)($result['billMchTradeNo'] ?? $result['payOrderNo'] ?? $result['channelTradeNo'] ?? ''));
+
+        return [
+            'api_trade_no' => $apiTradeNo,
+            'status' => $normalizedStatus,
+            'money' => number_format((float)($order['realmoney'] ?? $order['money'] ?? 0), 2, '.', ''),
+            'buyer' => trim((string)($result['buyer'] ?? '')),
+            'bill_trade_no' => $billTradeNo,
+            'bill_mch_trade_no' => $billMchTradeNo,
+            'endtime' => $this->normalizeQueryPaidAt($result),
+            'raw' => $result['raw'] ?? [],
+        ];
+    }
+
+    private function normalizeQueryPaidAt(array $result): string
+    {
+        $value = trim((string)(
+            $result['paidAt']
+            ?? $result['endTime']
+            ?? $result['payTime']
+            ?? $result['finishTime']
+            ?? ($result['raw']['payTime'] ?? $result['raw']['endTime'] ?? '')
+        ));
+
+        if ($value === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($value);
+        return $timestamp !== false ? date('Y-m-d H:i:s', $timestamp) : $value;
+    }
+
+    private function loadCachedGatewayMeta(string $tradeNo): array
+    {
+        $order = OrderService::findByTradeNoOrNull($tradeNo);
+        if (!$order) {
+            return [];
+        }
+
+        $notifyPayload = is_array($order->notify_payload ?? null) ? $order->notify_payload : [];
+        $legacyExt = $notifyPayload['legacy_ext'] ?? ($order->legacy_ext ?? $order->ext ?? []);
+        $meta = $this->readOrderExtMeta($legacyExt);
+
+        $payUrl = trim((string)($order->payurl ?? ''));
+        if ($payUrl !== '') {
+            $meta['payUrl'] = $payUrl;
+        }
+
+        $payOrderNo = trim((string)($order->bill_mch_trade_no ?? ''));
+        if ($payOrderNo === '') {
+            $payOrderNo = $this->extractPayOrderNo($payUrl);
+        }
+        if ($payOrderNo !== '') {
+            $meta['payOrderNo'] = $payOrderNo;
+        }
+
+        $sysTradeNo = trim((string)($notifyPayload['api_trade_no'] ?? $order->api_trade_no ?? $order->txid ?? ''));
+        if ($sysTradeNo !== '') {
+            $meta['sysTradeNo'] = $sysTradeNo;
+        }
+
+        return $meta;
+    }
+
+    private function syncGatewayMetaToOrder(string $tradeNo, array $meta): void
+    {
+        $changes = [];
+
+        $payUrl = trim((string)($meta['payUrl'] ?? ''));
+        if ($payUrl !== '') {
+            $changes['payurl'] = substr($payUrl, 0, 500);
+        }
+
+        $payOrderNo = trim((string)($meta['payOrderNo'] ?? ''));
+        if ($payOrderNo !== '') {
+            $changes['bill_mch_trade_no'] = $payOrderNo;
+        }
+
+        if ($changes !== []) {
+            $this->saveOrderChanges($tradeNo, $changes);
+        }
+
+        $sysTradeNo = trim((string)($meta['sysTradeNo'] ?? ''));
+        if ($sysTradeNo !== '') {
+            $this->updateOrder($tradeNo, $sysTradeNo);
+        }
+    }
+
+    private function recentPendingTradeNos(int $channelId): array
+    {
+        $sinceTs = time() - 300;
+        $tradeNos = [];
+
+        if (\database_available()) {
+            try {
+                foreach (\app\model\Order::where('merchant_channel_id', $channelId)->where('status', 0)->select()->all() as $order) {
+                    $tradeNo = trim((string)($order->trade_no ?? ''));
+                    if ($tradeNo === '') {
+                        continue;
+                    }
+
+                    $createdAt = (string)($order->created_at ?? $order->addtime ?? '');
+                    if (!$this->isRecentOrderTime($createdAt, $sinceTs)) {
+                        continue;
+                    }
+
+                    $tradeNos[$tradeNo] = $tradeNo;
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        foreach (LocalOrderStore::allOrders() as $order) {
+            if ((int)($order->status ?? -1) !== 0) {
+                continue;
+            }
+
+            if ((int)($order->merchant_channel_id ?? 0) !== $channelId) {
+                continue;
+            }
+
+            $tradeNo = trim((string)($order->trade_no ?? ''));
+            if ($tradeNo === '') {
+                continue;
+            }
+
+            $createdAt = (string)($order->created_at ?? $order->addtime ?? '');
+            if (!$this->isRecentOrderTime($createdAt, $sinceTs)) {
+                continue;
+            }
+
+            $tradeNos[$tradeNo] = $tradeNo;
+        }
+
+        return array_values($tradeNos);
+    }
+
+    private function isRecentOrderTime(string $value, int $sinceTs): bool
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return false;
+        }
+
+        return $timestamp >= $sinceTs;
+    }
+
+    private function saveOrderChanges(string $tradeNo, array $changes): void
+    {
+        $order = OrderService::findByTradeNoOrNull($tradeNo);
+        if (!$order) {
+            return;
+        }
+
+        OrderService::saveOrder($order, $changes);
     }
 
     private function extractPayOrderNo(?string $payUrl = null, ?array $response = null): string

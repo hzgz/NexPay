@@ -9,22 +9,26 @@ use Webman\Http\UploadFile;
 
 class MerchantChannelQrConfigService
 {
-    private const STORE_DIR = 'upload/channel-qrcode';
-    private const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
-    private const ALLOWED_MIME_TYPES = [
+    private const IMAGE_STORE_DIR = 'upload/channel-qrcode';
+    private const FILE_STORE_DIR = 'upload/channel-config';
+    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+    private const DEFAULT_FILE_EXTENSIONS = ['crt', 'cer', 'pem', 'key', 'pfx', 'p12', 'txt'];
+    private const IMAGE_MIME_TYPES = [
         'image/jpeg',
         'image/png',
         'image/gif',
         'image/webp',
         'image/bmp',
     ];
-    private const MAX_FILE_SIZE = 8 * 1024 * 1024;
+    private const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
+    private const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
     public static function upload(
         int $merchantId,
         array $payload,
         ?UploadFile $file
     ): array {
+        $channelId = (int)($payload['id'] ?? 0);
         if ($merchantId <= 0) {
             throw new BusinessException('商户信息不存在', StatusCode::VALIDATION_ERROR);
         }
@@ -36,16 +40,23 @@ class MerchantChannelQrConfigService
         $pluginCode = PluginCodeService::normalize((string)($payload['plugin_code'] ?? ''));
         $methodCode = PaymentMetaService::normalizeMethodCode((string)($payload['method_code'] ?? ''));
         $fieldKey = trim((string)($payload['field_key'] ?? ''));
-        $pluginConfig = self::normalizePluginConfig($payload['plugin_config'] ?? []);
+        $existingChannel = $channelId > 0 ? MerchantChannelService::findItem($merchantId, $channelId) : null;
+        $existingPluginConfig = is_array($existingChannel['plugin_config'] ?? null) ? $existingChannel['plugin_config'] : [];
+        $pluginConfig = array_replace(
+            $existingPluginConfig,
+            self::normalizePluginConfig($payload['plugin_config'] ?? [])
+        );
 
         if ($pluginCode === '' || $methodCode === '' || $fieldKey === '') {
             throw new BusinessException('缺少插件、支付方式或配置字段信息', StatusCode::VALIDATION_ERROR);
         }
 
-        self::assertSupportedField($pluginCode, $fieldKey);
-        self::assertFile($file);
+        $schemaField = self::schemaField($pluginCode, $fieldKey);
+        self::assertSupportedField($schemaField);
+        self::assertFile($file, $schemaField);
 
-        $saved = self::storeFile($merchantId, $pluginCode, $fieldKey, $file);
+        $fieldType = self::fieldType($schemaField);
+        $saved = self::storeFile($merchantId, $pluginCode, $fieldKey, $file, $fieldType);
         $fileUrl = self::publicFileUrl($saved['relative_path']);
 
         $pluginConfig[$fieldKey] = $fileUrl;
@@ -55,9 +66,9 @@ class MerchantChannelQrConfigService
             'file_url' => $fileUrl,
             'resolved_content' => '',
             'resolved_source' => '',
-            'store_mode' => 'image',
+            'store_mode' => $fieldType,
             'plugin_config' => $pluginConfig,
-            'file' => self::fileRow($merchantId, $pluginCode, $fieldKey, $saved),
+            'file' => self::fileRow($merchantId, $pluginCode, $fieldKey, $saved, $fieldType),
         ];
 
         if ($pluginCode === 'alipay-qrcode' && $fieldKey === 'qrcode_image') {
@@ -79,6 +90,8 @@ class MerchantChannelQrConfigService
             $pluginConfig['payment_address'] = $resolved;
             $pluginConfig['display_value'] = $resolved;
             $pluginConfig['qrcode_url'] = $resolved;
+            $pluginConfig['appreciate_image'] = '';
+            $pluginConfig['appreciate_qrcode_url'] = '';
             $pluginConfig['resolved_qrcode_content'] = $resolved;
             $pluginConfig['resolved_qrcode_source'] = 'decode';
 
@@ -89,10 +102,28 @@ class MerchantChannelQrConfigService
         } elseif ($pluginCode === 'wechat-qrcode' && $fieldKey === 'appreciate_image') {
             $pluginConfig['appreciate_image'] = $fileUrl;
             $pluginConfig['appreciate_qrcode_url'] = $fileUrl;
+            $pluginConfig['payment_address'] = '';
+            $pluginConfig['display_value'] = '';
+            $pluginConfig['qrcode_url'] = '';
+            $pluginConfig['qrcode_image'] = '';
+            $pluginConfig['resolved_qrcode_content'] = '';
             $pluginConfig['resolved_qrcode_source'] = 'image';
 
             $result['resolved_content'] = $fileUrl;
             $result['resolved_source'] = 'image';
+            $result['plugin_config'] = $pluginConfig;
+        } elseif ($pluginCode === 'qqpay-qrcode' && $fieldKey === 'qrcode_image') {
+            $resolved = self::decodeImage($saved['absolute_path'], $fileUrl);
+            $pluginConfig['qrcode_image'] = $fileUrl;
+            $pluginConfig['payment_address'] = $resolved;
+            $pluginConfig['display_value'] = $resolved;
+            $pluginConfig['qrcode_url'] = $resolved;
+            $pluginConfig['resolved_qrcode_content'] = $resolved;
+            $pluginConfig['resolved_qrcode_source'] = 'decode';
+
+            $result['resolved_content'] = $resolved;
+            $result['resolved_source'] = 'decode';
+            $result['store_mode'] = 'decoded_link';
             $result['plugin_config'] = $pluginConfig;
         } elseif ($pluginCode === 'alipay-ck' && $fieldKey === 'qrcode_image') {
             $resolved = self::decodeImage($saved['absolute_path'], $fileUrl);
@@ -111,6 +142,24 @@ class MerchantChannelQrConfigService
 
         FileService::appendItem($result['file']);
 
+        if ($channelId > 0 && is_array($existingChannel)) {
+            $savedChannels = MerchantChannelService::saveItem($merchantId, [
+                'id' => $channelId,
+                'plugin_config' => $pluginConfig,
+            ]);
+
+            foreach (($savedChannels['items'] ?? []) as $item) {
+                if (!is_array($item) || (int)($item['id'] ?? 0) !== $channelId) {
+                    continue;
+                }
+
+                $result['plugin_config'] = is_array($item['plugin_config'] ?? null)
+                    ? $item['plugin_config']
+                    : $pluginConfig;
+                break;
+            }
+        }
+
         return $result;
     }
 
@@ -124,39 +173,70 @@ class MerchantChannelQrConfigService
         return is_array($payload) ? $payload : [];
     }
 
-    private static function assertSupportedField(string $pluginCode, string $fieldKey): void
+    private static function schemaField(string $pluginCode, string $fieldKey): array
     {
-        $allowed = match ($pluginCode) {
-            'alipay-qrcode' => ['qrcode_image'],
-            'wechat-qrcode' => ['qrcode_image', 'appreciate_image'],
-            'alipay-ck' => ['qrcode_image'],
-            default => [],
-        };
+        $definitions = PluginRuntimeService::discoverMap();
+        $schema = is_array($definitions[$pluginCode]['settings_schema'] ?? null)
+            ? $definitions[$pluginCode]['settings_schema']
+            : [];
 
-        if (!in_array($fieldKey, $allowed, true)) {
-            throw new BusinessException('当前插件字段不支持上传图片', StatusCode::VALIDATION_ERROR);
+        foreach ($schema as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            if (trim((string)($field['key'] ?? '')) !== $fieldKey) {
+                continue;
+            }
+
+            return $field;
+        }
+
+        throw new BusinessException('当前插件字段不存在或未声明上传配置', StatusCode::VALIDATION_ERROR);
+    }
+
+    private static function assertSupportedField(array $field): void
+    {
+        $type = self::fieldType($field);
+        if (!in_array($type, ['image', 'file'], true)) {
+            throw new BusinessException('当前插件字段不支持上传文件', StatusCode::VALIDATION_ERROR);
         }
     }
 
-    private static function assertFile(UploadFile $file): void
+    private static function assertFile(UploadFile $file, array $field): void
     {
+        $type = self::fieldType($field);
         $extension = strtolower($file->getUploadExtension());
-        if (!in_array($extension, self::ALLOWED_EXTENSIONS, true)) {
-            throw new BusinessException('仅支持 jpg、jpeg、png、gif、webp、bmp 图片', StatusCode::VALIDATION_ERROR);
+        $allowedExtensions = self::allowedExtensions($field);
+        if ($allowedExtensions !== [] && !in_array($extension, $allowedExtensions, true)) {
+            $message = $type === 'image'
+                ? '仅支持 ' . implode('、', $allowedExtensions) . ' 图片'
+                : '仅支持 ' . implode('、', $allowedExtensions) . ' 文件';
+            throw new BusinessException($message, StatusCode::VALIDATION_ERROR);
         }
 
         $mimeType = strtolower((string)$file->getUploadMimeType());
-        if ($mimeType !== '' && !in_array($mimeType, self::ALLOWED_MIME_TYPES, true)) {
+        if ($type === 'image' && $mimeType !== '' && !in_array($mimeType, self::IMAGE_MIME_TYPES, true)) {
             throw new BusinessException('上传文件类型不正确', StatusCode::VALIDATION_ERROR);
         }
 
         $size = (int)($file->getSize() ?: 0);
-        if ($size <= 0 || $size > self::MAX_FILE_SIZE) {
-            throw new BusinessException('图片大小不能超过 8MB', StatusCode::VALIDATION_ERROR);
+        $maxSize = $type === 'image' ? self::MAX_IMAGE_SIZE : self::MAX_FILE_SIZE;
+        if ($size <= 0 || $size > $maxSize) {
+            throw new BusinessException(
+                $type === 'image' ? '图片大小不能超过 8MB' : '文件大小不能超过 12MB',
+                StatusCode::VALIDATION_ERROR
+            );
         }
     }
 
-    private static function storeFile(int $merchantId, string $pluginCode, string $fieldKey, UploadFile $file): array
+    private static function storeFile(
+        int $merchantId,
+        string $pluginCode,
+        string $fieldKey,
+        UploadFile $file,
+        string $fieldType
+    ): array
     {
         $extension = strtolower($file->getUploadExtension()) ?: 'png';
         $datePath = date('Ymd');
@@ -167,7 +247,7 @@ class MerchantChannelQrConfigService
             . '-' . substr(bin2hex(random_bytes(6)), 0, 12)
             . '.' . $extension;
 
-        $relativeDir = self::STORE_DIR . '/' . $datePath;
+        $relativeDir = ($fieldType === 'image' ? self::IMAGE_STORE_DIR : self::FILE_STORE_DIR) . '/' . $datePath;
         $relativePath = $relativeDir . '/' . $basename;
         $absolutePath = public_path($relativePath);
 
@@ -220,22 +300,84 @@ class MerchantChannelQrConfigService
         return (string)$method->invoke(null, $bytes, null);
     }
 
-    private static function fileRow(int $merchantId, string $pluginCode, string $fieldKey, array $saved): array
+    private static function fileRow(
+        int $merchantId,
+        string $pluginCode,
+        string $fieldKey,
+        array $saved,
+        string $fieldType
+    ): array
     {
+        $category = self::isQrField($pluginCode, $fieldKey) ? '通道二维码' : '通道配置文件';
+
         return [
             'id' => FileService::nextId(),
             'merchant_id' => $merchantId,
             'merchant_name' => self::merchantName($merchantId),
             'file_name' => (string)$saved['file_name'],
-            'category' => '通道二维码',
+            'category' => $category,
             'size' => self::formatSize((int)$saved['size_bytes']),
             'status' => '已上传',
             'uploaded_at' => date('Y-m-d H:i:s'),
             'remark' => $pluginCode . ' / ' . $fieldKey,
-            'preview_text' => '商户通道二维码配置上传文件',
+            'preview_text' => $category === '通道二维码' ? '商户通道二维码配置上传文件' : '商户通道配置文件上传记录。',
             'file_url' => self::publicFileUrl((string)$saved['relative_path']),
             'mime_type' => (string)($saved['mime_type'] ?? ''),
+            'file_type' => $fieldType,
         ];
+    }
+
+    private static function fieldType(array $field): string
+    {
+        $type = strtolower(trim((string)($field['type'] ?? 'text')));
+        return $type !== '' ? $type : 'text';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private static function allowedExtensions(array $field): array
+    {
+        $type = self::fieldType($field);
+        $accept = trim((string)($field['accept'] ?? ''));
+        if ($accept !== '') {
+            $extensions = [];
+            foreach (preg_split('/\s*,\s*/', $accept, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $item) {
+                $item = strtolower(trim($item));
+                if ($item === '') {
+                    continue;
+                }
+
+                if (str_starts_with($item, '.')) {
+                    $item = substr($item, 1);
+                } elseif (str_contains($item, '/')) {
+                    $parts = explode('/', $item, 2);
+                    $item = trim((string)($parts[1] ?? ''));
+                }
+
+                if ($item !== '') {
+                    $extensions[] = $item;
+                }
+            }
+
+            if ($extensions !== []) {
+                return array_values(array_unique($extensions));
+            }
+        }
+
+        return $type === 'image' ? self::IMAGE_EXTENSIONS : self::DEFAULT_FILE_EXTENSIONS;
+    }
+
+    private static function isQrField(string $pluginCode, string $fieldKey): bool
+    {
+        return match ($pluginCode . ':' . $fieldKey) {
+            'alipay-qrcode:qrcode_image',
+            'wechat-qrcode:qrcode_image',
+            'wechat-qrcode:appreciate_image',
+            'qqpay-qrcode:qrcode_image',
+            'alipay-ck:qrcode_image' => true,
+            default => false,
+        };
     }
 
     private static function merchantName(int $merchantId): string

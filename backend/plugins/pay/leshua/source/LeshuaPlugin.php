@@ -375,12 +375,15 @@ class LeshuaPlugin extends BasePayment
             $buyer = $arr['sub_openid'] ?? '';
             $bill_trade_no = $arr['out_transaction_id'] ?? '';
             $end_time = $arr['pay_time'];
-            if ($ctx->order['type'] == 1 && substr($bill_trade_no, 0, 4) != date('Y') && substr($bill_trade_no, 2, 4) == date('Y')) {
+            if ($this->shouldTrimBillTradeNo($ctx->order) && substr($bill_trade_no, 0, 4) != date('Y') && substr($bill_trade_no, 2, 4) == date('Y')) {
                 $bill_trade_no = substr($bill_trade_no, 2);
             }
 
             if ($out_trade_no == $tradeNo) {
-                $this->processNotify($ctx->order, $api_trade_no, $buyer, $bill_trade_no, null, $end_time);
+                $verification = !empty($this->channel['appsecret']) ? 'leshua-notify-sign' : 'leshua-query-verify';
+                ($this->markTrustedCallback($ctx, 'notify', $verification))(function () use ($ctx, $api_trade_no, $buyer, $bill_trade_no, $end_time) {
+                    $this->processNotify($ctx->order, $api_trade_no, $buyer, $bill_trade_no, null, $end_time);
+                });
             }
         }
         return ['type' => 'html', 'data' => '000000'];
@@ -407,7 +410,9 @@ class LeshuaPlugin extends BasePayment
         if (isset($result["resp_code"]) && $result["resp_code"] == '0') {
             if (isset($result['result_code']) && $result['result_code'] == '0') {
                 $bill_trade_no = $result['out_transaction_id'] ?? '';
-                if ($order['type'] == 1 && substr($bill_trade_no, 0, 4) != date('Y') && substr($bill_trade_no, 2, 4) == date('Y')) $bill_trade_no = substr($bill_trade_no, 2);
+                if ($this->shouldTrimBillTradeNo($order) && substr($bill_trade_no, 0, 4) != date('Y') && substr($bill_trade_no, 2, 4) == date('Y')) {
+                    $bill_trade_no = substr($bill_trade_no, 2);
+                }
                 return [
                     'api_trade_no' => $result['leshua_order_id'],
                     'status' => $result['status'] == '2' ? 1 : 0,
@@ -471,5 +476,16 @@ class LeshuaPlugin extends BasePayment
         } else {
             return false;
         }
+    }
+
+    private function shouldTrimBillTradeNo(array $order): bool
+    {
+        $typename = strtolower(trim((string)($order['typename'] ?? '')));
+        if ($typename !== '') {
+            return $typename === 'alipay';
+        }
+
+        $legacyType = trim((string)($order['type'] ?? ''));
+        return $legacyType === '1' || strtolower($legacyType) === 'alipay';
     }
 }

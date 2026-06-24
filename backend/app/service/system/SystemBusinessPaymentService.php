@@ -47,6 +47,7 @@ class SystemBusinessPaymentService
         $requestPayload['_legacy_channel'] = $legacyChannel;
         $legacyConfig = is_array($legacyChannel['config'] ?? null) ? $legacyChannel['config'] : [];
         $paymentAddress = trim((string)($legacyConfig['payment_address'] ?? $legacyConfig['display_value'] ?? ''));
+        $payableAmount = OrderService::resolvePayableAmountForChannelSnapshot($legacyChannel, $amount);
 
         $orderPayload = [
             'trade_no' => $tradeNo,
@@ -57,13 +58,13 @@ class SystemBusinessPaymentService
             'channel_category' => (int)($payload['channel_category'] ?? $legacyChannel['channel_category'] ?? 2),
             'subject' => trim((string)($payload['subject'] ?? '系统业务订单')) ?: '系统业务订单',
             'amount' => $amount,
-            'payable_amount' => $amount,
+            'payable_amount' => $payableAmount,
             'status' => OrderService::STATUS_PENDING,
             'notify_url' => trim((string)($payload['notify_url'] ?? '')),
             'return_url' => $returnUrl,
             'client_ip' => trim((string)($payload['client_ip'] ?? '')),
             'param' => trim((string)($payload['param'] ?? 'business-payment')),
-            'expire_time' => trim((string)($payload['expire_time'] ?? date('Y-m-d H:i:s', time() + 86400))),
+            'expire_time' => trim((string)($payload['expire_time'] ?? date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS))),
             'request_payload' => $requestPayload,
             'notify_payload' => [],
             'payment_address' => $paymentAddress,
