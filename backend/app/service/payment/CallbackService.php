@@ -11,6 +11,8 @@ class CallbackService
     private const STATUS_PENDING = 0;
     private const STATUS_FAILED = 1;
     private const STATUS_SUCCESS = 2;
+    private const DEFAULT_TIMEOUT = 10;
+    private const DEFAULT_RETRY_DELAY = [60, 120, 300, 600, 1800];
 
     public static function dispatchPendingCallbacks(int $limit = 20): array
     {
@@ -292,6 +294,16 @@ class CallbackService
             'next_time' => date('Y-m-d H:i:s'),
             'last_error' => '',
         ]);
+        $updatedOrder = self::findOrder((int)($order->id ?? 0)) ?? $order;
+        LocalOrderEventStore::recordCallbackEnqueued($updatedOrder, [
+            'retry_count' => 0,
+            'max_retry' => self::configuredMaxRetry(),
+            'response' => '',
+            'manual_retry' => false,
+            'notify_url' => (string)($order->notify_url ?? ''),
+            'runtime_exception' => false,
+            'status_text' => 'queued',
+        ]);
     }
 
     public static function syncOrderPayload(object $order, object $merchant): ?object
@@ -384,7 +396,7 @@ class CallbackService
         $context = stream_context_create([
             'http' => [
                 'method' => 'GET',
-                'timeout' => 10,
+                'timeout' => self::configuredTimeoutSeconds(),
                 'ignore_errors' => true,
                 'header' => "User-Agent: NexPay Callback/1.0\r\n",
             ],
@@ -468,6 +480,16 @@ class CallbackService
                 'callback_count' => $retryCount,
                 'notify_payload' => $orderNotify,
             ]);
+            $updatedOrder = self::findOrder((int)($callback->order_id ?? 0));
+            if ($updatedOrder) {
+                LocalOrderEventStore::recordCallbackSuccess($updatedOrder, [
+                    'retry_count' => $retryCount,
+                    'max_retry' => $maxRetry,
+                    'response' => $message,
+                    'manual_retry' => $manual,
+                    'notify_url' => (string)($callback->notify_url ?? ''),
+                ]);
+            }
 
             return self::dispatchResult(1, 1, 0, 0, 'success');
         }
@@ -486,6 +508,17 @@ class CallbackService
                 'callback_count' => $retryCount,
                 'notify_payload' => $orderNotify,
             ]);
+            $updatedOrder = self::findOrder((int)($callback->order_id ?? 0));
+            if ($updatedOrder) {
+                LocalOrderEventStore::recordCallbackFailed($updatedOrder, [
+                    'retry_count' => $retryCount,
+                    'max_retry' => $maxRetry,
+                    'response' => $message,
+                    'manual_retry' => $manual,
+                    'notify_url' => (string)($callback->notify_url ?? ''),
+                    'runtime_exception' => false,
+                ]);
+            }
 
             return self::dispatchResult(1, 0, 0, 1, $message);
         }
@@ -502,6 +535,17 @@ class CallbackService
             'callback_count' => $retryCount,
             'notify_payload' => $orderNotify,
         ]);
+        $updatedOrder = self::findOrder((int)($callback->order_id ?? 0));
+        if ($updatedOrder) {
+            LocalOrderEventStore::recordCallbackRetry($updatedOrder, [
+                'retry_count' => $retryCount,
+                'max_retry' => $maxRetry,
+                'response' => $message,
+                'manual_retry' => $manual,
+                'notify_url' => (string)($callback->notify_url ?? ''),
+                'runtime_exception' => false,
+            ]);
+        }
 
         return self::dispatchResult(1, 0, 1, 0, $message);
     }
@@ -561,6 +605,28 @@ class CallbackService
                 'callback_count' => $retryCount,
                 'notify_payload' => $orderNotify,
             ]);
+            $updatedOrder = self::findOrder((int)($callback->order_id ?? 0));
+            if ($updatedOrder) {
+                if ($status === self::STATUS_FAILED) {
+                    LocalOrderEventStore::recordCallbackFailed($updatedOrder, [
+                        'retry_count' => $retryCount,
+                        'max_retry' => $maxRetry,
+                        'response' => $message,
+                        'manual_retry' => $manual,
+                        'notify_url' => (string)($callback->notify_url ?? ''),
+                        'runtime_exception' => true,
+                    ]);
+                } else {
+                    LocalOrderEventStore::recordCallbackRetry($updatedOrder, [
+                        'retry_count' => $retryCount,
+                        'max_retry' => $maxRetry,
+                        'response' => $message,
+                        'manual_retry' => $manual,
+                        'notify_url' => (string)($callback->notify_url ?? ''),
+                        'runtime_exception' => true,
+                    ]);
+                }
+            }
         }
 
         return self::dispatchResult(
@@ -574,7 +640,7 @@ class CallbackService
 
     private static function retryDelay(int $retryCount): int
     {
-        $schedule = [60, 120, 300, 600, 1800];
+        $schedule = self::configuredRetrySchedule();
         return $schedule[min(max($retryCount - 1, 0), count($schedule) - 1)];
     }
 
@@ -674,6 +740,36 @@ class CallbackService
         $value = (int)trim((string)($api['notify_retry'] ?? '5'));
 
         return max(1, min(20, $value > 0 ? $value : 5));
+    }
+
+    private static function configuredTimeoutSeconds(): int
+    {
+        $settings = SettingsService::all(false);
+        $api = is_array($settings['api'] ?? null) ? $settings['api'] : [];
+        $value = (int)trim((string)($api['notify_timeout'] ?? (string)self::DEFAULT_TIMEOUT));
+
+        return max(3, min(30, $value > 0 ? $value : self::DEFAULT_TIMEOUT));
+    }
+
+    private static function configuredRetrySchedule(): array
+    {
+        $settings = SettingsService::all(false);
+        $api = is_array($settings['api'] ?? null) ? $settings['api'] : [];
+        $raw = trim((string)($api['notify_retry_schedule'] ?? ''));
+        if ($raw === '') {
+            return self::DEFAULT_RETRY_DELAY;
+        }
+
+        $items = preg_split('/[\s,|]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $schedule = [];
+        foreach ($items as $item) {
+            $seconds = (int)trim((string)$item);
+            if ($seconds > 0) {
+                $schedule[] = max(10, min(86400, $seconds));
+            }
+        }
+
+        return $schedule !== [] ? array_values($schedule) : self::DEFAULT_RETRY_DELAY;
     }
 
     private static function createCallback(array $payload): void

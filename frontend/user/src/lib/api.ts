@@ -304,10 +304,6 @@ export async function saveUserApiSignMode(signMode: string) {
   })
 }
 
-export async function getUserTelegram() {
-  return request<ApiResponse<Record<string, any>>>('/api/merchant/telegram', { headers: authHeaders() })
-}
-
 export async function getUserProfile() {
   return request<ApiResponse<Record<string, any>>>('/api/merchant/profile', { headers: authHeaders() })
 }

@@ -50,7 +50,7 @@ const coreServices = [
 
 const walletHighlights = [
   { title: '长期稳定支付通道', icon: 'payment-icons/alipay.png' },
-  { title: '便捷清晰账号管理', icon: 'payment-icons/unionpay.png' },
+  { title: '便捷清晰账户管理', icon: 'payment-icons/unionpay.png' },
   { title: '高效实时监控订单', icon: 'payment-icons/wechat.png' },
 ]
 
@@ -76,7 +76,7 @@ defineProps<{
           <h1>聚合支付平台</h1>
           <h2>我们专注的每一面，都是为了给你更稳的支付体验</h2>
           <p>
-            稳定、安全、便捷的一站式聚合支付服务，支持前台展示、开发联调、
+            稳定、安全、便捷的一站式聚合支付服务，支持前台展示、开发联调。
             商户入驻与后台统一配置，让支付链路更清晰。
           </p>
 

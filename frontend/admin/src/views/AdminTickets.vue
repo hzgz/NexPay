@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
+import AppPagination from '../components/AppPagination.vue'
 import {
   ADMIN_SESSION_UPDATED_EVENT,
   createAdminTicket,
@@ -14,6 +15,7 @@ import {
   saveAdminTicketCategory,
   updateAdminTicket,
 } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const route = useRoute()
 const data = ref<Record<string, any>>({
@@ -56,6 +58,10 @@ const currentMessages = computed(() => {
   const messages = currentTicket.value?.messages
   return Array.isArray(messages) ? messages : []
 })
+
+const ticketRows = computed<Record<string, any>[]>(() => Array.isArray(data.value.items) ? data.value.items : [])
+const categoryRows = computed<Record<string, any>[]>(() => Array.isArray(data.value.categories) ? data.value.categories : [])
+const { pagination, total, pagedRows } = usePagination(() => (activeSection.value === 'tickets' ? ticketRows.value : categoryRows.value), 20)
 
 function createFallbackAvatar(letter: string) {
   const safeLetter = letter.trim().slice(0, 1).toUpperCase() || 'A'
@@ -264,6 +270,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener(ADMIN_SESSION_UPDATED_EVENT, loadSessionUser as EventListener)
 })
+
+watch(activeSection, () => {
+  resetPagination(pagination)
+})
 </script>
 
 <template>
@@ -299,7 +309,7 @@ onBeforeUnmount(() => {
               <span>更新时间</span>
               <span>操作</span>
             </div>
-            <div v-for="item in data.items || []" :key="item.id" class="table-row ticket-grid">
+            <div v-for="item in pagedRows" :key="item.id" class="table-row ticket-grid">
               <strong>{{ item.ticket_no }}</strong>
               <span>{{ item.merchant_name }}</span>
               <span>{{ item.category_name }}</span>
@@ -321,7 +331,7 @@ onBeforeUnmount(() => {
               <span>说明</span>
               <span>操作</span>
             </div>
-            <div v-for="item in data.categories || []" :key="item.id" class="table-row category-grid">
+            <div v-for="item in pagedRows" :key="item.id" class="table-row category-grid">
               <strong>{{ item.name }}</strong>
               <span>{{ item.status }}</span>
               <span>{{ item.description }}</span>
@@ -331,6 +341,13 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+          <AppPagination
+            :total="total"
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            @update:page="pagination.page = $event"
+            @update:page-size="pagination.pageSize = $event"
+          />
         </div>
       </div>
     </article>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import AppPagination from '../components/AppPagination.vue'
 import { getAdminTaskLogs, getAdminTasks, runAdminTask, saveAdminTask } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 type TaskItem = {
   key: string
@@ -46,6 +48,10 @@ const filteredRuns = computed(() => {
   return data.value.runs.filter((item) => item.task_key === selectedTaskKey.value)
 })
 
+const { pagination: taskPagination, total: taskTotal, pagedRows: pagedTasks } = usePagination(() => data.value.items, 20)
+const { pagination: runPagination, total: runTotal, pagedRows: pagedRuns } = usePagination(() => data.value.runs, 20)
+const { pagination: logPagination, total: logTotal, pagedRows: pagedLogRuns } = usePagination(() => filteredRuns.value, 20)
+
 async function load() {
   const resp = await getAdminTasks()
   if (resp.code === 0 && resp.data) {
@@ -81,6 +87,7 @@ async function runTask(key: string) {
 async function openLogs(item: TaskItem) {
   selectedTaskKey.value = item.key
   selectedTaskName.value = item.name
+  resetPagination(logPagination)
   logDialogVisible.value = true
   await Promise.all([load(), loadLogs()])
 
@@ -99,6 +106,7 @@ function closeLogs() {
   selectedTaskKey.value = ''
   selectedTaskName.value = ''
   logRuns.value = []
+  resetPagination(logPagination)
   if (logTimer) {
     window.clearInterval(logTimer)
     logTimer = undefined
@@ -166,7 +174,7 @@ onBeforeUnmount(() => {
               <span>最近执行</span>
               <span>操作</span>
             </div>
-            <div v-for="item in data.items" :key="item.key" class="table-row task-grid">
+            <div v-for="item in pagedTasks" :key="item.key" class="table-row task-grid">
               <strong>{{ item.name }}</strong>
               <span class="cron-cell">{{ item.cron || '-' }}</span>
               <span>
@@ -181,6 +189,13 @@ onBeforeUnmount(() => {
                 <button class="link-action" type="button" @click="openLogs(item)">日志</button>
               </div>
             </div>
+            <AppPagination
+              :total="taskTotal"
+              :page="taskPagination.page"
+              :page-size="taskPagination.pageSize"
+              @update:page="taskPagination.page = $event"
+              @update:page-size="taskPagination.pageSize = $event"
+            />
           </div>
         </div>
 
@@ -196,12 +211,19 @@ onBeforeUnmount(() => {
               <span>执行时间</span>
               <span>结果</span>
             </div>
-            <div v-for="item in data.runs" :key="`${item.task_key}-${item.executed_at}`" class="table-row run-grid">
+            <div v-for="item in pagedRuns" :key="`${item.task_key}-${item.executed_at}`" class="table-row run-grid">
               <strong>{{ item.task_name }}</strong>
               <span>{{ item.operator || '-' }}</span>
               <span>{{ item.executed_at || '-' }}</span>
               <span>{{ item.result || '-' }}</span>
             </div>
+            <AppPagination
+              :total="runTotal"
+              :page="runPagination.page"
+              :page-size="runPagination.pageSize"
+              @update:page="runPagination.page = $event"
+              @update:page-size="runPagination.pageSize = $event"
+            />
           </div>
         </div>
       </div>
@@ -250,7 +272,7 @@ onBeforeUnmount(() => {
               <span>状态</span>
               <span>结果</span>
             </div>
-            <div v-for="item in filteredRuns" :key="`${item.task_key}-${item.executed_at}`" class="table-row log-grid">
+            <div v-for="item in pagedLogRuns" :key="`${item.task_key}-${item.executed_at}`" class="table-row log-grid">
               <span>{{ item.executed_at || '-' }}</span>
               <span>{{ item.operator || '-' }}</span>
               <span>
@@ -261,6 +283,13 @@ onBeforeUnmount(() => {
               <span>{{ item.result || '-' }}</span>
             </div>
             <p v-if="filteredRuns.length === 0" class="empty-note task-log-empty">暂无该任务日志。</p>
+            <AppPagination
+              :total="logTotal"
+              :page="logPagination.page"
+              :page-size="logPagination.pageSize"
+              @update:page="logPagination.page = $event"
+              @update:page-size="logPagination.pageSize = $event"
+            />
           </div>
         </div>
       </div>

@@ -5,7 +5,9 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
+import AppPagination from '../components/AppPagination.vue'
 import { getUserDashboard } from '../lib/api'
+import { usePagination } from '../lib/pagination'
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent])
 
@@ -30,6 +32,11 @@ const todoItems = computed(() => [
   { label: '回调待执行', value: Number(data.value.todos?.callback_due ?? 0) },
   { label: '回调已耗尽', value: Number(data.value.todos?.callback_exhausted ?? 0) },
 ])
+
+const { pagination: latestOrderPagination, total: latestOrderTotal, pagedRows: pagedLatestOrders } = usePagination(
+  () => data.value.latest_orders,
+  10,
+)
 
 const lineOption = computed(() => ({
   tooltip: {
@@ -174,7 +181,7 @@ onMounted(async () => {
               <span>状态</span>
               <span>创建时间</span>
             </div>
-            <div v-for="item in data.latest_orders || []" :key="item.trade_no" class="table-row order-grid">
+            <div v-for="item in pagedLatestOrders" :key="item.trade_no" class="table-row order-grid">
               <div class="order-no-stack">
                 <div class="order-no-line">
                   <span class="order-no-label">平台单号</span>
@@ -191,6 +198,13 @@ onMounted(async () => {
               <span><span class="status-chip">{{ item.status }}</span></span>
               <span>{{ item.created_at }}</span>
             </div>
+            <AppPagination
+              :total="latestOrderTotal"
+              :page="latestOrderPagination.page"
+              :page-size="latestOrderPagination.pageSize"
+              @update:page="latestOrderPagination.page = $event"
+              @update:page-size="latestOrderPagination.pageSize = $event"
+            />
           </div>
         </div>
       </div>

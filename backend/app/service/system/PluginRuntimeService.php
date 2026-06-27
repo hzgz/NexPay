@@ -9,6 +9,7 @@ use Throwable;
 class PluginRuntimeService
 {
     private const PLUGIN_ROOT = 'plugins';
+    private const SETTINGS_CACHE_TTL = 5;
 
     /**
      * @var array<int, array<string, mixed>>|null
@@ -30,10 +31,29 @@ class PluginRuntimeService
      */
     private static array $loadedRoutes = [];
 
+    /**
+     * @var array<string, mixed>|null
+     */
+    private static ?array $settingsStoreCache = null;
+
+    private static int $settingsStoreCachedAt = 0;
+
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    private static array $resolvedSettingsCache = [];
+
     public static function refreshDiscoveryCache(): void
     {
         self::$definitionCache = null;
         self::$definitionMapCache = null;
+    }
+
+    public static function invalidateSettingsCache(): void
+    {
+        self::$settingsStoreCache = null;
+        self::$settingsStoreCachedAt = 0;
+        self::$resolvedSettingsCache = [];
     }
 
     public static function discoverDefinitions(bool $forceReload = false): array
@@ -135,6 +155,11 @@ class PluginRuntimeService
                     'display_payment_methods' => self::normalizeList(
                         $manifest['display_payment_methods'] ?? ($config['display_payment_methods'] ?? $paymentMethods)
                     ),
+                    'config_panel' => self::normalizeConfigPanel(
+                        $manifest['config_panel']
+                        ?? ($config['config_panel']
+                        ?? self::inferConfigPanel($code, $kind, $settingsSchema, $defaultSettings))
+                    ),
                     'transfer_methods' => self::runtimeTransferMethods(
                         $code,
                         self::normalizeList($manifest['transfer_methods'] ?? ($config['transfer_methods'] ?? [])),
@@ -195,7 +220,7 @@ class PluginRuntimeService
             return;
         }
 
-        $stored = ConfigService::get('plugin_runtime_settings', []);
+        $stored = self::settingsStore();
         $settings = is_array($stored) ? $stored : [];
         $allowedCodes = [];
         foreach ($definitions as $definition) {
@@ -232,20 +257,37 @@ class PluginRuntimeService
 
         if ($dirty) {
             ConfigService::save(['plugin_runtime_settings' => $settings]);
+            self::invalidateSettingsCache();
         }
     }
 
     public static function settingsFor(string $code): array
     {
+        $code = trim($code);
+        if ($code === '') {
+            return [];
+        }
+
+        if (isset(self::$resolvedSettingsCache[$code]) && self::settingsCacheFresh()) {
+            return self::$resolvedSettingsCache[$code];
+        }
+
         $definitions = self::discoverMap();
         $defaults = is_array($definitions[$code]['default_settings'] ?? null)
             ? $definitions[$code]['default_settings']
             : [];
 
-        $stored = ConfigService::get('plugin_runtime_settings', []);
+        $stored = self::settingsStore();
         $settings = is_array($stored) && is_array($stored[$code] ?? null) ? $stored[$code] : [];
 
-        return array_replace($defaults, $settings);
+        self::$resolvedSettingsCache[$code] = array_replace($defaults, $settings);
+
+        return self::$resolvedSettingsCache[$code];
+    }
+
+    public static function storedSettings(): array
+    {
+        return self::settingsStore();
     }
 
     public static function saveSettings(string $code, array $settings): array
@@ -260,12 +302,54 @@ class PluginRuntimeService
             return [];
         }
 
-        $all = ConfigService::get('plugin_runtime_settings', []);
+        $all = self::settingsStore();
         $payload = is_array($all) ? $all : [];
         $payload[$code] = array_replace(self::settingsFor($code), $settings);
         ConfigService::save(['plugin_runtime_settings' => $payload]);
+        self::invalidateSettingsCache();
 
         return $payload[$code];
+    }
+
+    public static function removeSettings(string $code): void
+    {
+        $code = trim($code);
+        if ($code === '') {
+            return;
+        }
+
+        $payload = self::settingsStore();
+        if (!array_key_exists($code, $payload)) {
+            return;
+        }
+
+        unset($payload[$code]);
+        ConfigService::save(['plugin_runtime_settings' => $payload]);
+        self::invalidateSettingsCache();
+    }
+
+    private static function settingsStore(): array
+    {
+        if (self::$settingsStoreCache !== null && self::settingsCacheFresh()) {
+            return self::$settingsStoreCache;
+        }
+
+        $stored = ConfigService::get('plugin_runtime_settings', []);
+        self::$settingsStoreCache = is_array($stored) ? $stored : [];
+        self::$settingsStoreCachedAt = time();
+
+        return self::$settingsStoreCache;
+    }
+
+    private static function settingsCacheFresh(): bool
+    {
+        return self::$settingsStoreCachedAt > 0
+            && (time() - self::$settingsStoreCachedAt) < self::settingsCacheTtl();
+    }
+
+    private static function settingsCacheTtl(): int
+    {
+        return max(1, (int)env('PLUGIN_SETTINGS_RUNTIME_CACHE_TTL', self::SETTINGS_CACHE_TTL));
     }
 
     public static function bootEnabledProviders(): void
@@ -502,6 +586,14 @@ class PluginRuntimeService
             }
 
             $field = match ($fieldKey) {
+                'address' => $kind === 'chain' ? [
+                    'key' => 'address',
+                    'label' => '收款地址',
+                    'type' => 'text',
+                    'required' => true,
+                    'placeholder' => (string)($value !== '' ? $value : '请输入链上收款地址'),
+                    'note' => '发起支付时将使用该地址生成链上支付收银台。',
+                ] : null,
                 'confirmations' => [
                     'key' => 'confirmations',
                     'label' => '确认次数',
@@ -565,6 +657,88 @@ class PluginRuntimeService
         }
 
         return $fields;
+    }
+
+    private static function normalizeConfigPanel(mixed $panel): string
+    {
+        $normalized = strtolower(trim((string)$panel));
+
+        return match ($normalized) {
+            'qrcode',
+            'upload_qrcode',
+            'upload_qrcode_decode',
+            'qrcode_upload' => 'qrcode_upload',
+            'image',
+            'fixed_image',
+            'image_upload' => 'fixed_image',
+            'ck',
+            'login_qrcode',
+            'login_qr' => 'login_qrcode',
+            'wallet',
+            'wallet_address',
+            'chain_wallet' => 'wallet_address',
+            default => 'generic',
+        };
+    }
+
+    private static function inferConfigPanel(
+        string $code,
+        string $kind,
+        array $settingsSchema,
+        array $defaultSettings = []
+    ): string {
+        $normalizedKind = strtolower(trim($kind));
+        if ($normalizedKind === 'ck' || $code === 'alipay-ck') {
+            return 'login_qrcode';
+        }
+
+        if ($normalizedKind === 'chain') {
+            return 'wallet_address';
+        }
+
+        $keys = [];
+        foreach (self::schemaFieldList($settingsSchema) as $field) {
+            $key = trim((string)($field['key'] ?? ''));
+            if ($key !== '') {
+                $keys[$key] = true;
+            }
+        }
+
+        foreach (array_keys($defaultSettings) as $key) {
+            $name = trim((string)$key);
+            if ($name !== '') {
+                $keys[$name] = true;
+            }
+        }
+
+        if (
+            isset($keys['login_qr_image'])
+            || isset($keys['login_qr_content'])
+            || isset($keys['login_cookie_base64'])
+            || isset($keys['login_state'])
+            || isset($keys['account_pid'])
+        ) {
+            return 'login_qrcode';
+        }
+
+        if (isset($keys['qrcode_image']) && isset($keys['payment_address'])) {
+            return 'qrcode_upload';
+        }
+
+        if (
+            isset($keys['address'])
+            && ($normalizedKind === 'chain' || isset($keys['confirmations']) || isset($keys['listener']))
+        ) {
+            return 'wallet_address';
+        }
+
+        if (isset($keys['appreciate_image']) || isset($keys['appreciate_qrcode_url'])) {
+            return isset($keys['payment_address']) || isset($keys['qrcode_image'])
+                ? 'qrcode_upload'
+                : 'fixed_image';
+        }
+
+        return 'generic';
     }
 
     private static function listenerFieldOptions(string $defaultValue): array

@@ -791,7 +791,7 @@ class JiaofeiyiPlugin extends BasePayment
             return [];
         }
 
-        $decoded = @unserialize($ext);
+        $decoded = json_decode($ext, true);
         if (!is_array($decoded)) {
             return [];
         }

@@ -4,6 +4,7 @@ namespace app\service\system;
 
 use app\constant\StatusCode;
 use app\exception\BusinessException;
+use app\service\payment\OrderService;
 
 class SystemCleanupService
 {
@@ -12,6 +13,12 @@ class SystemCleanupService
             'label' => '订单记录',
             'copy' => '清理超过保留天数的订单主记录。',
             'date_fields' => ['created_at', 'updated_at'],
+            'default_days' => 30,
+        ],
+        'order_events_local' => [
+            'label' => '订单事件流水',
+            'copy' => '清理订单创建、支付成功等生命周期事件流水。',
+            'date_fields' => ['event_time', 'created_at'],
             'default_days' => 30,
         ],
         'callback_queue_local' => [
@@ -24,6 +31,12 @@ class SystemCleanupService
             'label' => '退款记录',
             'copy' => '清理超过保留天数的退款记录。',
             'date_fields' => ['updated_at', 'created_at'],
+            'default_days' => 30,
+        ],
+        'payout_events_local' => [
+            'label' => '退款代付事件流水',
+            'copy' => '清理退款、代付创建、待处理、成功、失败等生命周期事件流水。',
+            'date_fields' => ['event_time', 'created_at'],
             'default_days' => 30,
         ],
         'settlements_local' => [
@@ -94,8 +107,10 @@ class SystemCleanupService
             'copy' => '订单、回调、退款、提现、代付和资金明细。',
             'targets' => [
                 'orders_local',
+                'order_events_local',
                 'callback_queue_local',
                 'refunds_local',
+                'payout_events_local',
                 'settlements_local',
                 'transfers_local',
                 'fund_flows_local',
@@ -197,6 +212,9 @@ class SystemCleanupService
         foreach ($targets as $target) {
             $removed += self::removeDirectoryContents($target);
         }
+
+        ConfigService::invalidateCache();
+        OrderService::flushOrderLookupCache();
 
         return [
             'action' => 'runtime',

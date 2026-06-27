@@ -18,9 +18,13 @@ use Webman\Session\RedisClusterSessionHandler;
 
 return [
 
-    'type' => 'file', // or redis or redis_cluster
+    'type' => env('SESSION_DRIVER', 'redis'), // file or redis or redis_cluster
 
-    'handler' => FileSessionHandler::class,
+    'handler' => env('SESSION_DRIVER', 'redis') === 'file'
+        ? FileSessionHandler::class
+        : (env('SESSION_DRIVER', 'redis') === 'redis_cluster'
+            ? RedisClusterSessionHandler::class
+            : RedisSessionHandler::class),
 
     'config' => [
         'file' => [
@@ -29,20 +33,20 @@ return [
         'redis' => [
             'host' => '127.0.0.1',
             'port' => 6379,
-            'auth' => '',
+            'auth' => env('REDIS_PASSWORD', ''),
             'timeout' => 2,
-            'database' => '',
-            'prefix' => 'redis_session_',
+            'database' => (int)env('SESSION_REDIS_DB', env('REDIS_DB', 0)),
+            'prefix' => env('SESSION_PREFIX', 'nexpay_session_'),
         ],
         'redis_cluster' => [
             'host' => ['127.0.0.1:7000', '127.0.0.1:7001', '127.0.0.1:7001'],
             'timeout' => 2,
-            'auth' => '',
-            'prefix' => 'redis_session_',
+            'auth' => env('REDIS_PASSWORD', ''),
+            'prefix' => env('SESSION_PREFIX', 'nexpay_session_'),
         ]
     ],
 
-    'session_name' => 'PHPSID',
+    'session_name' => env('SESSION_NAME', 'NEXPAYSESSID'),
     
     'auto_update_timestamp' => false,
 
@@ -56,9 +60,9 @@ return [
     
     'http_only' => true,
 
-    'secure' => false,
+    'secure' => (bool)env('SESSION_SECURE_COOKIE', false),
     
-    'same_site' => '',
+    'same_site' => env('SESSION_SAME_SITE', 'Lax'),
 
     'gc_probability' => [1, 1000],
 

@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import AppPagination from '../components/AppPagination.vue'
 import { deleteUserFile, getUserFiles } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const items = ref<Array<Record<string, any>>>([])
 const currentFile = ref<Record<string, any> | null>(null)
 const dialogVisible = computed(() => !!currentFile.value)
 const currentFileIsImage = computed(() => isImageFile(currentFile.value))
 const currentFileUrl = computed(() => resolveFileUrl(currentFile.value))
+const { pagination, total, pagedRows } = usePagination(() => items.value, 20)
 
 async function load() {
   const resp = await getUserFiles()
   if (resp.code === 0 && resp.data) {
     items.value = resp.data.items || []
+    resetPagination(pagination)
   }
 }
 
@@ -91,7 +95,7 @@ onMounted(load)
           <span>上传时间</span>
           <span>操作</span>
         </div>
-        <div v-for="item in items" :key="item.id" class="table-row file-grid">
+        <div v-for="item in pagedRows" :key="item.id" class="table-row file-grid">
           <strong class="file-cell file-cell--name" data-label="文件名称">{{ item.file_name }}</strong>
           <span class="file-cell file-cell--category" data-label="分类">{{ item.category }}</span>
           <span class="file-cell file-cell--size" data-label="大小">{{ item.size }}</span>
@@ -103,6 +107,13 @@ onMounted(load)
             <button class="link-action" @click="removeFile(item)">删除</button>
           </div>
         </div>
+        <AppPagination
+          :total="total"
+          :page="pagination.page"
+          :page-size="pagination.pageSize"
+          @update:page="pagination.page = $event"
+          @update:page-size="pagination.pageSize = $event"
+        />
       </div>
     </article>
 

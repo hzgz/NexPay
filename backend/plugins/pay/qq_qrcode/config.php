@@ -2,6 +2,7 @@
 
 return [
     'kind' => 'qrcode',
+    'config_panel' => 'qrcode_upload',
     'capabilities' => ['create', 'query', 'notify'],
     'payment_methods' => ['qqpay'],
     'default_settings' => [

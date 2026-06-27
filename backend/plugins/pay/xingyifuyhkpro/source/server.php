@@ -35,9 +35,27 @@ while (true) {
     $now = time();
 
     if ($argChannelId > 0) {
-        $list = Db::query("SELECT trade_no,realmoney,channel FROM {$prefix}order WHERE channel='{$argChannelId}' AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 8 MINUTE)");
+        $list = Db::name('order')
+            ->field('trade_no,realmoney,channel')
+            ->where('channel', $argChannelId)
+            ->where('status', 0)
+            ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480))
+            ->select()
+            ->toArray();
     } else {
-        $list = Db::query("SELECT trade_no,realmoney,channel FROM {$prefix}order WHERE channel IN (SELECT id FROM {$prefix}channel WHERE plugin='xingyifuyhkpro' AND status=1) AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 8 MINUTE)");
+        $channelIds = Db::name('channel')
+            ->where('plugin', 'xingyifuyhkpro')
+            ->where('status', 1)
+            ->column('id');
+        $list = $channelIds === []
+            ? []
+            : Db::name('order')
+                ->field('trade_no,realmoney,channel')
+                ->whereIn('channel', $channelIds)
+                ->where('status', 0)
+                ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480))
+                ->select()
+                ->toArray();
     }
 
     if (empty($list)) {

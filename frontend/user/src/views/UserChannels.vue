@@ -20,6 +20,8 @@ import {
   normalizeSchemaDefault,
   normalizeSchemaOptions,
 } from '../lib/plugin-schema'
+import AppPagination from '../components/AppPagination.vue'
+import { resetPagination, usePagination } from '../lib/pagination'
 import templateCheckoutLivePreview from '../assets/payment-settings/template-checkout-live.png'
 
 type ChannelMethod = {
@@ -34,6 +36,7 @@ type ChannelPlugin = {
   code: string
   name: string
   kind?: string
+  config_panel?: string
   payment_methods?: string[]
   settings_schema?: Array<Record<string, any>>
   default_settings?: Record<string, any>
@@ -270,6 +273,8 @@ const visibleChannels = computed<Record<string, any>[]>(() => {
   })
 })
 
+const { pagination: channelPagination, total: channelTotal, pagedRows: pagedChannels } = usePagination(() => visibleChannels.value, 20)
+
 const rotationPools = computed<RotationPool[]>(() => {
   const pools = Array.isArray(channelData.value.rotation?.pools) ? channelData.value.rotation.pools : []
   return pools.map((pool: Record<string, any>) => ({
@@ -290,6 +295,8 @@ const rotationPools = computed<RotationPool[]>(() => {
     channel_count: Number(pool.channel_count || (Array.isArray(pool.items) ? pool.items.length : 0)),
   }))
 })
+
+const { pagination: rotationPagination, total: rotationTotal, pagedRows: pagedRotationPools } = usePagination(() => rotationPools.value, 20)
 
 const rotationMethodOptions = computed<ChannelMethod[]>(() => {
   const usedCodes = new Set(
@@ -319,19 +326,18 @@ const selectedConfigPlugin = computed<ChannelPlugin | null>(() => {
   return pluginsForMethod(String(configForm.method_code || ''), code).find((item) => item.code === code) || null
 })
 
-const isAlipayCkConfig = computed(() => String(configForm.plugin_code || '') === 'alipay-ck')
-const isAlipayQrcodeConfig = computed(() => String(configForm.plugin_code || '') === 'alipay-qrcode')
+const selectedConfigPanel = computed(() => String(selectedConfigPlugin.value?.config_panel || 'generic').trim().toLowerCase() || 'generic')
+const isLoginQrcodeConfig = computed(() => selectedConfigPanel.value === 'login_qrcode')
+const isDedicatedQrcodeConfig = computed(() => selectedConfigPanel.value === 'qrcode_upload')
+const isFixedImageConfig = computed(() => selectedConfigPanel.value === 'fixed_image')
+const isWalletAddressConfig = computed(() => selectedConfigPanel.value === 'wallet_address')
 const isWechatQrcodeConfig = computed(() => String(configForm.plugin_code || '') === 'wechat-qrcode')
-const isQqQrcodeConfig = computed(() => String(configForm.plugin_code || '') === 'qqpay-qrcode')
-const usesDedicatedQrConfig = computed(
-  () => isAlipayQrcodeConfig.value || isWechatQrcodeConfig.value || isQqQrcodeConfig.value,
+const isQrcodeModeConfig = computed(() => String(configForm.plugin_config?.mode || 'qrcode') === 'qrcode')
+const isWechatAppreciateConfig = computed(
+  () => isWechatQrcodeConfig.value && String(configForm.plugin_config?.mode || 'qrcode') === 'appreciate',
 )
 
-const configSchema = computed<Record<string, any>[]>(() => {
-  if (isAlipayCkConfig.value || usesDedicatedQrConfig.value) {
-    return []
-  }
-
+const selectedConfigSchemaFields = computed<Record<string, any>[]>(() => {
   const rawSchema = selectedConfigPlugin.value?.settings_schema
   const rawSchemaObject = rawSchema && typeof rawSchema === 'object' ? (rawSchema as Record<string, any>) : null
   const schema = Array.isArray(rawSchema)
@@ -343,6 +349,14 @@ const configSchema = computed<Record<string, any>[]>(() => {
   return schema.filter((field) =>
     isSchemaFieldVisible(field, String(configForm.method_code || ''), configForm.plugin_config || {}),
   )
+})
+
+const configSchema = computed<Record<string, any>[]>(() => {
+  if (isLoginQrcodeConfig.value || isDedicatedQrcodeConfig.value || isFixedImageConfig.value || isWalletAddressConfig.value) {
+    return []
+  }
+
+  return selectedConfigSchemaFields.value
 })
 
 function applyChannelData(data: Record<string, any>) {
@@ -363,6 +377,8 @@ async function load() {
   const resp = await getUserChannels()
   if (resp.code === 0 && resp.data) {
     applyChannelData(resp.data)
+    resetPagination(channelPagination)
+    resetPagination(rotationPagination)
   }
   loading.value = false
 }
@@ -491,7 +507,7 @@ function patchCurrentChannelPluginConfig(source: Record<string, any>) {
 }
 
 function syncAlipayCkPanelFromConfig() {
-  if (!isAlipayCkConfig.value) {
+  if (!isLoginQrcodeConfig.value) {
     resetAlipayCkPanel()
     return
   }
@@ -525,7 +541,7 @@ function shouldPollAlipayCkStatus(status: string) {
 
 function scheduleAlipayCkPolling(delay = 1600) {
   stopAlipayCkPolling()
-  if (!configDialogVisible.value || !isAlipayCkConfig.value || !Number(configForm.id || 0)) {
+  if (!configDialogVisible.value || !isLoginQrcodeConfig.value || !Number(configForm.id || 0)) {
     return
   }
 
@@ -540,7 +556,7 @@ function scheduleAlipayCkPolling(delay = 1600) {
 }
 
 async function loadAlipayCkQrcode() {
-  if (!Number(configForm.id || 0) || !isAlipayCkConfig.value) return
+  if (!Number(configForm.id || 0) || !isLoginQrcodeConfig.value) return
 
   stopAlipayCkPolling()
   alipayCkSuccessToastShown = false
@@ -563,7 +579,7 @@ async function loadAlipayCkQrcode() {
 }
 
 async function loadAlipayCkStatus(options: { silent?: boolean } = {}) {
-  if (!Number(configForm.id || 0) || !isAlipayCkConfig.value) return
+  if (!Number(configForm.id || 0) || !isLoginQrcodeConfig.value) return
 
   stopAlipayCkPolling()
   const silent = options.silent === true
@@ -905,7 +921,7 @@ async function openConfig(item: Record<string, any>) {
   syncAlipayCkPanelFromConfig()
   configDialogVisible.value = true
 
-  if (!isAlipayCkConfig.value) {
+  if (!isLoginQrcodeConfig.value) {
     return
   }
 
@@ -920,7 +936,7 @@ async function openConfig(item: Record<string, any>) {
 function openTestDialog(item: Record<string, any>) {
   Object.assign(testForm, {
     id: item.id,
-    title: `${item.channel_name || item.method_name || item.channel} 测试订单`,
+    title: '通道测试订单',
     amount: '1.00',
   })
   testDialogVisible.value = true
@@ -968,7 +984,19 @@ watch(
 )
 
 watch(
+  () => channelKeyword.value,
+  () => {
+    resetPagination(channelPagination)
+  },
+)
+
+watch(
   () => configSchema.value.map((field) => String(field.key || '')).join('|'),
+  () => ensureConfigDefaults(selectedConfigPlugin.value, true),
+)
+
+watch(
+  () => selectedConfigSchemaFields.value.map((field) => String(field.key || '')).join('|'),
   () => ensureConfigDefaults(selectedConfigPlugin.value, true),
 )
 
@@ -980,7 +1008,7 @@ watch(
       return
     }
 
-    if (isAlipayCkConfig.value) {
+    if (isLoginQrcodeConfig.value) {
       scheduleAlipayCkPolling(800)
     }
   },
@@ -989,7 +1017,7 @@ watch(
 watch(
   () => alipayCkPanel.status,
   (status) => {
-    if (!configDialogVisible.value || !isAlipayCkConfig.value) {
+    if (!configDialogVisible.value || !isLoginQrcodeConfig.value) {
       stopAlipayCkPolling()
       return
     }
@@ -1210,6 +1238,37 @@ function fieldNote(field: Record<string, any>) {
   return ''
 }
 
+function configSchemaField(key: string) {
+  const normalized = String(key || '').trim()
+  if (!normalized) return null
+  return selectedConfigSchemaFields.value.find((field) => String(field?.key || '').trim() === normalized) || null
+}
+
+function configSchemaFieldLabel(key: string, fallback: string) {
+  return String(configSchemaField(key)?.label || '').trim() || fallback
+}
+
+function configSchemaFieldNote(key: string) {
+  const field = configSchemaField(key)
+  return field ? fieldNote(field) : ''
+}
+
+function configSchemaFieldPlaceholder(key: string, fallback: string) {
+  const field = configSchemaField(key)
+  return field ? fieldPlaceholder(field) : fallback
+}
+
+function configSchemaFieldReadonly(key: string) {
+  const field = configSchemaField(key)
+  return field ? fieldReadonly(field) : false
+}
+
+function configSchemaFieldOptions(key: string, fallback: Array<{ label: string; value: string }> = []) {
+  const field = configSchemaField(key)
+  const options = normalizeOptions(field?.options)
+  return options.length ? options : fallback
+}
+
 function uploadFieldButtonText(field: Record<string, any>) {
   const type = fieldType(field)
   if (type === 'image') return '上传图片'
@@ -1226,7 +1285,7 @@ function fieldAccept(field: Record<string, any>) {
 }
 
 function uploadHint(_field: Record<string, any>) {
-  return ''
+  return fieldNote(_field)
 }
 
 function patchUploadedPluginConfig(data: Record<string, any>) {
@@ -1427,8 +1486,8 @@ onMounted(load)
           <span>状态</span>
           <span>操作</span>
         </div>
-        <div v-for="(item, index) in visibleChannels" :key="item.id" class="table-row channel-grid">
-          <strong>{{ index + 1 }}</strong>
+        <div v-for="(item, index) in pagedChannels" :key="item.id" class="table-row channel-grid">
+          <strong>{{ (channelPagination.page - 1) * channelPagination.pageSize + index + 1 }}</strong>
           <div class="stack-cell">
             <strong>{{ item.channel_name || item.method_name || item.channel }}</strong>
             <small>ID {{ item.id }}</small>
@@ -1454,6 +1513,13 @@ onMounted(load)
         </div>
         <p v-if="!loading && !visibleChannels.length && sortedChannels.length" class="empty-note">未找到匹配的通道。</p>
         <p v-if="!loading && !sortedChannels.length" class="empty-note">暂无已配置通道。</p>
+        <AppPagination
+          :total="channelTotal"
+          :page="channelPagination.page"
+          :page-size="channelPagination.pageSize"
+          @update:page="channelPagination.page = $event"
+          @update:page-size="channelPagination.pageSize = $event"
+        />
       </div>
 
       <div v-else-if="activeSection === 'rotation'" class="rotation-stack settings-workspace__body">
@@ -1480,56 +1546,64 @@ onMounted(load)
           </div>
         </section>
 
-        <div v-if="rotationPools.length" class="table-wrap rotation-table">
-          <div class="table-head rotation-grid">
-            <span>轮询池名称</span>
-            <span>支付方式</span>
-            <span>轮询方式</span>
-            <span>已配通道</span>
-            <span>状态</span>
-            <span>操作</span>
-          </div>
-          <div v-for="pool in rotationPools" :key="pool.id" class="table-row rotation-grid">
-            <div class="stack-cell">
-              <strong>{{ pool.pool_name }}</strong>
-              <small>ID {{ pool.id }}</small>
+        <div class="table-wrap rotation-table">
+          <template v-if="rotationPools.length">
+            <div class="table-head rotation-grid">
+              <span>轮询池名称</span>
+              <span>支付方式</span>
+              <span>轮询方式</span>
+              <span>已配通道</span>
+              <span>状态</span>
+              <span>操作</span>
             </div>
-            <span>{{ pool.method_name || methodName(pool.method_code) }}</span>
-            <span>{{ pool.strategy_label || rotationStrategyLabel(pool.strategy) }}</span>
-            <span>{{ pool.channel_count || pool.items.length }} 个通道</span>
-            <span>
-              <span class="status-chip" :class="Number(pool.status_code) === 1 ? 'success' : 'muted'">
-                {{ Number(pool.status_code) === 1 ? '启用' : '关闭' }}
+            <div v-for="pool in pagedRotationPools" :key="pool.id" class="table-row rotation-grid">
+              <div class="stack-cell">
+                <strong>{{ pool.pool_name }}</strong>
+                <small>ID {{ pool.id }}</small>
+              </div>
+              <span>{{ pool.method_name || methodName(pool.method_code) }}</span>
+              <span>{{ pool.strategy_label || rotationStrategyLabel(pool.strategy) }}</span>
+              <span>{{ pool.channel_count || pool.items.length }} 个通道</span>
+              <span>
+                <span class="status-chip" :class="Number(pool.status_code) === 1 ? 'success' : 'muted'">
+                  {{ Number(pool.status_code) === 1 ? '启用' : '关闭' }}
+                </span>
               </span>
-            </span>
-            <div class="rotation-actions">
-              <button class="rotation-link" type="button" @click="openRotationChannels(pool)">
-                <el-icon><Setting /></el-icon>
-                <span>通道管理</span>
-              </button>
-              <button class="rotation-link rotation-link--edit" type="button" @click="editRotationPool(pool)">
-                <el-icon><EditPen /></el-icon>
-                <span>编辑</span>
-              </button>
-              <button class="rotation-link rotation-link--danger" type="button" @click="removeRotationPool(pool)">
-                <el-icon><Delete /></el-icon>
-                <span>删除</span>
-              </button>
-              <button class="rotation-link" type="button" @click="toggleRotationPool(pool)">
-                <el-icon><SwitchButton /></el-icon>
-                <span>{{ Number(pool.status_code) === 1 ? '关闭' : '开启' }}</span>
-              </button>
+              <div class="rotation-actions">
+                <button class="rotation-link" type="button" @click="openRotationChannels(pool)">
+                  <el-icon><Setting /></el-icon>
+                  <span>通道管理</span>
+                </button>
+                <button class="rotation-link rotation-link--edit" type="button" @click="editRotationPool(pool)">
+                  <el-icon><EditPen /></el-icon>
+                  <span>编辑</span>
+                </button>
+                <button class="rotation-link rotation-link--danger" type="button" @click="removeRotationPool(pool)">
+                  <el-icon><Delete /></el-icon>
+                  <span>删除</span>
+                </button>
+                <button class="rotation-link" type="button" @click="toggleRotationPool(pool)">
+                  <el-icon><SwitchButton /></el-icon>
+                  <span>{{ Number(pool.status_code) === 1 ? '关闭' : '开启' }}</span>
+                </button>
+              </div>
             </div>
+          </template>
+          <div v-else class="rotation-empty rotation-empty--table">
+            <el-icon class="rotation-empty__icon"><Box /></el-icon>
+            <strong class="rotation-empty__title">暂无轮询池数据</strong>
+            <button class="primary-btn" type="button" @click="openRotationCreate">
+              <el-icon><Plus /></el-icon>
+              <span>创建第一个轮询池</span>
+            </button>
           </div>
-        </div>
-
-        <div v-else class="rotation-empty">
-          <el-icon class="rotation-empty__icon"><Box /></el-icon>
-          <strong class="rotation-empty__title">暂无轮询池数据</strong>
-          <button class="primary-btn" type="button" @click="openRotationCreate">
-            <el-icon><Plus /></el-icon>
-            <span>创建第一个轮询池</span>
-          </button>
+          <AppPagination
+            :total="rotationTotal"
+            :page="rotationPagination.page"
+            :page-size="rotationPagination.pageSize"
+            @update:page="rotationPagination.page = $event"
+            @update:page-size="rotationPagination.pageSize = $event"
+          />
         </div>
       </div>
 
@@ -1607,7 +1681,7 @@ onMounted(load)
             <h3 class="settings-block-title">{{ pluginName(configForm.plugin_code) }}</h3>
           </div>
 
-          <div v-if="isAlipayCkConfig" class="alipay-ck-panel">
+          <div v-if="isLoginQrcodeConfig" class="alipay-ck-panel">
             <div class="alipay-ck-panel__head">
               <div class="alipay-ck-panel__summary">
                 <div class="alipay-ck-panel__title-row">
@@ -1654,7 +1728,7 @@ onMounted(load)
             </div>
           </div>
 
-          <div v-else-if="usesDedicatedQrConfig" class="qr-config-panel">
+          <div v-else-if="isDedicatedQrcodeConfig || isFixedImageConfig" class="qr-config-panel">
             <div class="field-grid compact">
               <label v-if="isWechatQrcodeConfig" class="field">
                 <span class="field-label">码类型</span>
@@ -1678,10 +1752,7 @@ onMounted(load)
               </label>
             </div>
 
-            <div
-              v-if="isAlipayQrcodeConfig || String(configForm.plugin_config?.mode || 'qrcode') === 'qrcode'"
-              class="qr-config-row"
-            >
+            <div v-if="isDedicatedQrcodeConfig && isQrcodeModeConfig" class="qr-config-row">
               <label class="field qr-config-row__main">
                 <span class="field-label">二维码地址</span>
                 <input
@@ -1710,7 +1781,7 @@ onMounted(load)
               </label>
             </div>
 
-            <div v-if="isWechatQrcodeConfig && String(configForm.plugin_config?.mode || 'qrcode') === 'appreciate'" class="qr-config-row">
+            <div v-if="isWechatAppreciateConfig || isFixedImageConfig" class="qr-config-row">
               <label class="field qr-config-row__main">
                 <span class="field-label">赞赏码图片地址</span>
                 <input
@@ -1740,6 +1811,92 @@ onMounted(load)
               </label>
             </div>
 
+          </div>
+
+          <div v-else-if="isWalletAddressConfig" class="wallet-config-panel">
+            <div class="field-grid compact">
+              <label class="field field-span-2">
+                <span class="field-label">{{ configSchemaFieldLabel('address', '收款地址') }}</span>
+                <input
+                  v-model="configForm.plugin_config.address"
+                  type="text"
+                  :readonly="configSchemaFieldReadonly('address')"
+                  :placeholder="configSchemaFieldPlaceholder('address', '请输入 TRC20 收款地址')"
+                />
+                <small v-if="configSchemaFieldNote('address')" class="field-note">{{ configSchemaFieldNote('address') }}</small>
+              </label>
+
+              <label class="field">
+                <span class="field-label">{{ configSchemaFieldLabel('appurl', '订单有效期（秒）') }}</span>
+                <input
+                  v-model="configForm.plugin_config.appurl"
+                  type="number"
+                  min="60"
+                  step="1"
+                  :readonly="configSchemaFieldReadonly('appurl')"
+                  :placeholder="configSchemaFieldPlaceholder('appurl', '默认 360 秒')"
+                />
+                <small v-if="configSchemaFieldNote('appurl')" class="field-note">{{ configSchemaFieldNote('appurl') }}</small>
+              </label>
+
+              <label class="field">
+                <span class="field-label">{{ configSchemaFieldLabel('xiaoshu', '金额小数位') }}</span>
+                <input
+                  v-model="configForm.plugin_config.xiaoshu"
+                  type="number"
+                  min="2"
+                  max="6"
+                  step="1"
+                  :readonly="configSchemaFieldReadonly('xiaoshu')"
+                  :placeholder="configSchemaFieldPlaceholder('xiaoshu', '默认 2 位')"
+                />
+                <small v-if="configSchemaFieldNote('xiaoshu')" class="field-note">{{ configSchemaFieldNote('xiaoshu') }}</small>
+              </label>
+
+              <label class="field">
+                <span class="field-label">{{ configSchemaFieldLabel('confirmations', '确认次数') }}</span>
+                <input
+                  v-model="configForm.plugin_config.confirmations"
+                  type="number"
+                  min="0"
+                  step="1"
+                  :readonly="configSchemaFieldReadonly('confirmations')"
+                  :placeholder="configSchemaFieldPlaceholder('confirmations', '请输入确认次数')"
+                />
+              </label>
+
+              <label class="field">
+                <span class="field-label">{{ configSchemaFieldLabel('listener', '监听模式') }}</span>
+                <select
+                  v-model="configForm.plugin_config.listener"
+                  :disabled="configSchemaFieldReadonly('listener')"
+                >
+                  <option
+                    v-for="option in configSchemaFieldOptions('listener', [{ label: '模拟监听', value: 'mock-listener' }])"
+                    :key="`listener-${option.value}`"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="field-label">{{ configSchemaFieldLabel('address_strategy', '地址策略') }}</span>
+                <select
+                  v-model="configForm.plugin_config.address_strategy"
+                  :disabled="configSchemaFieldReadonly('address_strategy')"
+                >
+                  <option
+                    v-for="option in configSchemaFieldOptions('address_strategy', [{ label: '单地址收款', value: 'single' }])"
+                    :key="`address-strategy-${option.value}`"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+            </div>
           </div>
 
           <div v-else-if="configSchema.length" class="field-grid compact">
@@ -1831,10 +1988,7 @@ onMounted(load)
                 :readonly="fieldReadonly(field)"
               />
 
-              <small
-                v-if="!['html', 'image', 'file'].includes(fieldType(field)) && fieldNote(field) && false"
-                class="field-note"
-              >
+              <small v-if="!['html'].includes(fieldType(field)) && fieldNote(field)" class="field-note">
                 {{ fieldNote(field) }}
               </small>
             </label>
@@ -1844,9 +1998,9 @@ onMounted(load)
       </div>
       <template #footer>
         <button class="ghost-btn" type="button" @click="configDialogVisible = false">
-          {{ isAlipayCkConfig ? '关闭' : '取消' }}
+          {{ isLoginQrcodeConfig ? '关闭' : '取消' }}
         </button>
-        <button v-if="!isAlipayCkConfig" class="primary-btn" type="button" @click="submitConfig">保存配置</button>
+        <button v-if="!isLoginQrcodeConfig" class="primary-btn" type="button" @click="submitConfig">保存配置</button>
       </template>
     </el-dialog>
 
@@ -2332,6 +2486,11 @@ onMounted(load)
   gap: 16px;
 }
 
+.wallet-config-panel {
+  display: grid;
+  gap: 16px;
+}
+
 .qr-config-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 168px;
@@ -2498,6 +2657,10 @@ onMounted(load)
   border-top: 1px solid var(--brand-border);
   background: #f8fafc;
   color: #6e7f96;
+}
+
+.rotation-empty--table {
+  border-top: 0;
 }
 
 .rotation-empty__icon {

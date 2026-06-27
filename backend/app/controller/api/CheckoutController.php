@@ -6,6 +6,7 @@ use app\constant\StatusCode;
 use app\controller\BaseApiController;
 use app\exception\BusinessException;
 use app\service\payment\LegacyPaymentGatewayService;
+use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
 use app\service\payment\QrCodeService;
 use app\service\system\EncodingRepairService;
@@ -48,6 +49,7 @@ class CheckoutController extends BaseApiController
     public function show(Request $request, string $trade_no): Response
     {
         $order = $this->normalizeCheckoutOrderState(OrderService::findByTradeNo($trade_no));
+        $statusInfo = OrderStatusService::forCheckout($order);
         $settings = MerchantChannelService::all((int) $order->merchant_id)['payment_settings'] ?? [];
         $template = $this->normalizeTemplateCode((string) ($settings['template'] ?? ''));
         $templateVariables = $this->checkoutTemplateVariables($order);
@@ -69,8 +71,9 @@ class CheckoutController extends BaseApiController
             'expire_time' => (string) ($order->expire_time ?? ''),
             'return_url' => (string) ($order->return_url ?? ''),
             'status_url' => '/pay/status/' . rawurlencode($trade_no),
-            'status_code' => (int) ($order->status ?? 0),
-            'status_text' => $this->statusLabel((int) ($order->status ?? 0)),
+            'status_code' => (int) ($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING),
+            'status_key' => (string) ($statusInfo['key'] ?? 'pending'),
+            'status_text' => (string) ($statusInfo['label'] ?? '等待支付'),
             'auto_redirect' => !empty($settings['auto_redirect']),
             'voice_enabled' => !empty($settings['voice_enabled']),
             'voice_text' => $this->renderTextTemplate($voiceTemplate, $templateVariables),
@@ -91,6 +94,7 @@ class CheckoutController extends BaseApiController
     {
         return $this->execute(function () use ($trade_no) {
             $order = $this->normalizeCheckoutOrderState(OrderService::findByTradeNo($trade_no));
+            $statusInfo = OrderStatusService::forCheckout($order);
             $settings = MerchantChannelService::all((int) $order->merchant_id)['payment_settings'] ?? [];
 
             return $this->success([
@@ -99,8 +103,9 @@ class CheckoutController extends BaseApiController
                 'subject' => (string) ($order->subject ?? ''),
                 'method_name' => $this->methodName((string) ($order->channel_code ?? '')),
                 'amount' => $this->normalizeAmountText($order->payable_amount ?? $order->amount ?? '0.00'),
-                'status' => (int) $order->status,
-                'status_text' => $this->statusLabel((int) $order->status),
+                'status' => (int) ($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING),
+                'status_key' => (string) ($statusInfo['key'] ?? 'pending'),
+                'status_text' => (string) ($statusInfo['label'] ?? '等待支付'),
                 'pay_time' => (string) ($order->pay_time ?? ''),
                 'created_at' => (string) ($order->created_at ?? ''),
                 'expire_time' => (string) ($order->expire_time ?? ''),
@@ -201,6 +206,7 @@ class CheckoutController extends BaseApiController
             'expire_time' => (string) ($view['expire_time'] ?? ''),
             'return_url' => $returnUrl,
             'status' => $statusCode,
+            'status_key' => (string) ($view['status_key'] ?? ''),
             'status_text' => (string) ($view['status_text'] ?? ''),
         ]);
 
@@ -612,7 +618,7 @@ class CheckoutController extends BaseApiController
 
     let redirected = false;
     let voicePlayed = false;
-    let paidDetected = Number(initialState.status || 0) === 1;
+    let paidDetected = String(initialState.status_key || '') === 'success' || Number(initialState.status || 0) === 1;
     let pollTimer = 0;
 
     const checkoutStageEl = document.getElementById('checkoutStage');
@@ -638,10 +644,13 @@ class CheckoutController extends BaseApiController
 
     function setStatus(text, statusCode) {
       let tone = 'var(--accent)';
-      if (Number(statusCode) === 1) {
+      const code = Number(statusCode);
+      if (code === 1) {
         tone = 'var(--success)';
-      } else if (Number(statusCode) === 2 || Number(statusCode) === 3 || Number(statusCode) === 4) {
+      } else if (code === 2 || code === 3 || code === 4) {
         tone = 'var(--danger)';
+      } else if (code === 7) {
+        tone = 'var(--muted)';
       }
 
       statusEl.innerHTML = '<span class="status-dot"></span>' + text;
@@ -726,12 +735,13 @@ class CheckoutController extends BaseApiController
       }
 
       const statusCode = Number(data.status || 0);
+      const statusKey = String(data.status_key || '');
       const statusText = data.status_text || '等待支付';
 
-      paidDetected = paidDetected || statusCode === 1;
+      paidDetected = paidDetected || statusKey === 'success' || statusCode === 1;
       setStatus(statusText, statusCode);
 
-      if (statusCode === 1) {
+      if (statusKey === 'success' || statusCode === 1) {
         setQrMaskState(0);
         playSuccessVoice();
         showSuccessStage(data);
@@ -776,7 +786,7 @@ class CheckoutController extends BaseApiController
 
     applyState(initialState);
 
-    if (![1, 2, 3, 4].includes(Number(initialState.status || 0))) {
+    if (String(initialState.status_key || '') !== 'success' && ![2, 3, 4].includes(Number(initialState.status || 0))) {
       poll();
       pollTimer = window.setInterval(poll, 3000);
     }
@@ -919,13 +929,7 @@ HTML;
 
     private function statusLabel(int $status): string
     {
-        return match ($status) {
-            OrderService::STATUS_SUCCESS => '支付成功',
-            OrderService::STATUS_FAILED => '支付失败',
-            OrderService::STATUS_EXPIRED => '订单已过期',
-            OrderService::STATUS_CLOSED => '订单已关闭',
-            default => '等待支付',
-        };
+        return OrderStatusService::checkoutLabelByCode($status);
     }
 
     private function methodName(string $channelCode): string

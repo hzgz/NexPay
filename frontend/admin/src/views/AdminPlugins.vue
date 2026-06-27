@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshRight, Search } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
+import AppPagination from '../components/AppPagination.vue'
 import {
   deleteAdminPaymentMethod,
   deleteAdminPlugin,
@@ -12,6 +13,7 @@ import {
   toggleAdminPaymentMethod,
   toggleAdminPlugin,
 } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 type PaymentMethod = {
   code: string
@@ -86,6 +88,10 @@ const filteredPlugins = computed(() => {
   })
 })
 
+const methodRows = computed(() => data.value.methods || [])
+const { pagination: methodPagination, total: methodTotal, pagedRows: pagedMethods } = usePagination(() => methodRows.value, 20)
+const { pagination: pluginPagination, total: pluginTotal, pagedRows: pagedPlugins } = usePagination(() => filteredPlugins.value, 20)
+
 async function load() {
   loading.value = true
   const resp = await getAdminPlugins()
@@ -94,6 +100,8 @@ async function load() {
       methods: resp.data.methods || [],
       items: resp.data.items || [],
     }
+    resetPagination(methodPagination)
+    resetPagination(pluginPagination)
   }
   loading.value = false
 }
@@ -179,11 +187,13 @@ async function refreshPlugins() {
 
 function runPluginSearch() {
   pluginSearch.value = pluginKeyword.value.trim()
+  resetPagination(pluginPagination)
 }
 
 function resetPluginSearch() {
   pluginKeyword.value = ''
   pluginSearch.value = ''
+  resetPagination(pluginPagination)
 }
 
 function statusClass(statusCode?: number) {
@@ -261,7 +271,7 @@ onMounted(load)
               <span>状态</span>
               <span>操作</span>
             </div>
-            <div v-for="item in data.methods || []" :key="item.code" class="table-row payment-grid">
+            <div v-for="item in pagedMethods" :key="item.code" class="table-row payment-grid">
               <strong class="code-text">{{ item.code }}</strong>
               <div class="method-name-cell">
                 <div v-if="methodIcon(item.code)" class="method-icon-shell">
@@ -285,6 +295,13 @@ onMounted(load)
                 <button class="table-btn danger" @click="removeMethod(item)">删除</button>
               </div>
             </div>
+            <AppPagination
+              :total="methodTotal"
+              :page="methodPagination.page"
+              :page-size="methodPagination.pageSize"
+              @update:page="methodPagination.page = $event"
+              @update:page-size="methodPagination.pageSize = $event"
+            />
           </div>
         </div>
       </div>
@@ -326,7 +343,7 @@ onMounted(load)
               <span>状态</span>
               <span>操作</span>
             </div>
-            <div v-for="item in filteredPlugins" :key="item.code" class="table-row plugin-grid">
+            <div v-for="item in pagedPlugins" :key="item.code" class="table-row plugin-grid">
               <div class="plugin-name-cell">
                 <strong>{{ item.name }}</strong>
               </div>
@@ -350,6 +367,13 @@ onMounted(load)
                 <button class="table-btn danger" @click="removePlugin(item)">删除</button>
               </div>
             </div>
+            <AppPagination
+              :total="pluginTotal"
+              :page="pluginPagination.page"
+              :page-size="pluginPagination.pageSize"
+              @update:page="pluginPagination.page = $event"
+              @update:page-size="pluginPagination.pageSize = $event"
+            />
           </div>
         </div>
       </div>

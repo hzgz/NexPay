@@ -5,11 +5,9 @@ namespace app\service\system;
 use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\model\ChannelType;
-use app\model\Order;
 use app\model\MerchantChannel;
 use app\service\payment\GatewayCompatService;
 use app\service\payment\LegacyPaymentGatewayService;
-use app\service\payment\LocalOrderStore;
 use app\service\payment\OrderService;
 use app\service\payment\PluginExecutorService;
 use app\service\payment\QrCodeService;
@@ -43,13 +41,13 @@ class MerchantChannelService
         '[商品名称]' => '{{product_name}}',
         '[实付价格]' => '{{paid_amount}}',
         '[订单价格]' => '{{order_amount}}',
-        '[支付方式]' => '{{payment_method}}',
+        '[收款方式]' => '{{payment_method}}',
         '{{平台订单号}}' => '{{platform_order_no}}',
         '{{商户订单号}}' => '{{merchant_order_no}}',
         '{{商品名称}}' => '{{product_name}}',
         '{{实付价格}}' => '{{paid_amount}}',
         '{{订单价格}}' => '{{order_amount}}',
-        '{{支付方式}}' => '{{payment_method}}',
+        '{{收款方式}}' => '{{payment_method}}',
     ];
 
     public static function all(int $merchantId): array
@@ -140,7 +138,7 @@ class MerchantChannelService
         }
 
         if ((int)($method['status_code'] ?? 0) !== 1) {
-            throw new BusinessException('支付方式已停用', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('支付方式已关闭', StatusCode::VALIDATION_ERROR);
         }
 
         $plugin = self::findPlugin($pluginCode);
@@ -149,7 +147,7 @@ class MerchantChannelService
         }
 
         if ((int)($plugin['status_code'] ?? 0) !== 1) {
-            throw new BusinessException('支付插件已停用', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('支付插件已关闭', StatusCode::VALIDATION_ERROR);
         }
 
         if (!self::pluginSupportsMethod($plugin, $methodCode)) {
@@ -196,7 +194,7 @@ class MerchantChannelService
             $record->remark = $remark;
             $record->status = $statusCode;
             $record->save();
-
+            OrderService::flushMerchantChannelCache($merchantId);
             return self::all($merchantId);
         }
 
@@ -243,7 +241,7 @@ class MerchantChannelService
 
         $records[$index] = $record;
         JsonStoreService::save(self::STORE_KEY, $records);
-
+        OrderService::flushMerchantChannelCache($merchantId);
         return self::all($merchantId);
     }
 
@@ -257,7 +255,7 @@ class MerchantChannelService
 
             $record->status = $statusCode === 1 ? 1 : 0;
             $record->save();
-
+            OrderService::flushMerchantChannelCache($merchantId);
             return self::all($merchantId);
         }
 
@@ -284,7 +282,7 @@ class MerchantChannelService
 
         $records[$index] = $record;
         JsonStoreService::save(self::STORE_KEY, $records);
-
+        OrderService::flushMerchantChannelCache($merchantId);
         return self::all($merchantId);
     }
 
@@ -296,6 +294,7 @@ class MerchantChannelService
                 throw new BusinessException('通道不存在', StatusCode::NOT_FOUND);
             }
 
+            OrderService::flushMerchantChannelCache($merchantId);
             return self::all($merchantId);
         }
 
@@ -315,6 +314,7 @@ class MerchantChannelService
         $records[$index] = $record;
         JsonStoreService::save(self::STORE_KEY, $records);
 
+        OrderService::flushMerchantChannelCache($merchantId);
         return self::all($merchantId);
     }
 
@@ -348,6 +348,7 @@ class MerchantChannelService
 
         if (self::canUseDatabase()) {
             self::saveMerchantMeta($merchantId, ['rotation' => $next]);
+            OrderService::flushMerchantChannelCache($merchantId);
             return self::all($merchantId);
         }
 
@@ -357,7 +358,7 @@ class MerchantChannelService
         $record['rotation'] = $next;
         $records[$index] = $record;
         JsonStoreService::save(self::STORE_KEY, $records);
-
+        OrderService::flushMerchantChannelCache($merchantId);
         return self::all($merchantId);
     }
 
@@ -444,9 +445,8 @@ class MerchantChannelService
             'rate' => (float)str_replace('%', '', (string)($item['rate'] ?? '0')),
             'remark' => (string)($item['remark'] ?? ''),
         ];
-        $payableAmount = OrderService::resolvePayableAmountForChannelSnapshot($legacySnapshot, $amount);
 
-        $orderPayload = [
+        $order = SystemBusinessPaymentService::createFromLegacyChannelSnapshot($legacySnapshot, [
             'trade_no' => $tradeNo,
             'out_trade_no' => 'test-' . $tradeNo,
             'merchant_id' => $merchantId,
@@ -455,42 +455,31 @@ class MerchantChannelService
             'channel_category' => $channelCategory,
             'subject' => $subject,
             'amount' => $amount,
-            'payable_amount' => $payableAmount,
-            'status' => 0,
-            'payment_address' => $displayValue,
-            'txid' => '',
-            'confirmations' => 0,
-            'expire_time' => date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS),
-            'pay_time' => null,
-            'platform_fee' => '0.00000000',
-            'fee_deducted' => 0,
-            'callback_status' => 0,
-            'callback_count' => 0,
             'notify_url' => $notifyUrl,
             'return_url' => $returnUrl,
             'client_ip' => '127.0.0.1',
             'param' => 'channel-test',
+            'source_protocol' => 'channel_test',
+            'gateway_source' => 'channel_test',
             'request_payload' => [
-                '_meta' => ['source_protocol' => 'channel_test'],
-                '_legacy_channel' => $legacySnapshot,
+                '_meta' => [
+                    'business' => 'channel_test',
+                    'merchant_id' => $merchantId,
+                    'merchant_channel_id' => $id,
+                    'requested_method' => $methodCode,
+                    'order_scene' => 'merchant_channel_test',
+                ],
             ],
-            'notify_payload' => [],
-            'remark' => '通道测试订单',
-        ];
+        ]);
 
-        if (self::canUseDatabase()) {
-            $order = new Order();
-            $order->save($orderPayload);
-        } else {
-            $order = LocalOrderStore::createOrder($orderPayload);
-        }
-
-        $order = OrderService::findByTradeNo($tradeNo);
+        $order = OrderService::findByTradeNo((string)$order->trade_no);
         self::bootstrapTestOrderSource($order, $item);
 
         return [
-            'pay_url' => $returnUrl,
-            'trade_no' => $tradeNo,
+            'pay_url' => SystemBusinessPaymentService::submitUrl((string)$order->trade_no),
+            'submit_url' => SystemBusinessPaymentService::submitUrl((string)$order->trade_no),
+            'checkout_url' => SystemBusinessPaymentService::checkoutUrl((string)$order->trade_no),
+            'trade_no' => (string)$order->trade_no,
             'method_code' => $methodCode,
             'method_name' => (string)($item['method_name'] ?? ''),
         ];
@@ -775,7 +764,7 @@ class MerchantChannelService
 
     protected static function rotationStrategyLabel(string $strategy): string
     {
-        return self::normalizeRotationStrategy($strategy) === 'weighted_random' ? '随机' : '顺序';
+        return self::normalizeRotationStrategy($strategy) === 'weighted_random' ? '闅忔満' : '椤哄簭';
     }
 
     protected static function paymentSettings(int $merchantId): array
@@ -1110,7 +1099,7 @@ class MerchantChannelService
                 'name' => PaymentMetaService::safeMethodName((string)($item['name'] ?? ''), $code),
                 'category' => PaymentMetaService::safeCategoryLabel((string)($item['category'] ?? ''), $code),
                 'settlement' => PaymentMetaService::safeSettlementLabel((string)($item['settlement'] ?? ''), $code),
-                'status' => '启用',
+                'status' => '鍚敤',
                 'status_code' => 1,
             ];
         }
@@ -1158,7 +1147,7 @@ class MerchantChannelService
                 'name' => PaymentMetaService::safeMethodName((string)($item['name'] ?? ''), $code),
                 'category' => PaymentMetaService::safeCategoryLabel((string)($item['category'] ?? ''), $code),
                 'settlement' => PaymentMetaService::safeSettlementLabel((string)($item['settlement'] ?? ''), $code),
-                'status' => '启用',
+                'status' => '鍚敤',
                 'status_code' => 1,
             ];
         }
@@ -1271,7 +1260,7 @@ class MerchantChannelService
 
             if (trim((string)$value) === '') {
                 $label = trim((string)($field['label'] ?? $key));
-                throw new BusinessException($label . ' 涓嶈兘涓虹┖', StatusCode::VALIDATION_ERROR);
+                throw new BusinessException($label . ' 不能为空', StatusCode::VALIDATION_ERROR);
             }
         }
     }
@@ -1411,6 +1400,7 @@ class MerchantChannelService
             'plugin_code' => $pluginCode,
             'plugin_name' => $pluginName,
             'plugin_kind' => $pluginKind,
+            'config_panel' => trim((string)($plugin['config_panel'] ?? 'generic')),
             'plugin_config' => $pluginConfig,
             'plugin_schema' => is_array($plugin['settings_schema'] ?? null) ? $plugin['settings_schema'] : [],
             'payment_methods' => is_array($plugin['payment_methods'] ?? null) ? $plugin['payment_methods'] : [],
@@ -1577,8 +1567,8 @@ class MerchantChannelService
 
         if ($statusCode !== 1) {
             $level = 'disabled';
-            $label = '已停用';
-            $issues[] = '通道已停用';
+            $label = '已关闭';
+            $issues[] = '通道已关闭';
         } elseif ($pluginCode === '') {
             $level = 'blocked';
             $label = '未绑定插件';
@@ -1903,13 +1893,13 @@ class MerchantChannelService
             '[商品名称]' => '{{product_name}}',
             '[实付价格]' => '{{paid_amount}}',
             '[订单价格]' => '{{order_amount}}',
-            '[支付方式]' => '{{payment_method}}',
+            '[收款方式]' => '{{payment_method}}',
             '{{平台订单号}}' => '{{platform_order_no}}',
             '{{商户订单号}}' => '{{merchant_order_no}}',
             '{{商品名称}}' => '{{product_name}}',
             '{{实付价格}}' => '{{paid_amount}}',
             '{{订单价格}}' => '{{order_amount}}',
-            '{{支付方式}}' => '{{payment_method}}',
+            '{{收款方式}}' => '{{payment_method}}',
         ]);
     }
 

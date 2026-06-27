@@ -2,6 +2,7 @@
 
 return [
     'kind' => 'ck',
+    'config_panel' => 'login_qrcode',
     'capabilities' => ['create', 'query', 'notify'],
     'payment_methods' => ['alipay'],
     'default_settings' => [

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import AppPagination from '../components/AppPagination.vue'
 import {
   confirmAdminRefund,
   deleteAdminOrder,
@@ -13,6 +14,7 @@ import {
   syncAdminTransfer,
   syncAdminTransferBatch,
 } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const route = useRoute()
 const keyword = ref('')
@@ -190,6 +192,8 @@ const currentRows = computed(() => {
 
   return scopedRows.filter((row: Record<string, any>) => Object.values(row).some((value) => String(value).toLowerCase().includes(query)))
 })
+
+const { pagination, total, pagedRows } = usePagination(() => currentRows.value, 20)
 
 const batchSyncCandidates = computed<Record<string, any>[]>(() => {
   if (activeSection.value === 'refunds') {
@@ -506,6 +510,9 @@ function modeLabel(item: Record<string, any>) {
 }
 
 function statusClass(item: Record<string, any>) {
+  const theme = String(item.status_theme || '').trim()
+  if (theme) return theme
+
   if (Number(item.status_code) === 1) return 'success'
   if (Number(item.status_code) === 2) return 'danger'
   const status = String(item.status || '').trim()
@@ -516,6 +523,10 @@ function statusClass(item: Record<string, any>) {
 }
 
 onMounted(loadData)
+
+watch([activeSection, keyword, orderStatusFilter, payoutMode], () => {
+  resetPagination(pagination)
+})
 </script>
 
 <template>
@@ -582,7 +593,7 @@ onMounted(loadData)
                 <span>支付流水</span>
                 <span>操作</span>
               </div>
-              <div v-for="item in currentRows" :key="item.trade_no" class="table-row order-grid">
+              <div v-for="item in pagedRows" :key="item.trade_no" class="table-row order-grid">
                 <div class="order-summary">
                   <div class="order-pair-stack">
                     <div class="order-pair-row">
@@ -648,7 +659,7 @@ onMounted(loadData)
                 <span>时间</span>
                 <span>操作</span>
               </div>
-              <div v-for="item in currentRows" :key="item.refund_no" class="table-row refund-grid">
+              <div v-for="item in pagedRows" :key="item.refund_no" class="table-row refund-grid">
                 <div class="stacked-cell">
                   <div class="stacked-line">
                     <span class="mini-tag mini-tag--primary">退款</span>
@@ -690,7 +701,7 @@ onMounted(loadData)
                 <span>时间</span>
                 <span>操作</span>
               </div>
-              <div v-for="item in currentRows" :key="item.biz_no" class="table-row transfer-grid">
+              <div v-for="item in pagedRows" :key="item.biz_no" class="table-row transfer-grid">
                 <div class="stacked-cell">
                   <div class="stacked-line">
                     <span class="mini-tag mini-tag--primary">平台</span>
@@ -732,7 +743,7 @@ onMounted(loadData)
                 <span>时间</span>
                 <span>操作</span>
               </div>
-              <div v-for="item in currentRows" :key="item.settle_no" class="table-row settlement-grid">
+              <div v-for="item in pagedRows" :key="item.settle_no" class="table-row settlement-grid">
                 <div class="stacked-cell">
                   <div class="stacked-line">
                     <span class="mini-tag mini-tag--primary">结算</span>
@@ -767,7 +778,7 @@ onMounted(loadData)
                 <span>状态</span>
                 <span>时间</span>
               </div>
-              <div v-for="item in currentRows" :key="item.row_key || `${item.type}-${item.trade_no}-${item.created_at}`" class="table-row earning-grid">
+              <div v-for="item in pagedRows" :key="item.row_key || `${item.type}-${item.trade_no}-${item.created_at}`" class="table-row earning-grid">
                 <div class="stacked-cell compact-cell">
                   <strong class="ellipsis-text" :title="displayText(item.type)">{{ displayText(item.type) }}</strong>
                   <span class="meta-text ellipsis-text" :title="displayText(item.source_label || item.remark)">{{ displayText(item.source_label || item.remark) }}</span>
@@ -806,6 +817,14 @@ onMounted(loadData)
               <div v-if="!currentRows.length" class="table-empty">{{ sectionEmptyText }}</div>
             </template>
           </div>
+
+          <AppPagination
+            :total="total"
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            @update:page="pagination.page = $event"
+            @update:page-size="pagination.pageSize = $event"
+          />
         </div>
       </div>
     </article>

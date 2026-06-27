@@ -41,7 +41,7 @@ class TokenService
 
     private static function secret(): string
     {
-        return (string)env('TOKEN_SECRET', 'epay-plus-secret');
+        return trim((string)env('TOKEN_SECRET', ''));
     }
 
     private static function base64UrlEncode(string $value): string

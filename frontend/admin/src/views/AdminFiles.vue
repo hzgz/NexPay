@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteAdminFile, getAdminFiles } from '../lib/api'
+import AppPagination from '../components/AppPagination.vue'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const keyword = ref('')
 const files = ref<Array<Record<string, any>>>([])
@@ -20,6 +22,8 @@ const filteredFiles = computed(() => {
     ),
   )
 })
+
+const { pagination, total, pagedRows } = usePagination(() => filteredFiles.value, 20)
 
 async function load() {
   const resp = await getAdminFiles()
@@ -81,6 +85,10 @@ function downloadFile(item: Record<string, any> | null | undefined) {
 }
 
 onMounted(load)
+
+watch(keyword, () => {
+  resetPagination(pagination)
+})
 </script>
 
 <template>
@@ -106,7 +114,7 @@ onMounted(load)
             <span>上传时间</span>
             <span>操作</span>
           </div>
-          <div v-for="item in filteredFiles" :key="item.id" class="table-row file-grid">
+          <div v-for="item in pagedRows" :key="item.id" class="table-row file-grid">
             <strong>{{ item.file_name }}</strong>
             <span>{{ item.merchant_name }}</span>
             <span>{{ item.category }}</span>
@@ -119,6 +127,13 @@ onMounted(load)
               <button class="link-action" @click="removeFile(item)">删除</button>
             </div>
           </div>
+          <AppPagination
+            :total="total"
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            @update:page="pagination.page = $event"
+            @update:page-size="pagination.pageSize = $event"
+          />
         </div>
       </div>
     </article>

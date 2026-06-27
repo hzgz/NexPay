@@ -71,7 +71,9 @@ class MerchantChannelQrConfigService
             'file' => self::fileRow($merchantId, $pluginCode, $fieldKey, $saved, $fieldType),
         ];
 
-        if ($pluginCode === 'alipay-qrcode' && $fieldKey === 'qrcode_image') {
+        $configPanel = trim((string)((PluginRuntimeService::discoverMap()[$pluginCode]['config_panel'] ?? 'generic')));
+
+        if ($configPanel === 'qrcode_upload' && $fieldKey === 'qrcode_image') {
             $resolved = self::decodeImage($saved['absolute_path'], $fileUrl);
             $pluginConfig['qrcode_image'] = $fileUrl;
             $pluginConfig['payment_address'] = $resolved;
@@ -84,22 +86,12 @@ class MerchantChannelQrConfigService
             $result['resolved_source'] = 'decode';
             $result['store_mode'] = 'decoded_link';
             $result['plugin_config'] = $pluginConfig;
-        } elseif ($pluginCode === 'wechat-qrcode' && $fieldKey === 'qrcode_image') {
-            $resolved = self::decodeImage($saved['absolute_path'], $fileUrl);
-            $pluginConfig['qrcode_image'] = $fileUrl;
-            $pluginConfig['payment_address'] = $resolved;
-            $pluginConfig['display_value'] = $resolved;
-            $pluginConfig['qrcode_url'] = $resolved;
-            $pluginConfig['appreciate_image'] = '';
-            $pluginConfig['appreciate_qrcode_url'] = '';
-            $pluginConfig['resolved_qrcode_content'] = $resolved;
-            $pluginConfig['resolved_qrcode_source'] = 'decode';
-
-            $result['resolved_content'] = $resolved;
-            $result['resolved_source'] = 'decode';
-            $result['store_mode'] = 'decoded_link';
-            $result['plugin_config'] = $pluginConfig;
-        } elseif ($pluginCode === 'wechat-qrcode' && $fieldKey === 'appreciate_image') {
+            if ($pluginCode === 'wechat-qrcode') {
+                $pluginConfig['appreciate_image'] = '';
+                $pluginConfig['appreciate_qrcode_url'] = '';
+                $result['plugin_config'] = $pluginConfig;
+            }
+        } elseif (($pluginCode === 'wechat-qrcode' || $configPanel === 'fixed_image') && $fieldKey === 'appreciate_image') {
             $pluginConfig['appreciate_image'] = $fileUrl;
             $pluginConfig['appreciate_qrcode_url'] = $fileUrl;
             $pluginConfig['payment_address'] = '';
@@ -111,32 +103,6 @@ class MerchantChannelQrConfigService
 
             $result['resolved_content'] = $fileUrl;
             $result['resolved_source'] = 'image';
-            $result['plugin_config'] = $pluginConfig;
-        } elseif ($pluginCode === 'qqpay-qrcode' && $fieldKey === 'qrcode_image') {
-            $resolved = self::decodeImage($saved['absolute_path'], $fileUrl);
-            $pluginConfig['qrcode_image'] = $fileUrl;
-            $pluginConfig['payment_address'] = $resolved;
-            $pluginConfig['display_value'] = $resolved;
-            $pluginConfig['qrcode_url'] = $resolved;
-            $pluginConfig['resolved_qrcode_content'] = $resolved;
-            $pluginConfig['resolved_qrcode_source'] = 'decode';
-
-            $result['resolved_content'] = $resolved;
-            $result['resolved_source'] = 'decode';
-            $result['store_mode'] = 'decoded_link';
-            $result['plugin_config'] = $pluginConfig;
-        } elseif ($pluginCode === 'alipay-ck' && $fieldKey === 'qrcode_image') {
-            $resolved = self::decodeImage($saved['absolute_path'], $fileUrl);
-            $pluginConfig['qrcode_image'] = $fileUrl;
-            $pluginConfig['payment_address'] = $resolved;
-            $pluginConfig['display_value'] = $resolved;
-            $pluginConfig['qrcode_url'] = $resolved;
-            $pluginConfig['resolved_qrcode_content'] = $resolved;
-            $pluginConfig['resolved_qrcode_source'] = 'decode';
-
-            $result['resolved_content'] = $resolved;
-            $result['resolved_source'] = 'decode';
-            $result['store_mode'] = 'decoded_link';
             $result['plugin_config'] = $pluginConfig;
         }
 
@@ -370,14 +336,18 @@ class MerchantChannelQrConfigService
 
     private static function isQrField(string $pluginCode, string $fieldKey): bool
     {
-        return match ($pluginCode . ':' . $fieldKey) {
-            'alipay-qrcode:qrcode_image',
-            'wechat-qrcode:qrcode_image',
-            'wechat-qrcode:appreciate_image',
-            'qqpay-qrcode:qrcode_image',
-            'alipay-ck:qrcode_image' => true,
-            default => false,
-        };
+        $definition = PluginRuntimeService::discoverMap()[$pluginCode] ?? [];
+        $configPanel = trim((string)($definition['config_panel'] ?? 'generic'));
+
+        if ($fieldKey === 'qrcode_image' && in_array($configPanel, ['qrcode_upload', 'login_qrcode'], true)) {
+            return true;
+        }
+
+        if ($fieldKey === 'appreciate_image' && ($pluginCode === 'wechat-qrcode' || $configPanel === 'fixed_image')) {
+            return true;
+        }
+
+        return false;
     }
 
     private static function merchantName(int $merchantId): string

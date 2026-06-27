@@ -8,6 +8,7 @@ use app\model\MerchantChannel;
 use app\model\ChannelType;
 use app\service\payment\PluginNotifyLogService;
 use app\service\payment\PluginExecutorService;
+use app\service\payment\OrderService;
 use think\facade\Db;
 use Throwable;
 
@@ -208,6 +209,7 @@ class PluginService
         }
 
         $saved = PluginRuntimeService::saveSettings($code, $sanitized);
+        PluginRuntimeService::invalidateSettingsCache();
         return [
             'code' => $code,
             'settings' => $saved,
@@ -291,6 +293,7 @@ class PluginService
                 throw new BusinessException('插件不存在', StatusCode::NOT_FOUND);
             }
 
+            OrderService::flushMerchantChannelCache();
             return ['items' => self::pluginManagementRows(self::plugins())];
         }
 
@@ -311,6 +314,7 @@ class PluginService
         }
 
         JsonStoreService::save(self::STORE_KEY, $items);
+        OrderService::flushMerchantChannelCache();
         return ['items' => self::pluginManagementRows(self::plugins())];
     }
 
@@ -330,6 +334,7 @@ class PluginService
             $deleted = Db::table('plugins')->where('code', $code)->delete();
             self::deletePluginDescription($code);
             self::clearPluginRuntimeSettings($code);
+            PluginRuntimeService::invalidateSettingsCache();
 
             if ($deleted === 0) {
                 throw new BusinessException('插件不存在', StatusCode::NOT_FOUND);
@@ -349,6 +354,7 @@ class PluginService
         JsonStoreService::save(self::STORE_KEY, $next);
         self::deletePluginDescription($code);
         self::clearPluginRuntimeSettings($code);
+        PluginRuntimeService::invalidateSettingsCache();
         self::markPluginDeleted($code, true);
         return ['items' => self::pluginManagementRows(self::plugins())];
     }
@@ -589,12 +595,13 @@ class PluginService
                     'installed_at' => (string)($record['installed_at'] ?? ''),
                     'group' => (string)($definition['group'] ?? ''),
                     'kind' => (string)($definition['kind'] ?? ''),
-                    'developer' => PaymentMetaService::safeDeveloperName((string)($definition['developer'] ?? '')),
-                    'capabilities' => $definition['capabilities'] ?? [],
-                    'payment_methods' => PaymentMetaService::normalizeMethodList($definition['payment_methods'] ?? []),
-                    'default_settings' => $definition['default_settings'] ?? [],
-                    'settings_schema' => $definition['settings_schema'] ?? [],
-                ];
+                'developer' => PaymentMetaService::safeDeveloperName((string)($definition['developer'] ?? '')),
+                'capabilities' => $definition['capabilities'] ?? [],
+                'payment_methods' => PaymentMetaService::normalizeMethodList($definition['payment_methods'] ?? []),
+                'config_panel' => trim((string)($definition['config_panel'] ?? 'generic')),
+                'default_settings' => $definition['default_settings'] ?? [],
+                'settings_schema' => $definition['settings_schema'] ?? [],
+            ];
             }, $records));
         }
 
@@ -654,7 +661,7 @@ class PluginService
     protected static function storedPlugins(array $allowedCodes, array $deletedCodes): array
     {
         $items = self::localPluginRows();
-        $runtimeSettings = ConfigService::get('plugin_runtime_settings', []);
+        $runtimeSettings = PluginRuntimeService::storedSettings();
 
         $items = array_map(static function (array $item) use ($runtimeSettings): array {
             $code = PluginCodeService::normalize((string)($item['code'] ?? ''));
@@ -840,6 +847,7 @@ class PluginService
                     'payment_methods' => [],
                     'display_payment_methods' => [],
                     'transfer_methods' => [],
+                    'config_panel' => 'generic',
                     'default_settings' => [],
                     'settings_schema' => [],
                 ], $map[$code], [
@@ -853,6 +861,7 @@ class PluginService
                     'payment_methods' => $item['payment_methods'] ?? ($map[$code]['payment_methods'] ?? []),
                     'display_payment_methods' => $item['display_payment_methods'] ?? ($map[$code]['display_payment_methods'] ?? []),
                     'transfer_methods' => $item['transfer_methods'] ?? ($map[$code]['transfer_methods'] ?? []),
+                    'config_panel' => $item['config_panel'] ?? ($map[$code]['config_panel'] ?? 'generic'),
                     'default_settings' => $item['default_settings'] ?? ($map[$code]['default_settings'] ?? []),
                     'settings_schema' => $item['settings_schema'] ?? ($map[$code]['settings_schema'] ?? []),
                 ]);
@@ -879,7 +888,7 @@ class PluginService
 
     protected static function paymentPluginSettings(): array
     {
-        $settings = ConfigService::get('plugin_runtime_settings', []);
+        $settings = PluginRuntimeService::storedSettings();
         if (!is_array($settings)) {
             return [];
         }
@@ -973,7 +982,7 @@ class PluginService
 
     protected static function normalizePluginList(array $items): array
     {
-        $runtimeSettings = ConfigService::get('plugin_runtime_settings', []);
+        $runtimeSettings = PluginRuntimeService::storedSettings();
         $runtimeSettings = is_array($runtimeSettings) ? $runtimeSettings : [];
 
         return array_values(array_map(function (array $item) use ($runtimeSettings): array {
@@ -1000,6 +1009,7 @@ class PluginService
                 'payment_methods' => $paymentMethods,
                 'display_payment_methods' => $displayPaymentMethods,
                 'transfer_methods' => $transferMethods,
+                'config_panel' => trim((string)($item['config_panel'] ?? 'generic')),
                 'default_settings' => $defaultSettings,
                 'settings_schema' => $settingsSchema,
             ];
@@ -1816,13 +1826,7 @@ class PluginService
 
     protected static function clearPluginRuntimeSettings(string $code): void
     {
-        $settings = ConfigService::get('plugin_runtime_settings', []);
-        if (!is_array($settings) || !array_key_exists($code, $settings)) {
-            return;
-        }
-
-        unset($settings[$code]);
-        ConfigService::save(['plugin_runtime_settings' => $settings]);
+        PluginRuntimeService::removeSettings($code);
     }
 
     protected static function syncEnabledCodesSetting(string $code, bool $enabled): void

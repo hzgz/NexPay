@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
+import AppPagination from '../components/AppPagination.vue'
 import {
   clearAdminCache,
   deleteAdminAnnouncement,
@@ -12,6 +13,7 @@ import {
   testAdminProvider,
   toggleAdminAnnouncement,
 } from '../lib/api'
+import { usePagination } from '../lib/pagination'
 
 type ProviderItem = {
   code: string
@@ -124,6 +126,15 @@ const providerTestForm = reactive({
   type: 'mail',
   target: '',
 })
+
+const { pagination: announcementPagination, total: announcementTotal, pagedRows: pagedAnnouncements } = usePagination(
+  () => form.announcements,
+  10,
+)
+const { pagination: cleanupStorePagination, total: cleanupStoreTotal, pagedRows: pagedCleanupStores } = usePagination(
+  () => cleanupWorkspace.stores,
+  10,
+)
 
 const activeSection = computed(() => String(route.meta.section || 'basic'))
 const providerOptions = computed<Record<string, { items: ProviderItem[]; selected?: ProviderItem | null; selected_code?: string }>>(
@@ -439,6 +450,8 @@ function syncSectionForm(data: Record<string, any>) {
     encode_provider: normalizeQrProvider(form.api?.encode_provider),
     decode_provider: normalizeQrProvider(form.api?.decode_provider),
     notify_retry: String(form.api?.notify_retry ?? '5'),
+    notify_timeout: String(form.api?.notify_timeout ?? '10'),
+    notify_retry_schedule: String(form.api?.notify_retry_schedule ?? '60,120,300,600,1800'),
   }
 
   form.payment = {
@@ -893,7 +906,7 @@ onMounted(load)
             <span>创建时间</span>
             <span>操作</span>
           </div>
-          <div v-for="item in form.announcements || []" :key="item.id" class="table-row announcement-grid">
+          <div v-for="item in pagedAnnouncements" :key="item.id" class="table-row announcement-grid">
             <div>
               <strong>{{ item.title }}</strong>
               <div class="minor-copy">{{ item.summary }}</div>
@@ -908,6 +921,13 @@ onMounted(load)
               <button class="link-action" @click="removeAnnouncement(item)">删除</button>
             </div>
           </div>
+          <AppPagination
+            :total="announcementTotal"
+            :page="announcementPagination.page"
+            :page-size="announcementPagination.pageSize"
+            @update:page="announcementPagination.page = $event"
+            @update:page-size="announcementPagination.pageSize = $event"
+          />
         </div>
       </div>
 
@@ -1532,7 +1552,18 @@ onMounted(load)
             <span class="field-label">解码接口说明</span>
             <input :value="qrProviderCopy(form.api.decode_provider)" type="text" readonly />
           </label>
-          <label class="field field-span-2"><span class="field-label">回调重试次数</span><input v-model="form.api.notify_retry" type="text" /></label>
+          <label class="field">
+            <span class="field-label">回调重试次数</span>
+            <input v-model="form.api.notify_retry" type="text" />
+          </label>
+          <label class="field">
+            <span class="field-label">回调超时秒数</span>
+            <input v-model="form.api.notify_timeout" type="text" />
+          </label>
+          <label class="field field-span-2">
+            <span class="field-label">回调重试计划</span>
+            <input v-model="form.api.notify_retry_schedule" type="text" placeholder="例如 60,120,300,600,1800" />
+          </label>
         </div>
       </div>
 
@@ -1679,7 +1710,7 @@ onMounted(load)
                 <span>说明</span>
                 <span>操作</span>
               </div>
-              <div v-for="item in cleanupWorkspace.stores" :key="item.store" class="cleanup-table-row">
+              <div v-for="item in pagedCleanupStores" :key="item.store" class="cleanup-table-row">
                 <div class="cleanup-item-name">
                   <strong>{{ cleanupStoreTitle(item) }}</strong>
                 </div>
@@ -1697,6 +1728,13 @@ onMounted(load)
                 </button>
               </div>
             </div>
+            <AppPagination
+              :total="cleanupStoreTotal"
+              :page="cleanupStorePagination.page"
+              :page-size="cleanupStorePagination.pageSize"
+              @update:page="cleanupStorePagination.page = $event"
+              @update:page-size="cleanupStorePagination.pageSize = $event"
+            />
           </section>
         </div>
       </div>

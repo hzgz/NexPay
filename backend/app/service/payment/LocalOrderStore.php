@@ -169,6 +169,9 @@ class LocalOrderStore
         if ($business === 'merchant_package_purchase') {
             return false;
         }
+        if ($business === 'channel_test') {
+            return false;
+        }
 
         $sourceProtocol = strtolower(trim((string)($meta['source_protocol'] ?? '')));
         if ($sourceProtocol === 'channel_test') {
@@ -241,6 +244,10 @@ class LocalOrderStore
 
             $rows[$index]['status'] = OrderService::STATUS_EXPIRED;
             $rows[$index]['updated_at'] = $now;
+            LocalOrderEventStore::recordExpired(self::hydrateOrder($rows[$index]), [
+                'source' => 'local-expire-task',
+                'event_time' => $now,
+            ]);
             $changed++;
         }
 

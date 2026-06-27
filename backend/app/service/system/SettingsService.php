@@ -17,6 +17,7 @@ class SettingsService
     private const PAYMENT_APPSWITCH_V1_DEFAULT = '0';
     private const PAYMENT_APPSWITCH_V2_DEFAULT = '1';
     private const PAYMENT_MIN_AMOUNT_DEFAULT = '0.10';
+    private const PAYMENT_CALLBACK_MODE_DEFAULT = '异步回调 + 重试';
     private const PAYMENT_METHOD_PRESETS = [
         ['key' => 'alipay', 'code' => 'alipay', 'name' => '支付宝', 'icon' => 'payment-icons/alipay.png'],
         ['key' => 'wxpay', 'code' => 'wxpay', 'name' => '微信支付', 'icon' => 'payment-icons/wechat.png'],
@@ -62,10 +63,20 @@ class SettingsService
         'failback' => true,
     ];
 
+    private static array $allCache = [];
+    private static ?array $storeCache = null;
+    private static int $storeCachedAt = 0;
+
     public static function all(bool $includePaymentPlugins = true): array
     {
+        $cacheKey = $includePaymentPlugins ? 'with_plugins' : 'without_plugins';
+        $cached = self::$allCache[$cacheKey] ?? null;
+        if (is_array($cached) && self::isCacheFresh((int)($cached['cached_at'] ?? 0))) {
+            return $cached['value'] ?? [];
+        }
+
         $defaults = self::defaults();
-        $stored = JsonStoreService::load(self::STORE_KEY, $defaults);
+        $stored = self::loadStore($defaults);
         $data = array_replace_recursive($defaults, $stored);
         if ($includePaymentPlugins && RuntimeToggleService::pluginRuntimeEnabled()) {
             PluginRuntimeService::ensureSettingsStorage();
@@ -96,6 +107,11 @@ class SettingsService
         $data = SystemProviderService::attachSelections($data);
         $data['cleanup_workspace'] = SystemCleanupService::catalog();
         unset($data['plugin_runtime_settings']);
+
+        self::$allCache[$cacheKey] = [
+            'value' => $data,
+            'cached_at' => time(),
+        ];
 
         return $data;
     }
@@ -142,12 +158,21 @@ class SettingsService
         unset($next['provider_options']);
         unset($next['cleanup_workspace']);
         JsonStoreService::save(self::STORE_KEY, $next);
+        self::invalidateCache();
+        ConfigService::invalidateCache();
         return self::all();
     }
 
     public static function clearCache(): array
     {
         return SystemCleanupService::clearRuntimeCache();
+    }
+
+    public static function invalidateCache(): void
+    {
+        self::$allCache = [];
+        self::$storeCache = null;
+        self::$storeCachedAt = 0;
     }
 
     private static function syncEnabledPluginCodes(array $pluginSettings): void
@@ -234,7 +259,7 @@ class SettingsService
                 'epay_version' => self::PAYMENT_MODE_V2,
                 'epay_v1_api' => rtrim($siteUrl, '/') . '/mapi.php',
                 'epay_v2_api' => rtrim($siteUrl, '/') . '/api/pay/create',
-                'callback_mode' => '异步回调 + 重试',
+                'callback_mode' => self::PAYMENT_CALLBACK_MODE_DEFAULT,
                 'default_confirmations' => '2',
                 'payment_test_enabled' => false,
                 'test_default_amount' => '',
@@ -310,6 +335,8 @@ class SettingsService
                 'encode_provider' => self::QR_PROVIDER_DOMESTIC,
                 'decode_provider' => self::QR_PROVIDER_DOMESTIC,
                 'notify_retry' => '5',
+                'notify_timeout' => '10',
+                'notify_retry_schedule' => '60,120,300,600,1800',
             ],
             'auth' => [
                 'register_enabled' => true,
@@ -374,9 +401,17 @@ class SettingsService
         $api['encode_provider'] = self::normalizeQrProvider((string)($api['encode_provider'] ?? ''));
         $api['decode_provider'] = self::normalizeQrProvider((string)($api['decode_provider'] ?? ''));
         $api['notify_retry'] = trim((string)($api['notify_retry'] ?? '5'));
+        $api['notify_timeout'] = trim((string)($api['notify_timeout'] ?? '10'));
+        $api['notify_retry_schedule'] = trim((string)($api['notify_retry_schedule'] ?? '60,120,300,600,1800'));
 
         if ($api['notify_retry'] === '') {
             $api['notify_retry'] = '5';
+        }
+        if ($api['notify_timeout'] === '') {
+            $api['notify_timeout'] = '10';
+        }
+        if ($api['notify_retry_schedule'] === '') {
+            $api['notify_retry_schedule'] = '60,120,300,600,1800';
         }
 
         $settings['api'] = $api;
@@ -472,6 +507,7 @@ class SettingsService
         $payment['epay_v2_api'] = $systemCheckout['mode'] === self::PAYMENT_MODE_V2
             ? $systemCheckout['payment_url']
             : ($legacyV2Url !== '' ? $legacyV2Url : self::paymentUrlForMode($siteUrl, self::PAYMENT_MODE_V2));
+        $payment['callback_mode'] = self::normalizePaymentCallbackMode((string)($payment['callback_mode'] ?? self::PAYMENT_CALLBACK_MODE_DEFAULT));
         $payment['payment_test_enabled'] = (bool)($frontendTest['enabled'] ?? false);
         $payment['test_default_amount'] = trim((string)($frontendTest['amount'] ?? ''));
         $payment['test_auto_complete'] = (bool)($frontendTest['auto_complete'] ?? false);
@@ -564,6 +600,20 @@ class SettingsService
         }
 
         return number_format($amount, 2, '.', '');
+    }
+
+    private static function normalizePaymentCallbackMode(string $value): string
+    {
+        $normalized = trim((string)EncodingRepairService::repair($value));
+        if (
+            $normalized === ''
+            || str_contains($normalized, '?')
+            || str_contains($normalized, '�')
+        ) {
+            return self::PAYMENT_CALLBACK_MODE_DEFAULT;
+        }
+
+        return $normalized;
     }
 
     public static function paymentMethodConfigs(string $configKey): array
@@ -983,5 +1033,27 @@ class SettingsService
         }
 
         return $value;
+    }
+
+    private static function loadStore(array $defaults): array
+    {
+        if (self::$storeCache !== null && self::isCacheFresh(self::$storeCachedAt)) {
+            return self::$storeCache;
+        }
+
+        self::$storeCache = JsonStoreService::load(self::STORE_KEY, $defaults);
+        self::$storeCachedAt = time();
+
+        return self::$storeCache;
+    }
+
+    private static function isCacheFresh(int $cachedAt): bool
+    {
+        return $cachedAt > 0 && (time() - $cachedAt) < self::cacheTtl();
+    }
+
+    private static function cacheTtl(): int
+    {
+        return max(1, (int)env('SETTINGS_RUNTIME_CACHE_TTL', 5));
     }
 }

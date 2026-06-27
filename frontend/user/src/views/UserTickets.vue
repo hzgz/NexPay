@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppPagination from '../components/AppPagination.vue'
 import {
   createUserTicket,
   getUserSessionUser,
@@ -12,6 +13,7 @@ import {
   resolveUserAvatarUrl,
   USER_SESSION_UPDATED_EVENT,
 } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,6 +64,8 @@ const filteredTickets = computed(() => {
   })
 })
 
+const { pagination, total, pagedRows } = usePagination(() => filteredTickets.value, 20)
+
 const currentMessages = computed(() => {
   const messages = currentTicket.value?.messages
   return Array.isArray(messages) ? messages : []
@@ -85,6 +89,7 @@ async function load() {
   const resp = await getUserTickets()
   if (resp.code === 0 && resp.data) {
     ticketData.value = resp.data
+    resetPagination(pagination)
     if (!form.category_id && resp.data.categories?.length) {
       form.category_id = resp.data.categories[0].id
     }
@@ -246,7 +251,7 @@ onBeforeUnmount(() => {
             <span>更新时间</span>
             <span>操作</span>
           </div>
-          <div v-for="item in filteredTickets" :key="item.ticket_no" class="table-row ticket-grid">
+          <div v-for="item in pagedRows" :key="item.ticket_no" class="table-row ticket-grid">
             <strong>{{ item.ticket_no }}</strong>
             <span>{{ item.category_name }}</span>
             <span>{{ item.title }}</span>
@@ -261,6 +266,13 @@ onBeforeUnmount(() => {
           <p v-if="!filteredTickets.length" class="empty-note tickets-empty">
             {{ ticketKeyword.trim() ? '没有找到匹配的工单。' : '暂无工单记录。' }}
           </p>
+          <AppPagination
+            :total="total"
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            @update:page="pagination.page = $event"
+            @update:page-size="pagination.pageSize = $event"
+          />
         </div>
       </template>
 

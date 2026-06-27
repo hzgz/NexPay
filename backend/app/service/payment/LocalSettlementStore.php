@@ -128,8 +128,8 @@ class LocalSettlementStore
             '测试结算',
             '测试提现',
             '联调提现',
-            '娴嬭瘯',
-            '楠岃瘉',
+            '测试',
+            '验证',
         ] as $marker) {
             $marker = strtolower($marker);
             if ($marker !== '' && str_contains($text, $marker)) {

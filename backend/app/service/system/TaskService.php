@@ -166,6 +166,10 @@ class TaskService
 
     private static function execute(string $key): array
     {
+        if ($key === PluginTaskService::TASK_KEY_ALL_DAEMONS) {
+            return PluginTaskService::runAllDaemonPlugins();
+        }
+
         if (str_starts_with($key, 'plugin-daemon:')) {
             return PluginTaskService::runTask($key);
         }

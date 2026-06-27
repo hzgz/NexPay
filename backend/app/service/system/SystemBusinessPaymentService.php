@@ -5,7 +5,7 @@ namespace app\service\system;
 use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\service\payment\LegacyPaymentGatewayService;
-use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
 use Throwable;
 
@@ -20,6 +20,31 @@ class SystemBusinessPaymentService
     public static function create(string $configKey, array $payload): object
     {
         $config = self::gatewayConfig($configKey, $payload);
+        return self::createResolvedOrder($config, $payload);
+    }
+
+    public static function createFromLegacyChannelSnapshot(array $snapshot, array $payload): object
+    {
+        $merchantId = (int)($payload['merchant_id'] ?? $snapshot['merchant_id'] ?? 0);
+        if ($merchantId <= 0) {
+            throw new BusinessException('业务订单缺少商户信息', StatusCode::VALIDATION_ERROR);
+        }
+
+        $payload['merchant_id'] = $merchantId;
+
+        return self::createResolvedOrder([
+            'provider' => self::PROVIDER_SYSTEM,
+            'mode' => self::MODE_V2,
+            'source_protocol' => trim((string)($payload['source_protocol'] ?? 'channel_test')) ?: 'channel_test',
+            'source' => trim((string)($payload['gateway_source'] ?? 'merchant_channel_snapshot')) ?: 'merchant_channel_snapshot',
+            'min_amount' => self::normalizeMinimumAmount((string)($payload['min_amount'] ?? self::MIN_AMOUNT_DEFAULT)),
+            'carrier_merchant_id' => (int)($snapshot['merchant_id'] ?? 0),
+            'legacy_channel_snapshot' => $snapshot,
+        ], $payload);
+    }
+
+    private static function createResolvedOrder(array $config, array $payload): object
+    {
         $merchantId = (int)($payload['merchant_id'] ?? 0);
         if ($merchantId <= 0) {
             throw new BusinessException('业务订单缺少商户信息', StatusCode::VALIDATION_ERROR);
@@ -31,25 +56,59 @@ class SystemBusinessPaymentService
         }
         self::assertMinimumAmount($amount, (string)($config['min_amount'] ?? self::MIN_AMOUNT_DEFAULT));
 
-        $tradeNo = self::tradeNo();
+        $tradeNo = self::resolvedTradeNo((string)($payload['trade_no'] ?? ''));
         $createdAt = date('Y-m-d H:i:s');
         $returnUrl = trim((string)($payload['return_url'] ?? ''));
         $requestPayload = is_array($payload['request_payload'] ?? null) ? $payload['request_payload'] : [];
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
-        $meta['source_protocol'] = $config['mode'];
-        $meta['gateway_source'] = (string)($config['source'] ?? 'configured');
-        if ((int)($config['carrier_merchant_id'] ?? 0) > 0) {
-            $meta['carrier_merchant_id'] = (int)$config['carrier_merchant_id'];
+        $sourceProtocol = strtolower(trim((string)($payload['source_protocol'] ?? $meta['source_protocol'] ?? $config['source_protocol'] ?? $config['mode'] ?? '')));
+        if ($sourceProtocol !== '') {
+            $meta['source_protocol'] = $sourceProtocol;
         }
-        $requestPayload['_meta'] = $meta;
+        $gatewaySource = trim((string)($payload['gateway_source'] ?? $config['source'] ?? 'configured')) ?: 'configured';
+        $meta['gateway_source'] = $gatewaySource;
+        $meta['order_origin'] = trim((string)($payload['order_origin'] ?? $meta['order_origin'] ?? 'system_business')) ?: 'system_business';
+        $meta['order_scene'] = trim((string)($payload['order_scene'] ?? $meta['order_scene'] ?? $meta['business'] ?? 'system_business')) ?: 'system_business';
+        $meta['business'] = trim((string)($payload['business'] ?? $meta['business'] ?? 'system_business')) ?: 'system_business';
+        $requestedMethod = trim((string)($payload['channel_code'] ?? $payload['type'] ?? $meta['requested_method'] ?? ''));
+        if ($requestedMethod !== '') {
+            $meta['requested_method'] = $requestedMethod;
+        }
+        $credential = AccountService::merchantCredentialById($merchantId) ?? [];
+        $merchantName = trim((string)($payload['merchant_name'] ?? $credential['merchant_name'] ?? $credential['nickname'] ?? $credential['username'] ?? ''));
+        if ($merchantName !== '') {
+            $meta['merchant_name'] = $merchantName;
+        }
+        $meta['merchant_pid'] = trim((string)($payload['merchant_pid'] ?? $credential['id'] ?? $merchantId));
+        $meta['merchant_id'] = $merchantId;
+        $carrierMerchantId = (int)($payload['carrier_merchant_id'] ?? $config['carrier_merchant_id'] ?? 0);
+        if ($carrierMerchantId > 0) {
+            $meta['carrier_merchant_id'] = $carrierMerchantId;
+        }
 
         $legacyChannel = self::legacyChannelSnapshot($config, $payload);
-        $requestPayload['_legacy_channel'] = $legacyChannel;
-        $legacyConfig = is_array($legacyChannel['config'] ?? null) ? $legacyChannel['config'] : [];
-        $paymentAddress = trim((string)($legacyConfig['payment_address'] ?? $legacyConfig['display_value'] ?? ''));
-        $payableAmount = OrderService::resolvePayableAmountForChannelSnapshot($legacyChannel, $amount);
-
-        $orderPayload = [
+        $creationContext = OrderService::buildOrderCreationContext([
+            'request_payload' => $requestPayload,
+            'source_protocol' => $sourceProtocol,
+            'business' => (string)($meta['business'] ?? 'system_business'),
+            'gateway_source' => $gatewaySource,
+            'order_origin' => (string)($meta['order_origin'] ?? 'system_business'),
+            'order_scene' => (string)($meta['order_scene'] ?? 'system_business'),
+            'merchant_name' => $merchantName,
+            'merchant_pid' => (string)($meta['merchant_pid'] ?? $merchantId),
+            'merchant_id' => $merchantId,
+            'merchant_channel_id' => (int)($payload['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
+            'carrier_merchant_id' => $carrierMerchantId,
+            'type' => $requestedMethod,
+            'legacy_channel_snapshot' => $legacyChannel,
+        ], [
+            'scene' => 'system_business',
+            'business' => 'system_business',
+            'order_origin' => 'system_business',
+            'order_scene' => 'system_business',
+        ]);
+        $requestPayload = $creationContext['request_payload'] ?? [];
+        $orderPayload = OrderService::buildPendingOrderPayload([
             'trade_no' => $tradeNo,
             'out_trade_no' => self::outTradeNo((string)($payload['out_trade_no'] ?? ''), $tradeNo),
             'merchant_id' => $merchantId,
@@ -58,7 +117,6 @@ class SystemBusinessPaymentService
             'channel_category' => (int)($payload['channel_category'] ?? $legacyChannel['channel_category'] ?? 2),
             'subject' => trim((string)($payload['subject'] ?? '系统业务订单')) ?: '系统业务订单',
             'amount' => $amount,
-            'payable_amount' => $payableAmount,
             'status' => OrderService::STATUS_PENDING,
             'notify_url' => trim((string)($payload['notify_url'] ?? '')),
             'return_url' => $returnUrl,
@@ -67,19 +125,12 @@ class SystemBusinessPaymentService
             'expire_time' => trim((string)($payload['expire_time'] ?? date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS))),
             'request_payload' => $requestPayload,
             'notify_payload' => [],
-            'payment_address' => $paymentAddress,
+            'legacy_channel_snapshot' => $legacyChannel,
             'created_at' => $createdAt,
             'updated_at' => $createdAt,
-        ];
+        ]);
 
-        if (database_available()) {
-            $order = new \app\model\Order();
-            $order->save($orderPayload);
-        } else {
-            $order = LocalOrderStore::createOrder($orderPayload);
-        }
-
-        return $order;
+        return self::persistOrder($orderPayload);
     }
 
     public static function inspectContext(string $configKey, array $payload = []): array
@@ -132,18 +183,11 @@ class SystemBusinessPaymentService
     public static function paymentResult(string $tradeNo): array
     {
         $order = OrderService::syncHomepageTestOrder(OrderService::findByTradeNo($tradeNo));
-        $status = (int)($order->status ?? OrderService::STATUS_PENDING);
-        $statusMap = [
-            OrderService::STATUS_PENDING => ['key' => 'pending', 'label' => '待支付'],
-            OrderService::STATUS_SUCCESS => ['key' => 'success', 'label' => '支付成功'],
-            OrderService::STATUS_FAILED => ['key' => 'failed', 'label' => '支付失败'],
-            OrderService::STATUS_EXPIRED => ['key' => 'expired', 'label' => '订单已过期'],
-            OrderService::STATUS_CLOSED => ['key' => 'closed', 'label' => '订单已关闭'],
-        ];
+        $statusInfo = OrderStatusService::forCheckout($order);
         $requestPayload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
         $notifyPayload = is_array($order->notify_payload ?? null) ? $order->notify_payload : [];
-        $statusInfo = $statusMap[$status] ?? ['key' => 'unknown', 'label' => '未知状态'];
+        $status = (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING);
 
         return [
             'trade_no' => (string)($order->trade_no ?? ''),
@@ -151,8 +195,8 @@ class SystemBusinessPaymentService
             'subject' => (string)($order->subject ?? ''),
             'amount' => number_format((float)($order->amount ?? 0), 2, '.', ''),
             'status' => $status,
-            'status_key' => $statusInfo['key'],
-            'status_text' => $statusInfo['label'],
+            'status_key' => (string)($statusInfo['key'] ?? 'pending'),
+            'status_text' => (string)($statusInfo['label'] ?? '等待支付'),
             'pay_time' => (string)($order->pay_time ?? ''),
             'expire_time' => (string)($order->expire_time ?? ''),
             'channel_code' => (string)($order->channel_code ?? ''),
@@ -160,6 +204,31 @@ class SystemBusinessPaymentService
             'return_url' => (string)($order->return_url ?? ''),
             'txid' => trim((string)($order->txid ?? $notifyPayload['api_trade_no'] ?? '')),
         ];
+    }
+
+    private static function persistOrder(array $orderPayload): object
+    {
+        $requestPayload = is_array($orderPayload['request_payload'] ?? null) ? $orderPayload['request_payload'] : [];
+
+        return OrderService::persistCreatedOrder(
+            $orderPayload,
+            OrderService::buildOrderCreationEventMeta($requestPayload, [
+                'scene' => 'system_business',
+                'business' => 'system_business',
+                'order_origin' => 'system_business',
+                'order_scene' => 'system_business',
+            ])
+        );
+    }
+
+    private static function resolvedTradeNo(string $candidate): string
+    {
+        $tradeNo = preg_replace('/[^A-Za-z0-9_-]+/', '', trim($candidate));
+        if (is_string($tradeNo) && $tradeNo !== '') {
+            return substr($tradeNo, 0, 64);
+        }
+
+        return OrderService::nextTradeNo();
     }
 
     private static function gatewayConfig(string $configKey, array $payload = []): array
@@ -966,11 +1035,6 @@ class SystemBusinessPaymentService
                 StatusCode::VALIDATION_ERROR
             );
         }
-    }
-
-    private static function tradeNo(): string
-    {
-        return date('YmdHis') . random_int(100000, 999999);
     }
 
     private static function outTradeNo(string $value, string $tradeNo): string

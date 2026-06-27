@@ -23,7 +23,13 @@ $plugin = new \plugins\payment\lakalajfy\LakalajfyPlugin($channel);
 while (true) {
     $now = time();
     // 检索5分钟内未支付订单
-    $list = Db::query("SELECT trade_no, api_trade_no, channel, subchannel FROM {$prefix}order WHERE channel='{$channel['id']}' AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 5 MINUTE)");
+    $list = Db::name('order')
+        ->field('trade_no,api_trade_no,channel,subchannel')
+        ->where('channel', (int)$channel['id'])
+        ->where('status', 0)
+        ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 300))
+        ->select()
+        ->toArray();
     if (empty($list)) {
         echo '暂无未支付订单...' . PHP_EOL;
         goto WAIT;

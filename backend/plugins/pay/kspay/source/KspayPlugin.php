@@ -296,7 +296,7 @@ class KspayPlugin extends BasePayment
             return [];
         }
 
-        $decoded = @unserialize($ext);
+        $decoded = json_decode($ext, true);
         return is_array($decoded) ? $decoded : [];
     }
 

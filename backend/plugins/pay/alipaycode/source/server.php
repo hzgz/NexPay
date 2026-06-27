@@ -15,11 +15,11 @@ use app\service\payment\CallbackTrustService;
 $channelid = isset($argv[1]) ? intval($argv[1]) : exit('支付通道ID不能为空');
 $channel = \app\lib\Channel::get($channelid);
 if (!$channel || $channel['plugin'] != 'alipaycode') exit('支付通道不存在');
-$sql = "";
+$subChannelId = null;
 if (substr($channel['apptoken'], 0, 1) == '[') {
     $channel = \app\lib\Channel::getSub($channelid);
     if (!$channel || $channel['plugin'] != 'alipaycode') exit('子通道不存在');
-    $sql = " AND subchannel='{$channel['subid']}'";
+    $subChannelId = (int)($channel['subid'] ?? 0);
 }
 
 $alipay_config = \app\common\PaymentConfig::getAlipayConfig($channel);
@@ -30,7 +30,15 @@ $prefix = Config::get('database.connections.mysql.prefix', '');
 
 while (true) {
     $now = time();
-    $list = Db::query("SELECT trade_no,realmoney FROM {$prefix}order WHERE channel='{$channel['id']}'{$sql} AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 8 MINUTE)");
+    $orderQuery = Db::name('order')
+        ->field('trade_no,realmoney')
+        ->where('channel', (int)$channel['id'])
+        ->where('status', 0)
+        ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480));
+    if ($subChannelId !== null && $subChannelId > 0) {
+        $orderQuery->where('subchannel', $subChannelId);
+    }
+    $list = $orderQuery->select()->toArray();
     if (empty($list)) {
         echo '暂无未支付订单...' . PHP_EOL;
         goto WAIT;

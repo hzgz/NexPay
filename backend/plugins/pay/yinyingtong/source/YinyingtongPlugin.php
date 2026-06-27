@@ -597,7 +597,7 @@ class YinyingtongPlugin extends BasePayment
                 $bill_trade_no = $data['at_order_id'] ?? '';
                 $end_time = $data['endtime'];
 
-                $ext = unserialize($ctx->order['ext']);
+                $ext = $this->decodeOrderExt((string)($ctx->order['ext'] ?? ''));
                 $ext['transcode'] = $data['transcode'];
 
                 if ($out_trade_no == $ctx->order['trade_no']) {
@@ -654,7 +654,7 @@ class YinyingtongPlugin extends BasePayment
     public function query(array $order): array
     {
         $client = new PayClient($this->channel['appid'], $this->channel['appkey']);
-        $ext = unserialize($order['ext']);
+        $ext = $this->decodeOrderExt((string)($order['ext'] ?? ''));
         $params = [
             'merchant_number' => $this->channel['appmchid'],
             'order_number' => $order['trade_no'],
@@ -677,7 +677,7 @@ class YinyingtongPlugin extends BasePayment
     {
         $client = new PayClient($this->channel['appid'], $this->channel['appkey']);
 
-        $ext = unserialize($order['ext']);
+        $ext = $this->decodeOrderExt((string)($order['ext'] ?? ''));
 
         $params = [
             'scene' => ($ext['transcode'] ?? '') == 'T61' ? '0615' : '0606',
@@ -774,5 +774,16 @@ class YinyingtongPlugin extends BasePayment
             //验证失败
             return ['type' => 'html', 'data' => '01'];
         }
+    }
+
+    private function decodeOrderExt(string $ext): array
+    {
+        $ext = trim($ext);
+        if ($ext === '' || strtolower($ext) === 'null') {
+            return [];
+        }
+
+        $decoded = json_decode($ext, true);
+        return is_array($decoded) ? $decoded : [];
     }
 }

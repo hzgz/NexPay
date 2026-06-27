@@ -14,11 +14,20 @@ use app\service\payment\CallbackTrustService;
 
 $prefix = Config::get('database.connections.mysql.prefix', '');
 
+$selectedChannelIds = [];
 if (isset($argv[1])) {
     $offset = intval($argv[1]);
-    $sql = "channel IN (SELECT id FROM (SELECT id FROM {$prefix}channel WHERE plugin='suixinglife' AND status=1 ORDER BY id ASC LIMIT $offset,1) t)";
+    $selectedChannelIds = array_map('intval', Db::name('channel')
+        ->where('plugin', 'suixinglife')
+        ->where('status', 1)
+        ->order('id', 'asc')
+        ->limit($offset, 1)
+        ->column('id'));
 } else {
-    $sql = "channel IN (SELECT id FROM {$prefix}channel WHERE plugin='suixinglife' AND status=1)";
+    $selectedChannelIds = array_map('intval', Db::name('channel')
+        ->where('plugin', 'suixinglife')
+        ->where('status', 1)
+        ->column('id'));
 }
 
 $tranDetailCache = [];
@@ -32,7 +41,15 @@ while (true) {
         }
     }
 
-    $list = Db::query("SELECT trade_no,realmoney,channel FROM {$prefix}order WHERE {$sql} AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 8 MINUTE)");
+    $list = $selectedChannelIds === []
+        ? []
+        : Db::name('order')
+            ->field('trade_no,realmoney,channel')
+            ->whereIn('channel', $selectedChannelIds)
+            ->where('status', 0)
+            ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480))
+            ->select()
+            ->toArray();
     if (empty($list)) {
         echo '暂无未支付订单...' . PHP_EOL;
         goto WAIT;

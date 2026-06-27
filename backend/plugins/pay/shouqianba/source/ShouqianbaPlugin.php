@@ -248,7 +248,12 @@ class ShouqianbaPlugin extends BasePayment
 
         $list = [];
         $data = cache('shouqianba_terminal');
-        if ($data) $list = unserialize($data);
+        if ($data) {
+            $decoded = json_decode((string)$data, true);
+            if (is_array($decoded)) {
+                $list = $decoded;
+            }
+        }
 
         if (request()->has('submit', 'post')) {
             if (!checkRefererHost()) return;
@@ -269,7 +274,7 @@ class ShouqianbaPlugin extends BasePayment
                 $terminal_key = $result['biz_response']['terminal_key'];
                 $row = ['vendor_sn' => $vendor_sn, 'device_id' => $device_id, 'terminal_sn' => $terminal_sn, 'terminal_key' => $terminal_key];
                 $list[] = $row;
-                cache('shouqianba_terminal', serialize($list));
+                cache('shouqianba_terminal', json_encode($list, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 return $this->showMsg('终端激活成功！<br/>终端号：' . $terminal_sn . '<br/>终端密钥：' . $terminal_key . '<br/>', 1);
             } elseif(isset($result['error_code']) && isset($result['error_message'])) {
                 return $this->showMsg('[' . $result['error_code'] . ']' . $result['error_message'], 4);

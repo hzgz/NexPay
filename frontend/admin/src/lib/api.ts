@@ -216,10 +216,6 @@ export async function reviewAdminSettlement(payload: Record<string, any>) {
   })
 }
 
-export async function getAdminFees() {
-  return request<ApiResponse<Record<string, any>>>('/api/admin/fees', { headers: authHeaders() })
-}
-
 export async function getAdminPackages() {
   return request<ApiResponse<Record<string, any>>>('/api/admin/packages', { headers: authHeaders() })
 }

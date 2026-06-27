@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import AppPagination from '../components/AppPagination.vue'
 import { buyUserPackage, getUserPackages } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const market = ref<Array<Record<string, any>>>([])
 const myPackages = ref<Array<Record<string, any>>>([])
@@ -15,11 +17,16 @@ const selectedMethodName = computed(() => {
   return paymentMethods.value.find((item) => String(item.method_code || item.code || '') === selectedMethod.value)?.name || ''
 })
 
+const { pagination: marketPagination, total: marketTotal, pagedRows: pagedMarket } = usePagination(() => market.value, 20)
+const { pagination: packagePagination, total: packageTotal, pagedRows: pagedPackages } = usePagination(() => myPackages.value, 20)
+
 async function loadPackages() {
   const resp = await getUserPackages()
   if (resp.code === 0 && resp.data) {
     market.value = resp.data.market || []
     myPackages.value = resp.data.my_packages || []
+    resetPagination(marketPagination)
+    resetPagination(packagePagination)
     paymentMethods.value = Array.isArray(resp.data.payment_methods) ? resp.data.payment_methods : []
 
     if (!selectedMethod.value && paymentMethods.value.length > 0) {
@@ -103,7 +110,7 @@ onMounted(loadPackages)
           <span>权益</span>
           <span>操作</span>
         </div>
-        <div v-for="item in market" :key="item.id || item.name" class="table-row package-grid">
+        <div v-for="item in pagedMarket" :key="item.id || item.name" class="table-row package-grid">
           <strong>{{ item.name }}</strong>
           <span>{{ item.duration }}</span>
           <span class="price">{{ item.price }}</span>
@@ -114,6 +121,13 @@ onMounted(loadPackages)
             {{ buyingId === Number(item.id || 0) ? '处理中...' : '立即购买' }}
           </button>
         </div>
+        <AppPagination
+          :total="marketTotal"
+          :page="marketPagination.page"
+          :page-size="marketPagination.pageSize"
+          @update:page="marketPagination.page = $event"
+          @update:page-size="marketPagination.pageSize = $event"
+        />
       </div>
     </section>
 
@@ -132,12 +146,19 @@ onMounted(loadPackages)
           <span>开始时间</span>
           <span>结束时间</span>
         </div>
-        <div v-for="item in myPackages" :key="`${item.name}-${item.start_time}`" class="table-row row-grid">
+        <div v-for="item in pagedPackages" :key="`${item.name}-${item.start_time}`" class="table-row row-grid">
           <strong>{{ item.name }}</strong>
           <span>{{ item.status }}</span>
           <span>{{ item.start_time }}</span>
           <span>{{ item.end_time }}</span>
         </div>
+        <AppPagination
+          :total="packageTotal"
+          :page="packagePagination.page"
+          :page-size="packagePagination.pageSize"
+          @update:page="packagePagination.page = $event"
+          @update:page-size="packagePagination.pageSize = $event"
+        />
       </div>
     </section>
 

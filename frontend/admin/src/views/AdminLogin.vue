@@ -75,39 +75,6 @@ onMounted(async () => {
 <template>
   <div class="admin-auth-shell">
     <section class="admin-auth-stage">
-      <div class="admin-auth-aside">
-        <div class="auth-aside__top">
-          <a class="auth-brand" href="/">
-            <span class="auth-brand__mark">N</span>
-            <span class="auth-brand__copy">
-              <strong>NexPay</strong>
-              <small>管理后台</small>
-            </span>
-          </a>
-        </div>
-
-        <div class="admin-auth-hero">
-          <span class="auth-hero__kicker">管理员登录</span>
-          <h1>进入后台，把商户、订单与系统状态放回同一视野。</h1>
-          <p class="admin-hero-text">管理员入口只保留后台管理语义，版式与商户端保持统一，但视觉更克制、密度更高。</p>
-        </div>
-
-        <div class="admin-status-grid">
-          <article>
-            <strong>统一入口</strong>
-            <span>/admin</span>
-          </article>
-          <article>
-            <strong>系统范围</strong>
-            <span>商户 / 订单 / 配置</span>
-          </article>
-          <article>
-            <strong>运行视图</strong>
-            <span>风控 / 资金 / 通知</span>
-          </article>
-        </div>
-      </div>
-
       <form class="admin-auth-card" @submit.prevent="submit">
         <div class="auth-card__head">
           <span class="auth-hero__kicker">管理后台</span>

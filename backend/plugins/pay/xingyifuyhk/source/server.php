@@ -16,7 +16,19 @@ $prefix = Config::get('database.connections.mysql.prefix', '');
 
 while (true) {
     $now = time();
-    $list = Db::query("SELECT trade_no,realmoney,channel FROM {$prefix}order WHERE channel IN (SELECT id FROM {$prefix}channel WHERE plugin='xingyifuyhk' AND status=1) AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 8 MINUTE)");
+    $channelIds = Db::name('channel')
+        ->where('plugin', 'xingyifuyhk')
+        ->where('status', 1)
+        ->column('id');
+    $list = $channelIds === []
+        ? []
+        : Db::name('order')
+            ->field('trade_no,realmoney,channel')
+            ->whereIn('channel', $channelIds)
+            ->where('status', 0)
+            ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480))
+            ->select()
+            ->toArray();
     if (empty($list)) {
         echo '暂无未支付订单...' . PHP_EOL;
         goto WAIT;

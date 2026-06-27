@@ -20,7 +20,9 @@ class LocalTransferStore
         ]));
         $rows[] = $row;
         self::saveRefunds($rows);
-        return self::hydrateRefund($row);
+        $refund = self::hydrateRefund($row);
+        self::recordRefundLifecycleEvent($refund, null);
+        return $refund;
     }
 
     public static function findRefund(int $merchantId, ?string $refundNo, ?string $outRefundNo, ?string $tradeNo = null): ?object
@@ -131,11 +133,14 @@ class LocalTransferStore
                 continue;
             }
 
+            $before = self::hydrateRefund($row);
             $rows[$index] = self::normalizeRefund(array_merge($row, $changes, [
                 'updated_at' => date('Y-m-d H:i:s'),
             ]));
             self::saveRefunds($rows);
-            return self::hydrateRefund($rows[$index]);
+            $refund = self::hydrateRefund($rows[$index]);
+            self::recordRefundLifecycleEvent($refund, $before);
+            return $refund;
         }
 
         return null;
@@ -151,7 +156,9 @@ class LocalTransferStore
         ]));
         $rows[] = $row;
         self::saveTransfers($rows);
-        return self::hydrateTransfer($row);
+        $transfer = self::hydrateTransfer($row);
+        self::recordTransferLifecycleEvent($transfer, null);
+        return $transfer;
     }
 
     public static function updateTransfer(string $bizNo, array $changes): ?object
@@ -162,11 +169,14 @@ class LocalTransferStore
                 continue;
             }
 
+            $before = self::hydrateTransfer($row);
             $rows[$index] = self::normalizeTransfer(array_merge($row, $changes, [
                 'updated_at' => date('Y-m-d H:i:s'),
             ]));
             self::saveTransfers($rows);
-            return self::hydrateTransfer($rows[$index]);
+            $transfer = self::hydrateTransfer($rows[$index]);
+            self::recordTransferLifecycleEvent($transfer, $before);
+            return $transfer;
         }
 
         return null;
@@ -260,7 +270,7 @@ class LocalTransferStore
             'out-test-refund',
             'plugin-refund-notify',
             'rf-manual-',
-            '楠岃瘉',
+            '验证',
             '验证',
         ]);
     }
@@ -282,9 +292,9 @@ class LocalTransferStore
             'manual transfer verification',
             'plugin-transfer-notify',
             'transfer notify verification',
-            '娴嬭瘯',
+            '测试',
             '测试收款人',
-            '楠岃瘉',
+            '验证',
             '验证收款人',
         ]);
     }
@@ -472,5 +482,95 @@ class LocalTransferStore
         }
 
         return $record;
+    }
+
+    private static function recordRefundLifecycleEvent(object $refund, ?object $before = null): void
+    {
+        $result = trim((string)($refund->result ?? ''));
+        $status = (int)($refund->status ?? 0);
+        $meta = self::payoutEventMeta($refund, $before);
+
+        if ($before === null) {
+            LocalPayoutEventStore::recordRefundCreated($refund, $meta);
+        }
+
+        if ($status === 1) {
+            LocalPayoutEventStore::recordRefundSuccess($refund, $meta);
+            return;
+        }
+
+        if ($status === 2) {
+            LocalPayoutEventStore::recordRefundFailed($refund, $meta);
+            return;
+        }
+
+        if ($result === 'manual_refund_pending') {
+            LocalPayoutEventStore::recordRefundManualPending($refund, $meta);
+            return;
+        }
+
+        if ($status === 0) {
+            LocalPayoutEventStore::recordRefundPending($refund, $meta);
+        }
+    }
+
+    private static function recordTransferLifecycleEvent(object $transfer, ?object $before = null): void
+    {
+        $result = trim((string)($transfer->result ?? ''));
+        $status = (int)($transfer->status ?? 0);
+        $meta = self::payoutEventMeta($transfer, $before);
+
+        if ($before === null) {
+            LocalPayoutEventStore::recordTransferCreated($transfer, $meta);
+        }
+
+        if ($result === 'manual_transfer_pending') {
+            LocalPayoutEventStore::recordTransferManualPending($transfer, $meta);
+            return;
+        }
+
+        if ($status === 1) {
+            LocalPayoutEventStore::recordTransferSuccess($transfer, $meta);
+            return;
+        }
+
+        if ($status === 2) {
+            if ($result === 'manual_rejected') {
+                LocalPayoutEventStore::recordTransferRejected($transfer, $meta);
+                return;
+            }
+
+            LocalPayoutEventStore::recordTransferFailed($transfer, $meta);
+            return;
+        }
+
+        if ($status === 0) {
+            LocalPayoutEventStore::recordTransferPending($transfer, $meta);
+        }
+    }
+
+    private static function payoutEventMeta(object $current, ?object $before = null): array
+    {
+        $meta = [
+            'status' => (int)($current->status ?? 0),
+            'result' => trim((string)($current->result ?? '')),
+            'last_error' => trim((string)($current->last_error ?? '')),
+            'proof_no' => trim((string)($current->proof_no ?? '')),
+            'channel_order_no' => trim((string)($current->channel_order_no ?? '')),
+            'channel_trade_no' => trim((string)($current->channel_trade_no ?? '')),
+            'operator' => trim((string)($current->operator ?? '')),
+            'remark' => trim((string)($current->remark ?? '')),
+            'event_time' => trim((string)($current->updated_at ?? $current->created_at ?? '')),
+        ];
+
+        if ($before !== null) {
+            $meta['previous_status'] = (int)($before->status ?? 0);
+            $meta['previous_result'] = trim((string)($before->result ?? ''));
+            $meta['status_changed'] = (int)($before->status ?? 0) !== (int)($current->status ?? 0);
+            $meta['result_changed'] = trim((string)($before->result ?? '')) !== trim((string)($current->result ?? ''));
+            $meta['last_error_changed'] = trim((string)($before->last_error ?? '')) !== trim((string)($current->last_error ?? ''));
+        }
+
+        return $meta;
     }
 }

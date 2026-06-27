@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAdminLogs, retryAdminCallback } from '../lib/api'
+import AppPagination from '../components/AppPagination.vue'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 type LogSection = 'admin' | 'merchant' | 'callback' | 'provider' | 'realname' | 'plugin-notify'
 
@@ -52,7 +54,11 @@ const merchantLogs = computed<Record<string, any>[]>(() =>
 )
 
 const callbackLogs = computed<Record<string, any>[]>(() =>
-  Array.isArray(data.value.callback_logs) ? data.value.callback_logs : [],
+  Array.isArray(data.value.callback_events) && data.value.callback_events.length
+    ? data.value.callback_events
+    : Array.isArray(data.value.callback_logs)
+      ? data.value.callback_logs
+      : [],
 )
 
 const providerLogs = computed<Record<string, any>[]>(() =>
@@ -66,6 +72,17 @@ const realnameLogs = computed<Record<string, any>[]>(() =>
 const pluginNotifyLogs = computed<Record<string, any>[]>(() =>
   Array.isArray(data.value.plugin_notify_logs) ? data.value.plugin_notify_logs : [],
 )
+
+const currentRows = computed<Record<string, any>[]>(() => {
+  if (activeSection.value === 'merchant') return merchantLogs.value
+  if (activeSection.value === 'callback') return callbackLogs.value
+  if (activeSection.value === 'provider') return providerLogs.value
+  if (activeSection.value === 'realname') return realnameLogs.value
+  if (activeSection.value === 'plugin-notify') return pluginNotifyLogs.value
+  return adminLogs.value
+})
+
+const { pagination, total, pagedRows } = usePagination(() => currentRows.value, 20)
 
 const callbackSummaryItems = computed(() => [
   { key: 'pending_due', label: '待立即执行', value: String(Number(callbackSummary.value.pending_due ?? 0)), tone: 'metric' },
@@ -536,6 +553,10 @@ function summarizeContext(item: Record<string, any>) {
 }
 
 onMounted(load)
+
+watch(activeSection, () => {
+  resetPagination(pagination)
+})
 </script>
 
 <template>
@@ -566,7 +587,7 @@ onMounted(load)
                 <span>时间</span>
               </div>
               <div
-                v-for="item in activeSection === 'admin' ? adminLogs : merchantLogs"
+                v-for="item in pagedRows"
                 :key="`${item.operator}-${item.created_at}`"
                 class="table-row log-grid"
               >
@@ -605,7 +626,7 @@ onMounted(load)
                 <span>操作</span>
               </div>
               <div
-                v-for="item in callbackLogs"
+                v-for="item in pagedRows"
                 :key="`${item.id}-${item.updated_at}`"
                 class="table-row callback-grid"
               >
@@ -669,7 +690,7 @@ onMounted(load)
                 <span>时间</span>
               </div>
               <div
-                v-for="item in providerLogs"
+                v-for="item in pagedRows"
                 :key="`${item.id}-${item.created_at}`"
                 class="table-row provider-grid"
               >
@@ -699,7 +720,7 @@ onMounted(load)
                 <span>时间</span>
               </div>
               <div
-                v-for="item in realnameLogs"
+                v-for="item in pagedRows"
                 :key="`${item.id}-${item.created_at}`"
                 class="table-row realname-grid"
               >
@@ -729,7 +750,7 @@ onMounted(load)
                 <span>上下文</span>
               </div>
               <div
-                v-for="item in pluginNotifyLogs"
+                v-for="item in pagedRows"
                 :key="`${item.id}-${item.created_at}`"
                 class="table-row plugin-notify-grid"
               >
@@ -745,6 +766,14 @@ onMounted(load)
             </template>
             <p v-else class="empty-note log-empty">{{ emptyCopy }}</p>
           </div>
+
+          <AppPagination
+            :total="total"
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            @update:page="pagination.page = $event"
+            @update:page-size="pagination.pageSize = $event"
+          />
         </div>
       </div>
     </article>

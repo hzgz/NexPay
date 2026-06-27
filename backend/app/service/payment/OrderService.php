@@ -31,13 +31,36 @@ class OrderService
     public const STATUS_FAILED = 2;
     public const STATUS_EXPIRED = 3;
     public const STATUS_CLOSED = 4;
+    private const CHANNEL_CACHE_TTL = 8;
+    private const CHANNEL_CACHE_KEY = 'merchant_channel_route_cache';
+    private const ORDER_LOOKUP_CACHE_TTL = 5;
+
+    /**
+     * @var array<string, array{order: object, cached_at: int}>
+     */
+    private static array $orderLookupCache = [];
 
     public static function expirePendingOrders(): int
     {
         if (self::canUseDatabase()) {
-            return Order::where('status', self::STATUS_PENDING)
-                ->where('expire_time', '<', date('Y-m-d H:i:s'))
-                ->update(['status' => self::STATUS_EXPIRED]);
+            $now = date('Y-m-d H:i:s');
+            $orders = Order::where('status', self::STATUS_PENDING)
+                ->where('expire_time', '<', $now)
+                ->select();
+            $changed = 0;
+            foreach ($orders as $order) {
+                $updated = self::saveOrder($order, [
+                    'status' => self::STATUS_EXPIRED,
+                    'updated_at' => $now,
+                ]);
+                LocalOrderEventStore::recordExpired($updated, [
+                    'source' => 'db-expire-task',
+                    'event_time' => $now,
+                ]);
+                $changed++;
+            }
+
+            return $changed;
         }
 
         return LocalOrderStore::expirePendingOrders();
@@ -400,25 +423,25 @@ class OrderService
         $merchant = self::resolveMerchantByPid((string)($payload['pid'] ?? ''));
         $signature = (string)($payload['sign'] ?? '');
         if (!SignService::verifyMd5($payload, (string)$merchant->mch_key, $signature)) {
-            throw new BusinessException('V1 签名校验失败', StatusCode::UNAUTHORIZED);
+            throw new BusinessException('V1 绛惧悕鏍￠獙澶辫触', StatusCode::UNAUTHORIZED);
         }
 
-        $order = self::createGatewayOrder($merchant, [
+        $order = self::createGatewayOrder($merchant, self::normalizeMerchantOrderInput([
             'type' => $payload['type'] ?? '',
             'out_trade_no' => $payload['out_trade_no'] ?? '',
             'notify_url' => $payload['notify_url'] ?? '',
             'return_url' => $payload['return_url'] ?? '',
-            'name' => $payload['name'] ?? '支付订单',
+            'name' => $payload['name'] ?? '鏀粯璁㈠崟',
             'money' => $payload['money'] ?? '0',
             'clientip' => $payload['clientip'] ?? '',
             'param' => $payload['param'] ?? '',
             'source_protocol' => 'v1',
             'request_payload' => $payload,
-        ]);
+        ]));
 
         return [
             'code' => 1,
-            'msg' => '成功',
+            'msg' => '鎴愬姛',
             'trade_no' => $order->trade_no,
             'payurl' => self::checkoutUrl((string)$order->trade_no),
         ];
@@ -479,23 +502,23 @@ class OrderService
         $merchant = self::resolveMerchantByPid((string)($payload['pid'] ?? ''));
         $signature = (string)($payload['sign'] ?? '');
         if (!self::verifyV2Signature($payload, $merchant, $signature)) {
-            throw new BusinessException('V2 签名校验失败', StatusCode::UNAUTHORIZED);
+            throw new BusinessException('V2 绛惧悕鏍￠獙澶辫触', StatusCode::UNAUTHORIZED);
         }
 
-        $order = self::createGatewayOrder($merchant, [
+        $order = self::createGatewayOrder($merchant, self::normalizeMerchantOrderInput([
             'type' => $payload['type'] ?? '',
             'method' => $payload['method'] ?? 'web',
             'device' => $payload['device'] ?? '',
             'out_trade_no' => $payload['out_trade_no'] ?? '',
             'notify_url' => $payload['notify_url'] ?? '',
             'return_url' => $payload['return_url'] ?? '',
-            'name' => $payload['name'] ?? '支付订单',
+            'name' => $payload['name'] ?? '鏀粯璁㈠崟',
             'money' => $payload['money'] ?? '0',
             'clientip' => $payload['clientip'] ?? '',
             'param' => $payload['param'] ?? '',
             'source_protocol' => 'v2',
             'request_payload' => $payload,
-        ]);
+        ]));
 
         $response = [
             'code' => 0,
@@ -547,11 +570,24 @@ class OrderService
             return null;
         }
 
-        if (self::canUseDatabase()) {
-            return Order::where('trade_no', $tradeNo)->find();
+        $cached = self::cachedOrderByTradeNo($tradeNo);
+        if ($cached !== null) {
+            return $cached;
         }
 
-        return LocalOrderStore::findByTradeNo($tradeNo);
+        if (self::canUseDatabase()) {
+            $order = Order::where('trade_no', $tradeNo)->find();
+            if ($order) {
+                self::storeOrderLookupCache($order);
+            }
+            return $order;
+        }
+
+        $order = LocalOrderStore::findByTradeNo($tradeNo);
+        if ($order) {
+            self::storeOrderLookupCache($order);
+        }
+        return $order;
     }
 
     public static function findByIdOrNull(int $orderId): ?object
@@ -642,6 +678,13 @@ class OrderService
         MerchantAuthService::completeRegistrationPayment($order);
         PackageService::completePurchasePayment($order);
         LocalFundStore::recordOrderSuccess($order, $merchant);
+        LocalOrderEventStore::recordPaid($order, [
+            'source' => (string)($attributes['source'] ?? 'system'),
+            'confirmations' => $confirmations,
+            'buyer' => $buyer,
+            'bill_trade_no' => $billTradeNo,
+            'bill_mch_trade_no' => $billMchTradeNo,
+        ]);
         CallbackService::enqueueOrder($order, $merchant);
         return $order;
     }
@@ -725,11 +768,132 @@ class OrderService
 
         if (self::canUseDatabase()) {
             $order->save();
+            self::storeOrderLookupCache($order);
             return $order;
         }
 
         $stored = LocalOrderStore::updateOrder((string)$order->trade_no, $changes);
-        return $stored ?? $order;
+        $resolved = $stored ?? $order;
+        self::storeOrderLookupCache($resolved);
+        return $resolved;
+    }
+
+    public static function createStoredRequestPayload(array $data): array
+    {
+        return self::buildStoredRequestPayload($data);
+    }
+
+    public static function nextTradeNo(): string
+    {
+        return self::generateTradeNo();
+    }
+
+    public static function persistCreatedOrder(array $payload, array $eventMeta = []): object
+    {
+        if (self::canUseDatabase()) {
+            $order = Db::transaction(function () use ($payload) {
+                $order = new Order();
+                $order->save($payload);
+                return $order;
+            });
+        } else {
+            $order = LocalOrderStore::createOrder($payload);
+        }
+
+        self::storeOrderLookupCache($order);
+        LocalOrderEventStore::recordCreated($order, $eventMeta);
+
+        return $order;
+    }
+
+    public static function composeOrderPayload(array $data): array
+    {
+        $tradeNo = trim((string)($data['trade_no'] ?? ''));
+        $createdAt = trim((string)($data['created_at'] ?? ''));
+        $resolvedCreatedAt = $createdAt !== '' ? $createdAt : date('Y-m-d H:i:s');
+
+        return [
+            'trade_no' => $tradeNo !== '' ? $tradeNo : self::generateTradeNo(),
+            'out_trade_no' => trim((string)($data['out_trade_no'] ?? '')),
+            'merchant_id' => (int)($data['merchant_id'] ?? 0),
+            'merchant_channel_id' => (int)($data['merchant_channel_id'] ?? 0),
+            'channel_code' => trim((string)($data['channel_code'] ?? '')),
+            'channel_category' => (int)($data['channel_category'] ?? 2),
+            'subject' => trim((string)($data['subject'] ?? '鏀粯璁㈠崟')),
+            'amount' => self::formatMoney($data['amount'] ?? '0'),
+            'payable_amount' => self::formatMoney($data['payable_amount'] ?? $data['amount'] ?? '0'),
+            'status' => (int)($data['status'] ?? self::STATUS_PENDING),
+            'notify_url' => trim((string)($data['notify_url'] ?? '')),
+            'return_url' => trim((string)($data['return_url'] ?? '')),
+            'client_ip' => trim((string)($data['client_ip'] ?? '')),
+            'param' => trim((string)($data['param'] ?? '')),
+            'expire_time' => trim((string)($data['expire_time'] ?? date('Y-m-d H:i:s', time() + self::DEFAULT_EXPIRE_SECONDS))),
+            'request_payload' => is_array($data['request_payload'] ?? null) ? $data['request_payload'] : [],
+            'notify_payload' => is_array($data['notify_payload'] ?? null) ? $data['notify_payload'] : [],
+            'payment_address' => trim((string)($data['payment_address'] ?? '')),
+            'created_at' => $resolvedCreatedAt,
+            'updated_at' => trim((string)($data['updated_at'] ?? $resolvedCreatedAt)),
+        ];
+    }
+
+    public static function buildPendingOrderPayload(array $data): array
+    {
+        $requestPayload = self::createStoredRequestPayload($data);
+        $legacyChannel = is_array($data['legacy_channel_snapshot'] ?? null) ? $data['legacy_channel_snapshot'] : [];
+        $tradeNo = trim((string)($data['trade_no'] ?? ''));
+        $amount = self::formatMoney($data['amount'] ?? '0');
+        $payableAmount = trim((string)($data['payable_amount'] ?? ''));
+
+        if ($payableAmount === '' && $legacyChannel !== []) {
+            $payableAmount = self::resolvePayableAmountForChannelSnapshot($legacyChannel, $amount, $tradeNo);
+        }
+
+        return self::composeOrderPayload([
+            'trade_no' => $tradeNo,
+            'out_trade_no' => $data['out_trade_no'] ?? '',
+            'merchant_id' => (int)($data['merchant_id'] ?? 0),
+            'merchant_channel_id' => (int)($data['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
+            'channel_code' => $data['channel_code'] ?? ($legacyChannel['channel_code'] ?? ''),
+            'channel_category' => (int)($data['channel_category'] ?? $legacyChannel['channel_category'] ?? 2),
+            'subject' => $data['subject'] ?? '鏀粯璁㈠崟',
+            'amount' => $amount,
+            'payable_amount' => $payableAmount !== '' ? $payableAmount : $amount,
+            'status' => (int)($data['status'] ?? self::STATUS_PENDING),
+            'notify_url' => $data['notify_url'] ?? '',
+            'return_url' => $data['return_url'] ?? '',
+            'client_ip' => $data['client_ip'] ?? '',
+            'param' => $data['param'] ?? '',
+            'expire_time' => $data['expire_time'] ?? date('Y-m-d H:i:s', time() + self::DEFAULT_EXPIRE_SECONDS),
+            'request_payload' => $requestPayload,
+            'notify_payload' => is_array($data['notify_payload'] ?? null) ? $data['notify_payload'] : [],
+            'payment_address' => self::resolvePendingOrderPaymentAddress($data, $tradeNo),
+            'created_at' => $data['created_at'] ?? '',
+            'updated_at' => $data['updated_at'] ?? '',
+        ]);
+    }
+
+    public static function buildOrderCreationEventMeta(array $requestPayload, array $fallback = []): array
+    {
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+
+        return [
+            'scene' => (string)($fallback['scene'] ?? ''),
+            'source' => (string)($meta['source_protocol'] ?? $fallback['source'] ?? ''),
+            'gateway_source' => (string)($meta['gateway_source'] ?? $fallback['gateway_source'] ?? ''),
+            'business' => (string)($meta['business'] ?? $fallback['business'] ?? ''),
+            'order_origin' => (string)($meta['order_origin'] ?? $fallback['order_origin'] ?? ''),
+            'order_scene' => (string)($meta['order_scene'] ?? $fallback['order_scene'] ?? ''),
+        ];
+    }
+
+    public static function buildOrderCreationContext(array $data, array $fallback = []): array
+    {
+        $requestPayload = self::createStoredRequestPayload(array_replace($fallback, $data));
+
+        return [
+            'request_payload' => $requestPayload,
+            'event_meta' => self::buildOrderCreationEventMeta($requestPayload, $fallback),
+        ];
     }
 
     public static function gatewayMerchantByPid(string $pid): object
@@ -799,7 +963,30 @@ class OrderService
             throw new BusinessException('商户不存在或已停用', StatusCode::NOT_FOUND);
         }
 
-        return self::createGatewayOrder($merchant, $data);
+        return self::createGatewayOrder($merchant, self::normalizeMerchantOrderInput($data));
+    }
+
+    public static function normalizeMerchantOrderInput(array $data): array
+    {
+        return [
+            'type' => (string)($data['type'] ?? $data['channel_code'] ?? $data['method_code'] ?? ''),
+            'method' => (string)($data['method'] ?? ''),
+            'device' => (string)($data['device'] ?? ''),
+            'out_trade_no' => (string)($data['out_trade_no'] ?? ''),
+            'notify_url' => (string)($data['notify_url'] ?? ''),
+            'return_url' => (string)($data['return_url'] ?? ''),
+            'name' => (string)($data['name'] ?? $data['subject'] ?? '支付订单'),
+            'money' => (string)($data['money'] ?? $data['amount'] ?? '0'),
+            'clientip' => (string)($data['clientip'] ?? $data['client_ip'] ?? ''),
+            'param' => (string)($data['param'] ?? ''),
+            'source_protocol' => (string)($data['source_protocol'] ?? ''),
+            'gateway_source' => (string)($data['gateway_source'] ?? ''),
+            'order_origin' => (string)($data['order_origin'] ?? ''),
+            'business' => (string)($data['business'] ?? ''),
+            'order_scene' => (string)($data['order_scene'] ?? ''),
+            'request_payload' => is_array($data['request_payload'] ?? null) ? $data['request_payload'] : [],
+            'legacy_channel_snapshot' => is_array($data['legacy_channel_snapshot'] ?? null) ? $data['legacy_channel_snapshot'] : [],
+        ] + $data;
     }
 
     public static function checkoutUrlForTradeNo(string $tradeNo): string
@@ -946,7 +1133,7 @@ class OrderService
     protected static function findMerchantOrder(int $merchantId, ?string $tradeNo, ?string $outTradeNo): object
     {
         if (!$tradeNo && !$outTradeNo) {
-            throw new BusinessException('缺少订单查询条件', StatusCode::BAD_REQUEST);
+            throw new BusinessException('缂哄皯璁㈠崟鏌ヨ鏉′欢', StatusCode::BAD_REQUEST);
         }
 
         if (self::canUseDatabase()) {
@@ -985,44 +1172,111 @@ class OrderService
             throw new BusinessException('金额必须大于 0', StatusCode::VALIDATION_ERROR);
         }
 
-        $channel = self::resolveMerchantChannel((int)$merchant->id, (string)($data['type'] ?? ''), (float)$amount);
-        $data['legacy_channel_snapshot'] = self::legacyChannelSnapshot($channel);
-        $payableAmount = self::resolveGatewayPayableAmount($channel, $amount);
+        $prepared = self::prepareMerchantGatewayOrder($merchant, $data);
+        $channel = $prepared['channel'];
+        $data['legacy_channel_snapshot'] = $prepared['legacy_channel_snapshot'];
+        $tradeNo = (string)$prepared['trade_no'];
+        $createdAt = (string)$prepared['created_at'];
+        $creationContext = self::buildOrderCreationContext($data + [
+            'merchant_id' => (int)$merchant->id,
+            'merchant_pid' => (string)($merchant->id ?? ''),
+            'merchant_name' => (string)($merchant->name ?? ''),
+            'channel_code' => (string)($channel['channel_type']->code ?? ''),
+            'merchant_channel_id' => (int)($channel['merchant_channel']->id ?? 0),
+            'gateway_source' => (string)($data['gateway_source'] ?? 'merchant_openapi'),
+            'order_origin' => (string)($data['order_origin'] ?? 'merchant_openapi'),
+            'business' => (string)($data['business'] ?? 'merchant_order'),
+            'order_scene' => (string)($data['order_scene'] ?? 'merchant_order'),
+        ], [
+            'scene' => 'merchant_gateway',
+            'source' => (string)($data['source_protocol'] ?? ''),
+            'gateway_source' => (string)($data['gateway_source'] ?? 'merchant_openapi'),
+            'business' => (string)($data['business'] ?? 'merchant_order'),
+            'order_origin' => (string)($data['order_origin'] ?? 'merchant_openapi'),
+            'order_scene' => (string)($data['order_scene'] ?? 'merchant_order'),
+        ]);
 
-        $payload = [
-            'trade_no' => self::generateTradeNo(),
-            'out_trade_no' => $outTradeNo,
+        $payload = self::buildPendingOrderPayload([
+            'trade_no' => $tradeNo,
+            'out_trade_no' => (string)($prepared['out_trade_no'] ?? ''),
             'merchant_id' => (int)$merchant->id,
             'merchant_channel_id' => (int)$channel['merchant_channel']->id,
             'channel_code' => (string)$channel['channel_type']->code,
             'channel_category' => (int)$channel['channel_type']->category,
             'subject' => (string)($data['name'] ?? '支付订单'),
-            'amount' => $amount,
-            'payable_amount' => $payableAmount,
+            'amount' => (string)($prepared['amount'] ?? '0.00'),
+            'payable_amount' => self::resolvePayableAmountForChannelSnapshot(
+                is_array($data['legacy_channel_snapshot'] ?? null) ? $data['legacy_channel_snapshot'] : [],
+                (string)($prepared['amount'] ?? '0.00'),
+                $tradeNo
+            ),
             'status' => self::STATUS_PENDING,
             'notify_url' => (string)($data['notify_url'] ?? ''),
             'return_url' => (string)($data['return_url'] ?? ''),
             'client_ip' => (string)($data['clientip'] ?? ''),
             'param' => (string)($data['param'] ?? ''),
             'expire_time' => date('Y-m-d H:i:s', time() + self::DEFAULT_EXPIRE_SECONDS),
-            'request_payload' => self::buildStoredRequestPayload($data),
+            'request_payload' => $creationContext['request_payload'] ?? [],
             'notify_payload' => [],
-            'payment_address' => self::resolvePaymentAddress($channel),
-        ];
+            'legacy_channel_snapshot' => is_array($data['legacy_channel_snapshot'] ?? null) ? $data['legacy_channel_snapshot'] : [],
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
 
-        if (self::canUseDatabase()) {
-            return Db::transaction(function () use ($payload) {
-                $order = new Order();
-                $order->save($payload);
-                return $order;
-            });
+        return self::persistCreatedOrder(
+            $payload,
+            is_array($creationContext['event_meta'] ?? null)
+                ? $creationContext['event_meta']
+                : self::buildOrderCreationEventMeta(
+                    is_array($payload['request_payload'] ?? null) ? $payload['request_payload'] : [],
+                    [
+                        'scene' => 'merchant_gateway',
+                        'source' => (string)($data['source_protocol'] ?? ''),
+                        'gateway_source' => (string)($data['gateway_source'] ?? 'merchant_openapi'),
+                        'business' => (string)($data['business'] ?? 'merchant_order'),
+                        'order_origin' => (string)($data['order_origin'] ?? 'merchant_openapi'),
+                        'order_scene' => (string)($data['order_scene'] ?? 'merchant_order'),
+                    ]
+                )
+        );
+    }
+
+    protected static function prepareMerchantGatewayOrder(object $merchant, array $data): array
+    {
+        $outTradeNo = trim((string)($data['out_trade_no'] ?? ''));
+        if ($outTradeNo === '') {
+            throw new BusinessException('merchant order number required', StatusCode::VALIDATION_ERROR);
         }
 
-        return LocalOrderStore::createOrder($payload);
+        if (self::merchantOutTradeExists((int)$merchant->id, $outTradeNo)) {
+            throw new BusinessException('merchant order number already exists', StatusCode::VALIDATION_ERROR);
+        }
+
+        $amount = self::formatMoney($data['money'] ?? 0);
+        if ((float)$amount <= 0) {
+            throw new BusinessException('amount must be greater than 0', StatusCode::VALIDATION_ERROR);
+        }
+
+        $channel = self::resolveMerchantChannel((int)$merchant->id, (string)($data['type'] ?? ''), (float)$amount);
+
+        return [
+            'out_trade_no' => $outTradeNo,
+            'amount' => $amount,
+            'trade_no' => self::generateTradeNo(),
+            'created_at' => date('Y-m-d H:i:s'),
+            'channel' => $channel,
+            'legacy_channel_snapshot' => self::legacyChannelSnapshot($channel),
+        ];
     }
 
     protected static function resolveMerchantChannel(int $merchantId, string $requestedType, float $amount = 0.0): array
     {
+        $cacheKey = self::channelCacheLookupKey($merchantId, $requestedType, $amount);
+        $cached = self::cachedResolvedChannel($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
         $code = self::normalizeMethodCode($requestedType);
         $rotation = self::merchantRotationConfig($merchantId);
         $rawRecords = self::filterChannelRecordsByAmount($merchantId, self::activeChannelRecords($merchantId, $code, false), $amount);
@@ -1033,16 +1287,19 @@ class OrderService
             if ($runtimeMessage !== '') {
                 throw new BusinessException($runtimeMessage, StatusCode::BUSINESS_ERROR);
             }
+
             throw new BusinessException('当前商户暂无可用支付通道', StatusCode::NOT_FOUND);
         }
 
         $record = self::pickChannelRecord($records, $rotation, $merchantId, $code);
 
         if (!self::canUseDatabase()) {
-            return [
+            $resolved = [
                 'merchant_channel' => $record['merchant_channel'],
                 'channel_type' => $record['channel_type'],
             ];
+            self::storeResolvedChannelCache($cacheKey, $resolved);
+            return $resolved;
         }
 
         $merchantChannel = MerchantChannel::find($record->id);
@@ -1055,17 +1312,21 @@ class OrderService
                     continue;
                 }
 
-                return [
+                $resolved = [
                     'merchant_channel' => $fallbackRecord['merchant_channel'],
                     'channel_type' => $fallbackRecord['channel_type'],
                 ];
+                self::storeResolvedChannelCache($cacheKey, $resolved);
+                return $resolved;
             }
         }
 
-        return [
+        $resolved = [
             'merchant_channel' => $merchantChannel,
             'channel_type' => $channelType,
         ];
+        self::storeResolvedChannelCache($cacheKey, $resolved);
+        return $resolved;
     }
 
     protected static function activeChannelRecords(int $merchantId, string $code, bool $filterRuntime = true): array
@@ -1239,7 +1500,7 @@ class OrderService
         $channelPayload = MerchantChannelService::all($merchantId);
         $items = $channelPayload['items'] ?? [];
         $plugins = $channelPayload['plugins'] ?? [];
-        $runtimePluginSettings = ConfigService::get('plugin_runtime_settings', []);
+        $runtimePluginSettings = \app\service\system\PluginRuntimeService::storedSettings();
         $matched = [];
         foreach ($items as $item) {
             if ((int)($item['status_code'] ?? 0) !== 1) {
@@ -1340,8 +1601,25 @@ class OrderService
             'source_protocol' => (string)($data['source_protocol'] ?? ''),
             'method' => (string)($data['method'] ?? ''),
             'device' => (string)($data['device'] ?? ''),
+            'business' => (string)($data['business'] ?? ''),
+            'gateway_source' => (string)($data['gateway_source'] ?? ''),
+            'order_origin' => (string)($data['order_origin'] ?? ''),
+            'order_scene' => (string)($data['order_scene'] ?? ''),
+            'requested_method' => (string)($data['type'] ?? $data['channel_code'] ?? $data['method_code'] ?? ''),
+            'merchant_name' => (string)($data['merchant_name'] ?? ''),
+            'merchant_pid' => (string)($data['merchant_pid'] ?? ''),
         ] as $key => $value) {
             if ($value !== '') {
+                $meta[$key] = $value;
+            }
+        }
+
+        foreach ([
+            'merchant_id' => (int)($data['merchant_id'] ?? 0),
+            'merchant_channel_id' => (int)($data['merchant_channel_id'] ?? 0),
+            'carrier_merchant_id' => (int)($data['carrier_merchant_id'] ?? 0),
+        ] as $key => $value) {
+            if ($value > 0) {
                 $meta[$key] = $value;
             }
         }
@@ -1355,6 +1633,155 @@ class OrderService
         }
 
         return $payload;
+    }
+
+    public static function flushOrderLookupCache(string $tradeNo = ''): void
+    {
+        if ($tradeNo === '') {
+            self::$orderLookupCache = [];
+            return;
+        }
+
+        unset(self::$orderLookupCache[$tradeNo]);
+    }
+
+    public static function flushMerchantChannelCache(int $merchantId = 0): void
+    {
+        $records = ConfigService::get(self::CHANNEL_CACHE_KEY, []);
+        if (!is_array($records) || $records === []) {
+            return;
+        }
+
+        if ($merchantId <= 0) {
+            ConfigService::save([self::CHANNEL_CACHE_KEY => []]);
+            return;
+        }
+
+        $prefix = $merchantId . ':';
+        foreach (array_keys($records) as $key) {
+            if (str_starts_with((string)$key, $prefix)) {
+                unset($records[$key]);
+            }
+        }
+
+        ConfigService::save([self::CHANNEL_CACHE_KEY => $records]);
+    }
+
+    private static function channelCacheLookupKey(int $merchantId, string $requestedType, float $amount): string
+    {
+        $normalizedType = self::normalizeMethodCode($requestedType);
+        return implode(':', [
+            (string)$merchantId,
+            $normalizedType !== '' ? $normalizedType : 'all',
+            self::formatMoney($amount > 0 ? $amount : 0),
+        ]);
+    }
+
+    private static function cachedResolvedChannel(string $cacheKey): ?array
+    {
+        $records = ConfigService::get(self::CHANNEL_CACHE_KEY, []);
+        if (!is_array($records) || !is_array($records[$cacheKey] ?? null)) {
+            return null;
+        }
+
+        $entry = $records[$cacheKey];
+        $cachedAt = (int)($entry['cached_at'] ?? 0);
+        if ($cachedAt <= 0 || (time() - $cachedAt) > self::CHANNEL_CACHE_TTL) {
+            return null;
+        }
+
+        $channel = is_array($entry['merchant_channel'] ?? null) ? $entry['merchant_channel'] : [];
+        $type = is_array($entry['channel_type'] ?? null) ? $entry['channel_type'] : [];
+        if ($channel === [] || $type === []) {
+            return null;
+        }
+
+        return [
+            'merchant_channel' => self::toObject($channel),
+            'channel_type' => self::toObject($type),
+        ];
+    }
+
+    private static function storeResolvedChannelCache(string $cacheKey, array $resolved): void
+    {
+        $merchantChannel = $resolved['merchant_channel'] ?? null;
+        $channelType = $resolved['channel_type'] ?? null;
+        if (!is_object($merchantChannel) || !is_object($channelType)) {
+            return;
+        }
+
+        $records = ConfigService::get(self::CHANNEL_CACHE_KEY, []);
+        if (!is_array($records)) {
+            $records = [];
+        }
+
+        $records[$cacheKey] = [
+            'cached_at' => time(),
+            'merchant_channel' => self::mixedToArray($merchantChannel),
+            'channel_type' => self::mixedToArray($channelType),
+        ];
+
+        ConfigService::save([self::CHANNEL_CACHE_KEY => $records]);
+    }
+
+    private static function mixedToArray(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_object($value) && method_exists($value, 'toArray')) {
+            $array = $value->toArray();
+            if (is_array($array)) {
+                return $array;
+            }
+        }
+
+        if (is_object($value)) {
+            return get_object_vars($value);
+        }
+
+        return [];
+    }
+
+    private static function cachedOrderByTradeNo(string $tradeNo): ?object
+    {
+        $entry = self::$orderLookupCache[$tradeNo] ?? null;
+        if (!is_array($entry)) {
+            return null;
+        }
+
+        $cachedAt = (int)($entry['cached_at'] ?? 0);
+        if ($cachedAt <= 0 || (time() - $cachedAt) > self::ORDER_LOOKUP_CACHE_TTL) {
+            unset(self::$orderLookupCache[$tradeNo]);
+            return null;
+        }
+
+        $order = $entry['order'] ?? null;
+        return is_object($order) ? $order : null;
+    }
+
+    private static function storeOrderLookupCache(object $order): void
+    {
+        $tradeNo = trim((string)($order->trade_no ?? ''));
+        if ($tradeNo === '') {
+            return;
+        }
+
+        if (count(self::$orderLookupCache) >= 200) {
+            uasort(self::$orderLookupCache, static function (array $left, array $right): int {
+                return (int)($left['cached_at'] ?? 0) <=> (int)($right['cached_at'] ?? 0);
+            });
+
+            while (count(self::$orderLookupCache) >= 200) {
+                array_shift(self::$orderLookupCache);
+            }
+        }
+
+        self::$orderLookupCache[$tradeNo] = [
+            'order' => $order,
+            'cached_at' => time(),
+        ];
     }
 
     protected static function merchantRotationConfig(int $merchantId): array
@@ -1681,6 +2108,31 @@ class OrderService
         }
 
         return $paymentAddress;
+    }
+
+    protected static function resolvePendingOrderPaymentAddress(array $data, string $tradeNo = ''): string
+    {
+        $paymentAddress = trim((string)($data['payment_address'] ?? ''));
+        if ($paymentAddress !== '') {
+            return $paymentAddress;
+        }
+
+        $legacyChannel = is_array($data['legacy_channel_snapshot'] ?? null) ? $data['legacy_channel_snapshot'] : [];
+        $legacyConfig = is_array($legacyChannel['config'] ?? null) ? $legacyChannel['config'] : [];
+        $paymentAddress = trim((string)($legacyConfig['payment_address'] ?? $legacyConfig['display_value'] ?? ''));
+        if ($paymentAddress !== '') {
+            return $paymentAddress;
+        }
+
+        $resolvedTradeNo = trim($tradeNo);
+        if ($resolvedTradeNo === '') {
+            $resolvedTradeNo = trim((string)($data['trade_no'] ?? ''));
+        }
+        if ($resolvedTradeNo === '') {
+            $resolvedTradeNo = self::generateTradeNo();
+        }
+
+        return self::checkoutUrl($resolvedTradeNo);
     }
 
     public static function resolvePayableAmountForChannelSnapshot(array $snapshot, string $amount, string $excludeTradeNo = ''): string
@@ -2170,7 +2622,7 @@ class OrderService
             return LocalTransferStore::updateTransfer((string)$transfer->biz_no, [
                 'status' => $status === 2 ? 2 : 0,
                 'result' => (string)($result['result'] ?? 'plugin_failed'),
-                'last_error' => (string)($result['errmsg'] ?? '支付插件代付执行失败'),
+                'last_error' => (string)($result['errmsg'] ?? '鏀粯鎻掍欢浠ｄ粯鎵ц澶辫触'),
                 'channel_order_no' => $channelOrderNo,
                 'channel_trade_no' => $channelTradeNo,
                 'channel_plugin_code' => $pluginCode,
@@ -2183,7 +2635,7 @@ class OrderService
             return LocalTransferStore::updateTransfer((string)$transfer->biz_no, [
                 'status' => 0,
                 'result' => 'plugin_transfer_pending',
-                'last_error' => (string)($result['errmsg'] ?? '插件代付处理中，等待查询或异步通知'),
+                'last_error' => (string)($result['errmsg'] ?? '鎻掍欢浠ｄ粯澶勭悊涓紝绛夊緟鏌ヨ鎴栧紓姝ラ€氱煡'),
                 'channel_order_no' => $channelOrderNo,
                 'channel_trade_no' => $channelTradeNo,
                 'channel_plugin_code' => $pluginCode,
@@ -2195,7 +2647,7 @@ class OrderService
         $flow = LocalFundStore::debit(
             (int)$merchant->id,
             $money,
-            '代付扣款',
+            '浠ｄ粯鎵ｆ',
             'transfer',
             (string)$transfer->biz_no,
             $now,
@@ -2668,7 +3120,7 @@ class OrderService
         CompensationAuditLogService::admin([
             'operator' => $operator,
             'merchant_id' => (int)($context['merchant_id'] ?? 0),
-            'action' => $mode === 'batch' ? '批量同步退款状态' : '同步退款状态',
+            'action' => $mode === 'batch' ? 'batch refund status sync' : 'refund status sync',
             'created_at' => date('Y-m-d H:i:s'),
             'detail' => array_merge($context, [
                 'mode' => $mode,
@@ -2700,7 +3152,7 @@ class OrderService
         CompensationAuditLogService::admin([
             'operator' => $operator,
             'merchant_id' => (int)($context['merchant_id'] ?? 0),
-            'action' => $mode === 'batch' ? '批量同步代付状态' : '同步代付状态',
+            'action' => $mode === 'batch' ? 'batch transfer status sync' : 'transfer status sync',
             'created_at' => date('Y-m-d H:i:s'),
             'detail' => array_merge($context, [
                 'mode' => $mode,
@@ -2933,12 +3385,12 @@ class OrderService
     {
         $money = self::formatMoney($payload['money'] ?? '0');
         if ((float)$money <= 0) {
-            throw new BusinessException('退款金额必须大于 0', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('閫€娆鹃噾棰濆繀椤诲ぇ浜?0', StatusCode::VALIDATION_ERROR);
         }
 
         $order = self::findMerchantOrder((int)$merchant->id, $payload['trade_no'] ?? null, $payload['out_trade_no'] ?? null);
         if ((float)$money > (float)$order->amount) {
-            throw new BusinessException('退款金额不能超过原订单金额', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('閫€娆鹃噾棰濅笉鑳借秴杩囧師璁㈠崟閲戦', StatusCode::VALIDATION_ERROR);
         }
 
         $outRefundNo = trim((string)($payload['out_refund_no'] ?? $payload['refund_no'] ?? ''));
@@ -2992,12 +3444,12 @@ class OrderService
         $refundNo = self::stringOrNull($payload['refund_no'] ?? null);
         $outRefundNo = self::stringOrNull($payload['out_refund_no'] ?? null);
         if ($refundNo === null && $outRefundNo === null) {
-            throw new BusinessException('外部退款单号(out_refund_no)不能为空', StatusCode::BAD_REQUEST);
+            throw new BusinessException('澶栭儴閫€娆惧崟鍙?out_refund_no)涓嶈兘涓虹┖', StatusCode::BAD_REQUEST);
         }
 
         $refund = self::findRefundRecord((int)$merchant->id, $refundNo, $outRefundNo, null);
         if (!$refund) {
-            throw new BusinessException('退款记录不存在', StatusCode::NOT_FOUND);
+            throw new BusinessException('閫€娆捐褰曚笉瀛樺湪', StatusCode::NOT_FOUND);
         }
 
         return [
@@ -3024,13 +3476,13 @@ class OrderService
         } elseif ((int)$order->status !== self::STATUS_CLOSED) {
             return [
                 'code' => -1,
-                'msg' => '当前订单状态不支持关闭',
+                'msg' => '褰撳墠璁㈠崟鐘舵€佷笉鏀寔鍏抽棴',
             ];
         }
 
         return [
             'code' => 0,
-            'msg' => '订单关闭成功',
+            'msg' => '璁㈠崟鍏抽棴鎴愬姛',
         ];
     }
 

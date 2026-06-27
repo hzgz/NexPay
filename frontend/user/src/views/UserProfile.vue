@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
+import AppPagination from '../components/AppPagination.vue'
 import {
   getUserProfile,
   saveUserPassword,
@@ -10,6 +11,7 @@ import {
   startUserOAuth,
   uploadUserAvatar,
 } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 const route = useRoute()
 
@@ -142,6 +144,10 @@ function formatRealnameResult(value: unknown): string {
 
 const realnameStatusText = computed(() => formatRealnameStatus(profile.realname?.status))
 const realnameResultText = computed(() => formatRealnameResult(profile.realname?.result))
+const loginLogRows = computed<Record<string, any>[]>(() => (
+  Array.isArray(profile.login_logs) ? profile.login_logs : []
+))
+const { pagination, total, pagedRows } = usePagination(() => loginLogRows.value, 20)
 
 async function load() {
   const resp = await getUserProfile()
@@ -152,6 +158,7 @@ async function load() {
     profile.notifications = resp.data.notifications && typeof resp.data.notifications === 'object' ? resp.data.notifications : {}
     profile.bindings = resp.data.bindings && typeof resp.data.bindings === 'object' ? resp.data.bindings : {}
     profile.login_logs = Array.isArray(resp.data.login_logs) ? resp.data.login_logs : []
+    resetPagination(pagination)
   }
 }
 
@@ -428,13 +435,20 @@ onMounted(load)
           <span>设备</span>
           <span>状态</span>
         </div>
-        <div v-for="item in profile.login_logs || []" :key="item.time + item.ip" class="table-row login-grid">
+        <div v-for="item in pagedRows" :key="item.time + item.ip" class="table-row login-grid">
           <strong>{{ item.time }}</strong>
           <span>{{ item.ip }}</span>
           <span>{{ item.device }}</span>
           <span>{{ item.status }}</span>
         </div>
-        <p v-if="!(profile.login_logs || []).length" class="empty-note">暂无登录记录。</p>
+        <p v-if="!loginLogRows.length" class="empty-note">暂无登录记录。</p>
+        <AppPagination
+          :total="total"
+          :page="pagination.page"
+          :page-size="pagination.pageSize"
+          @update:page="pagination.page = $event"
+          @update:page-size="pagination.pageSize = $event"
+        />
       </div>
     </article>
   </section>

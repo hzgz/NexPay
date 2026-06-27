@@ -129,6 +129,10 @@ CREATE TABLE IF NOT EXISTS `orders` (
   UNIQUE KEY `uk_orders_merchant_out_trade_no` (`merchant_id`, `out_trade_no`),
   INDEX `idx_orders_status_expire` (`status`, `expire_time`),
   INDEX `idx_orders_created_at` (`created_at`),
+  INDEX `idx_orders_trade_no_created_at` (`trade_no`, `created_at`),
+  INDEX `idx_orders_out_trade_no` (`out_trade_no`),
+  INDEX `idx_orders_merchant_status_created` (`merchant_id`, `status`, `created_at`),
+  INDEX `idx_orders_merchant_channel_created` (`merchant_channel_id`, `created_at`),
   CONSTRAINT `fk_orders_merchant_id` FOREIGN KEY (`merchant_id`) REFERENCES `merchants` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_orders_merchant_channel_id` FOREIGN KEY (`merchant_channel_id`) REFERENCES `merchant_channels` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

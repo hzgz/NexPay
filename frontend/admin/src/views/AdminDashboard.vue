@@ -5,7 +5,9 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import AppPagination from '../components/AppPagination.vue'
 import { getAdminDashboard } from '../lib/api'
+import { usePagination } from '../lib/pagination'
 
 use([CanvasRenderer, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent])
 
@@ -51,6 +53,11 @@ const overviewRows = computed(() => [
             : '平台累计充值金额概览。',
   })),
 ])
+
+const { pagination: latestOrderPagination, total: latestOrderTotal, pagedRows: pagedLatestOrders } = usePagination(
+  () => data.value.latest_orders,
+  10,
+)
 
 const lineOption = computed(() => ({
   tooltip: {
@@ -237,7 +244,7 @@ onMounted(async () => {
               <span>状态</span>
               <span>时间</span>
             </div>
-            <div v-for="item in data.latest_orders || []" :key="item.trade_no" class="table-row order-grid">
+            <div v-for="item in pagedLatestOrders" :key="item.trade_no" class="table-row order-grid">
               <div class="order-no-stack order-no-stack--plain">
                 <div class="order-meta-line">
                   <strong>{{ item.trade_no || '-' }}</strong>
@@ -253,6 +260,13 @@ onMounted(async () => {
               <span><span class="status-chip">{{ item.status }}</span></span>
               <span>{{ item.created_at }}</span>
             </div>
+            <AppPagination
+              :total="latestOrderTotal"
+              :page="latestOrderPagination.page"
+              :page-size="latestOrderPagination.pageSize"
+              @update:page="latestOrderPagination.page = $event"
+              @update:page-size="latestOrderPagination.pageSize = $event"
+            />
           </div>
         </div>
       </div>

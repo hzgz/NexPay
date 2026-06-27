@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
+import AppPagination from '../components/AppPagination.vue'
 import {
   createAdminMerchant,
   deleteAdminMerchantGroup,
@@ -10,6 +11,7 @@ import {
   reviewAdminMerchantRealname,
   saveAdminMerchantGroup,
 } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 type MerchantItem = {
   id: number
@@ -143,6 +145,9 @@ const filteredMerchants = computed(() => {
       .some((value) => String(value || '').toLowerCase().includes(query)),
   )
 })
+
+const { pagination: merchantPagination, total: merchantTotal, pagedRows: pagedMerchants } = usePagination(() => filteredMerchants.value, 20)
+const { pagination: groupPagination, total: groupTotal, pagedRows: pagedGroups } = usePagination(() => merchantGroups.value, 20)
 
 function merchantNo(item: MerchantItem | null | undefined) {
   return String(item?.merchant_no || item?.id || item?.appid || '')
@@ -395,6 +400,19 @@ function registerFeeStatusClass(item: MerchantItem) {
 }
 
 onMounted(load)
+
+watch(keyword, () => {
+  resetPagination(merchantPagination)
+})
+
+watch(activeSection, () => {
+  if (activeSection.value === 'merchants') {
+    resetPagination(merchantPagination)
+    return
+  }
+
+  resetPagination(groupPagination)
+})
 </script>
 
 <template>
@@ -439,7 +457,7 @@ onMounted(load)
               <span>实名</span>
               <span>操作</span>
             </div>
-            <div v-for="item in filteredMerchants" :key="item.id" class="table-row merchant-grid">
+            <div v-for="item in pagedMerchants" :key="item.id" class="table-row merchant-grid">
               <div class="merchant-primary">
                 <strong class="merchant-primary__name" :title="item.name || '-'">{{ item.name || '-' }}</strong>
                 <div class="minor-copy merchant-primary__email" :title="item.email || '-'">{{ item.email || '-' }}</div>
@@ -464,7 +482,6 @@ onMounted(load)
                 <span class="status-chip" :class="realnameStatusClass(item)">
                   {{ realnameStatusText(item) }}
                 </span>
-                <span v-if="item.realname_real_name" class="minor-copy">{{ item.realname_real_name }}</span>
               </span>
               <div class="inline-actions">
                 <button class="link-action" type="button" @click="openMerchantDetail(item)">查看</button>
@@ -475,6 +492,13 @@ onMounted(load)
               </div>
             </div>
           </div>
+          <AppPagination
+            :total="merchantTotal"
+            :page="merchantPagination.page"
+            :page-size="merchantPagination.pageSize"
+            @update:page="merchantPagination.page = $event"
+            @update:page-size="merchantPagination.pageSize = $event"
+          />
         </div>
       </div>
 
@@ -497,7 +521,7 @@ onMounted(load)
               <span>状态</span>
               <span>操作</span>
             </div>
-            <div v-for="item in (merchantData.groups || []) as MerchantGroup[]" :key="item.id" class="table-row group-grid">
+            <div v-for="item in pagedGroups" :key="item.id" class="table-row group-grid">
               <strong>{{ item.id }}</strong>
               <span>{{ item.name }}</span>
               <span>{{ item.rate_discount || '-' }}</span>
@@ -510,6 +534,13 @@ onMounted(load)
               </div>
             </div>
           </div>
+          <AppPagination
+            :total="groupTotal"
+            :page="groupPagination.page"
+            :page-size="groupPagination.pageSize"
+            @update:page="groupPagination.page = $event"
+            @update:page-size="groupPagination.pageSize = $event"
+          />
         </div>
       </div>
     </article>

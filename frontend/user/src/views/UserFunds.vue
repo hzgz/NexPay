@@ -2,7 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import AppPagination from '../components/AppPagination.vue'
 import { createUserRecharge, createUserWithdraw, getUserFunds } from '../lib/api'
+import { usePagination } from '../lib/pagination'
 
 type RechargeOption = Record<string, any>
 type WithdrawOption = Record<string, any>
@@ -80,6 +82,14 @@ const pendingPayouts = computed<Record<string, any>[]>(() => {
   return Array.isArray(fundData.value.pending_payouts) ? fundData.value.pending_payouts : []
 })
 
+const settlementRows = computed<Record<string, any>[]>(() => (
+  Array.isArray(fundData.value.settlements) ? fundData.value.settlements : []
+))
+
+const flowRows = computed<Record<string, any>[]>(() => (
+  Array.isArray(fundData.value.flows) ? fundData.value.flows : []
+))
+
 const flowSummaryCards = computed(() => {
   const stats = fundData.value.flow_stats || {}
 
@@ -107,6 +117,10 @@ const selectedRechargeOptionData = computed<RechargeOption | null>(() => {
 const selectedRechargeActionKey = computed(() => {
   return selectedRechargeOptionData.value ? rechargeActionKey(selectedRechargeOptionData.value) : ''
 })
+
+const { pagination: payoutPagination, total: payoutTotal, pagedRows: pagedPendingPayouts } = usePagination(() => pendingPayouts.value, 20)
+const { pagination: settlementPagination, total: settlementTotal, pagedRows: pagedSettlements } = usePagination(() => settlementRows.value, 20)
+const { pagination: flowPagination, total: flowTotal, pagedRows: pagedFlows } = usePagination(() => flowRows.value, 20)
 
 async function loadFunds() {
   const resp = await getUserFunds()
@@ -292,6 +306,9 @@ function settlementStatusClass(item: Record<string, any>) {
 }
 
 function flowStatusClass(item: Record<string, any>) {
+  const theme = String(item.status_theme || '').trim()
+  if (theme) return theme
+
   const status = String(item.status || '').trim()
   if (status === '成功') return 'success'
   if (status === '失败' || status === '已关闭' || status === '已驳回') return 'danger'
@@ -424,7 +441,7 @@ onMounted(loadFunds)
           <span>原因</span>
           <span>时间</span>
         </div>
-        <div v-for="item in pendingPayouts" :key="`${item.category}-${item.biz_no}`" class="table-row payout-grid">
+        <div v-for="item in pagedPendingPayouts" :key="`${item.category}-${item.biz_no}`" class="table-row payout-grid">
           <strong>{{ item.category_label }}</strong>
           <span>{{ item.biz_no }}</span>
           <span>{{ item.trade_no || item.out_biz_no || '-' }}</span>
@@ -434,6 +451,13 @@ onMounted(loadFunds)
           <span>{{ item.errmsg || item.proof_no || '-' }}</span>
           <span>{{ item.created_at }}</span>
         </div>
+        <AppPagination
+          :total="payoutTotal"
+          :page="payoutPagination.page"
+          :page-size="payoutPagination.pageSize"
+          @update:page="payoutPagination.page = $event"
+          @update:page-size="payoutPagination.pageSize = $event"
+        />
       </div>
 
       <div class="table-wrap">
@@ -444,13 +468,20 @@ onMounted(loadFunds)
           <span>状态</span>
           <span>时间</span>
         </div>
-        <div v-for="item in fundData.settlements || []" :key="item.settle_no" class="table-row settlement-grid">
+        <div v-for="item in pagedSettlements" :key="item.settle_no" class="table-row settlement-grid">
           <strong>{{ item.settle_no }}</strong>
           <span>{{ item.money }}</span>
           <span>{{ item.account }}</span>
           <span><span class="status-chip" :class="settlementStatusClass(item)">{{ item.status }}</span></span>
           <span>{{ item.created_at }}</span>
         </div>
+        <AppPagination
+          :total="settlementTotal"
+          :page="settlementPagination.page"
+          :page-size="settlementPagination.pageSize"
+          @update:page="settlementPagination.page = $event"
+          @update:page-size="settlementPagination.pageSize = $event"
+        />
       </div>
     </section>
 
@@ -480,7 +511,7 @@ onMounted(loadFunds)
           <span>备注</span>
           <span>时间</span>
         </div>
-        <div v-for="item in fundData.flows || []" :key="item.row_key || (item.type + item.created_at + item.remark)" class="table-row flow-grid">
+        <div v-for="item in pagedFlows" :key="item.row_key || (item.type + item.created_at + item.remark)" class="table-row flow-grid">
           <strong>{{ item.type }}</strong>
           <span>{{ item.trade_no || item.out_trade_no || '-' }}</span>
           <span>{{ item.method_name || '-' }}</span>
@@ -490,6 +521,13 @@ onMounted(loadFunds)
           <span>{{ item.remark || '-' }}</span>
           <span>{{ item.created_at }}</span>
         </div>
+        <AppPagination
+          :total="flowTotal"
+          :page="flowPagination.page"
+          :page-size="flowPagination.pageSize"
+          @update:page="flowPagination.page = $event"
+          @update:page-size="flowPagination.pageSize = $event"
+        />
       </div>
     </section>
   </section>

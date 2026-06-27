@@ -6,9 +6,20 @@ use RuntimeException;
 
 class PluginTaskService
 {
+    public const TASK_KEY_ALL_DAEMONS = 'plugin-daemon:all';
+
     public static function taskDefinitions(): array
     {
-        $items = [];
+        $items = [[
+            'key' => self::TASK_KEY_ALL_DAEMONS,
+            'name' => '全部插件守护轮询',
+            'cron' => '*/1 * * * *',
+            'status' => '待命',
+            'last_run' => '',
+            'plugin_code' => 'all',
+            'plugin_name' => '全部支付插件',
+            'kind' => 'daemon-group',
+        ]];
         foreach (PluginService::plugins() as $plugin) {
             $capabilities = array_map('strval', (array)($plugin['capabilities'] ?? []));
             if (!in_array('daemon', $capabilities, true)) {
@@ -41,13 +52,23 @@ class PluginTaskService
             'plugins' => 0,
             'channels' => 0,
             'processed' => 0,
+            'plugin_results' => [],
         ];
 
         foreach (self::taskDefinitions() as $definition) {
+            if (($definition['key'] ?? '') === self::TASK_KEY_ALL_DAEMONS) {
+                continue;
+            }
             $result = self::runDaemonPlugin((string)$definition['plugin_code']);
             $summary['plugins']++;
             $summary['channels'] += (int)($result['channels'] ?? 0);
             $summary['processed'] += (int)($result['processed'] ?? 0);
+            $summary['plugin_results'][] = [
+                'plugin_code' => (string)($definition['plugin_code'] ?? ''),
+                'plugin_name' => (string)($definition['plugin_name'] ?? $definition['name'] ?? ''),
+                'channels' => (int)($result['channels'] ?? 0),
+                'processed' => (int)($result['processed'] ?? 0),
+            ];
         }
 
         return $summary;
@@ -55,6 +76,10 @@ class PluginTaskService
 
     public static function runTask(string $key): array
     {
+        if ($key === self::TASK_KEY_ALL_DAEMONS) {
+            return self::runAllDaemonPlugins();
+        }
+
         if (!str_starts_with($key, 'plugin-daemon:')) {
             throw new RuntimeException('Unsupported plugin task key');
         }

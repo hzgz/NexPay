@@ -2,7 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import AppPagination from '../components/AppPagination.vue'
 import { deleteUserOrder, getUserOrders, getUserSessionUser, retryUserOrderCallback } from '../lib/api'
+import { resetPagination, usePagination } from '../lib/pagination'
 
 type OrderSection = 'list' | 'callbacks'
 
@@ -122,7 +124,11 @@ const callbackSummary = computed<Record<string, any>>(() =>
   orderData.value.callback_summary && typeof orderData.value.callback_summary === 'object' ? orderData.value.callback_summary : {},
 )
 const callbackItems = computed<Record<string, any>[]>(() =>
-  Array.isArray(orderData.value.callback_logs) ? orderData.value.callback_logs : [],
+  Array.isArray(orderData.value.callback_events) && orderData.value.callback_events.length
+    ? orderData.value.callback_events
+    : Array.isArray(orderData.value.callback_logs)
+      ? orderData.value.callback_logs
+      : [],
 )
 const paymentMethodOptions = computed(() =>
   Array.from(new Set(orderItems.value.map((item) => resolvePaymentMethodValue(item)).filter((value) => value !== ''))).map((value) => {
@@ -178,6 +184,8 @@ const filteredOrderItems = computed(() =>
     return true
   }),
 )
+const { pagination: orderPagination, total: orderTotal, pagedRows: pagedOrderItems } = usePagination(() => filteredOrderItems.value, 20)
+const { pagination: callbackPagination, total: callbackTotal, pagedRows: pagedCallbackItems } = usePagination(() => callbackItems.value, 20)
 const manualDialogTitle = computed(() => (manualForm.manual_action === 'confirm' ? '人工确认成功并回调' : '手动回调'))
 const manualDialogPrimaryText = computed(() => (manualForm.manual_action === 'confirm' ? '确认成功并回调' : '立即回调'))
 const manualProofRequired = computed(() => manualForm.manual_action === 'confirm')
@@ -297,15 +305,22 @@ function resolveChannelIdentity(item: Record<string, any>) {
 
 function applyListFilters() {
   Object.assign(appliedListFilters, listFilters)
+  resetPagination(orderPagination)
 }
 
 function resetListFilters() {
   Object.assign(listFilters, createListFilterState())
   Object.assign(appliedListFilters, createListFilterState())
   listFiltersExpanded.value = true
+  resetPagination(orderPagination)
 }
 
 function orderStatusClass(item: Record<string, any>) {
+  const theme = String(item.status_theme || '').trim()
+  if (theme) {
+    return theme
+  }
+
   switch (Number(item.status_code)) {
     case 1:
       return 'success'
@@ -535,7 +550,7 @@ onMounted(loadOrders)
           <span>操作</span>
         </div>
 
-        <div v-for="item in filteredOrderItems" :key="item.trade_no || item.out_trade_no" class="table-row order-grid">
+        <div v-for="item in pagedOrderItems" :key="item.trade_no || item.out_trade_no" class="table-row order-grid">
           <div class="order-no-stack">
             <div class="order-no-line">
               <button
@@ -590,6 +605,13 @@ onMounted(loadOrders)
           <strong class="callback-empty__title">暂无订单记录</strong>
           <span class="callback-empty__copy">当商户通道发起订单后，这里会显示平台单号、商户单号、支付方式和状态。</span>
         </div>
+        <AppPagination
+          :total="orderTotal"
+          :page="orderPagination.page"
+          :page-size="orderPagination.pageSize"
+          @update:page="orderPagination.page = $event"
+          @update:page-size="orderPagination.pageSize = $event"
+        />
       </div>
 
       <div v-else class="callback-surface">
@@ -623,7 +645,7 @@ onMounted(loadOrders)
             <span>更新时间</span>
           </div>
 
-          <div v-for="item in callbackItems" :key="`${item.trade_no}-${item.created_at}`" class="table-row callback-grid">
+          <div v-for="item in pagedCallbackItems" :key="`${item.trade_no}-${item.created_at}`" class="table-row callback-grid">
             <button
               class="table-copy-text"
               type="button"
@@ -658,6 +680,13 @@ onMounted(loadOrders)
             <strong class="callback-empty__title">暂无回调记录</strong>
             <span class="callback-empty__copy">当订单触发异步通知后，这里会显示回调结果、响应内容和重试状态。</span>
           </div>
+          <AppPagination
+            :total="callbackTotal"
+            :page="callbackPagination.page"
+            :page-size="callbackPagination.pageSize"
+            @update:page="callbackPagination.page = $event"
+            @update:page-size="callbackPagination.pageSize = $event"
+          />
         </div>
       </div>
     </section>

@@ -78,12 +78,12 @@ export const accessSteps = [
   {
     index: '1',
     title: '创建账户',
-    description: '注册 NexPay 商户账户，完成基础资料与商户信息配置。',
+    description: '注册 NexPay 商户账户，完成基础资料和商户信息配置。',
   },
   {
     index: '2',
     title: '完成开发',
-    description: '按照开发文档接入 API、签名、回调和通道能力。',
+    description: '按照开发文档接入 API、签名、回调与支付方式编码。',
   },
   {
     index: '3',
@@ -114,14 +114,14 @@ export const docSections: DocSection[] = [
     eyebrow: '接入概览',
     title: '接入前先确认这 4 个地址',
     summary:
-      '前台测试、支付收银台、V1 兼容接口、V2 正式接口都已经运行在同一套系统中，联调时优先使用本文档列出的真实路由。',
+      '前台测试、支付收银台、V1 兼容接口、V2 正式接口都运行在同一套系统里，联调时优先使用本文档列出的真实路由。',
     endpoint: '首页 / 文档 / 测试页',
     method: 'GET',
     notes: [
       '首页支付测试页：`/demo`',
       '支付收银台：`/pay/checkout/{trade_no}`',
       'V1 兼容下单：`/mapi.php`',
-      'V2 下单接口：`/api/pay/create`',
+      'V2 正式下单：`/api/pay/create`',
     ],
   },
   {
@@ -146,7 +146,7 @@ export const docSections: DocSection[] = [
     eyebrow: '兼容接口',
     title: 'V1 兼容下单接口',
     summary:
-      '用于兼容旧版易支付接入方式。成功后返回平台订单号与收银台地址，客户端可直接跳转到 `payurl`。',
+      '用于兼容易支付旧版接入方式。成功后返回平台订单号与收银台地址，客户端可直接跳转到 `payurl`。',
     endpoint: '/mapi.php',
     method: 'POST',
     requestRows: [

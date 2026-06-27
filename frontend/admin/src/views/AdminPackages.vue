@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAdminPackages, saveAdminPackage } from '../lib/api'
+import AppPagination from '../components/AppPagination.vue'
+import { usePagination } from '../lib/pagination'
 
 const data = ref<Record<string, any>>({ items: [] })
 const dialogVisible = ref(false)
@@ -14,6 +16,7 @@ const packageForm = reactive({
 })
 
 const rows = computed(() => data.value.items || [])
+const { pagination, total, pagedRows } = usePagination(() => rows.value, 20)
 async function load() {
   const resp = await getAdminPackages()
   if (resp.code === 0 && resp.data) {
@@ -66,7 +69,7 @@ onMounted(load)
               <span>权益</span>
               <span>状态</span>
             </div>
-            <div v-for="item in rows" :key="item.id || item.name" class="table-row package-grid">
+            <div v-for="item in pagedRows" :key="item.id || item.name" class="table-row package-grid">
               <strong>{{ item.name }}</strong>
               <span>{{ item.price }}</span>
               <span>{{ item.duration_days }} 天</span>
@@ -74,6 +77,13 @@ onMounted(load)
               <span>{{ item.status }}</span>
             </div>
           </div>
+          <AppPagination
+            :total="total"
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            @update:page="pagination.page = $event"
+            @update:page-size="pagination.pageSize = $event"
+          />
         </div>
       </div>
     </article>
