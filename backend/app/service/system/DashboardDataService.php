@@ -8,6 +8,7 @@ use app\model\Order;
 use app\service\payment\CallbackService;
 use app\service\payment\LocalFundStore;
 use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
 use Throwable;
 
@@ -17,10 +18,14 @@ class DashboardDataService
     {
         $orders = self::orders();
         $merchants = self::merchants();
-        $successfulOrders = array_values(array_filter($orders, static fn(array $row): bool => (int)($row['status'] ?? 0) === 1));
+        $successfulOrders = array_values(array_filter(
+            $orders,
+            static fn(array $row): bool => (int)($row['display_status_code'] ?? OrderStatusService::DISPLAY_PENDING) === OrderStatusService::DISPLAY_SUCCESS
+        ));
         $callbackSummary = CallbackService::summary();
         $payoutSummary = OrderService::payoutSummary();
         $riskAlerts = (int)($callbackSummary['attention_total'] ?? 0) + (int)($payoutSummary['attention_total'] ?? 0);
+        $pendingOrders = self::pendingOrders($orders);
 
         return [
             'data_source' => self::dataSource(),
@@ -29,11 +34,11 @@ class DashboardDataService
                 'merchant_count' => count(array_filter($merchants, static fn(array $row): bool => self::merchantStatusCode($row) === 1)),
                 'order_count' => count($orders),
                 'recharge_amount' => self::rechargeAmount(),
-                'pending_orders' => count(array_filter($orders, static fn(array $row): bool => (int)($row['status'] ?? 0) === 0)),
+                'pending_orders' => count($pendingOrders),
             ],
             'todos' => [
                 'pending_merchants' => count(array_filter($merchants, static fn(array $row): bool => self::merchantStatusCode($row) === 0)),
-                'pending_orders' => count(array_filter($orders, static fn(array $row): bool => (int)($row['status'] ?? 0) === 0)),
+                'pending_orders' => count($pendingOrders),
                 'pending_tickets' => self::pendingTicketCount(),
                 'risk_alerts' => $riskAlerts,
                 'pending_refunds' => (int)($payoutSummary['refunds']['pending'] ?? 0),
@@ -54,11 +59,14 @@ class DashboardDataService
             self::orders(),
             static fn(array $row): bool => (int)($row['merchant_id'] ?? 0) === $merchantId
         ));
-        $successfulOrders = array_values(array_filter($orders, static fn(array $row): bool => (int)($row['status'] ?? 0) === 1));
+        $successfulOrders = array_values(array_filter(
+            $orders,
+            static fn(array $row): bool => (int)($row['display_status_code'] ?? OrderStatusService::DISPLAY_PENDING) === OrderStatusService::DISPLAY_SUCCESS
+        ));
         $today = date('Y-m-d');
         $todayOrders = array_values(array_filter(
             $orders,
-            static fn(array $row): bool => str_starts_with((string)($row['created_at'] ?? ''), $today)
+            static fn(array $row): bool => self::orderTrendDate($row) === $today
         ));
         $todaySuccessfulOrders = array_values(array_filter(
             $successfulOrders,
@@ -66,6 +74,7 @@ class DashboardDataService
         ));
         $callbackSummary = CallbackService::summary($merchantId);
         $payoutSummary = OrderService::payoutSummary($merchantId);
+        $pendingOrders = self::pendingOrders($orders);
 
         return [
             'data_source' => self::dataSource(),
@@ -73,10 +82,10 @@ class DashboardDataService
                 'balance' => self::merchantBalance($merchantId),
                 'today_amount' => self::formatMoney(self::sumAmount($todaySuccessfulOrders)),
                 'today_orders' => count($todayOrders),
-                'pending_orders' => count(array_filter($orders, static fn(array $row): bool => (int)($row['status'] ?? 0) === 0)),
+                'pending_orders' => count($pendingOrders),
             ],
             'todos' => [
-                'pending_orders' => count(array_filter($orders, static fn(array $row): bool => (int)($row['status'] ?? 0) === 0)),
+                'pending_orders' => count($pendingOrders),
                 'pending_refunds' => (int)($payoutSummary['refunds']['pending'] ?? 0),
                 'pending_transfers' => (int)($payoutSummary['transfers']['pending'] ?? 0),
                 'manual_refunds' => (int)($payoutSummary['refunds']['manual_pending'] ?? 0),
@@ -229,6 +238,18 @@ class DashboardDataService
 
     private static function normalizeOrderRow(array $row): array
     {
+        $tradeNo = trim((string)($row['trade_no'] ?? ''));
+        if ($tradeNo !== '') {
+            try {
+                $row = self::row(OrderService::findByTradeNoForRead($tradeNo, [
+                    'source' => 'dashboard-orders-read',
+                ]));
+            } catch (Throwable) {
+            }
+        }
+
+        $status = OrderStatusService::forOperations($row);
+
         return [
             'trade_no' => (string)($row['trade_no'] ?? ''),
             'out_trade_no' => (string)($row['out_trade_no'] ?? ''),
@@ -240,10 +261,25 @@ class DashboardDataService
             'subject' => (string)($row['subject'] ?? ''),
             'amount' => self::formatMoney($row['amount'] ?? $row['realmoney'] ?? 0),
             'status' => (int)($row['status'] ?? 0),
+            'display_status_code' => (int)($status['code'] ?? OrderStatusService::DISPLAY_PENDING),
+            'display_status_key' => (string)($status['key'] ?? 'pending'),
+            'display_status_label' => (string)($status['label'] ?? '待支付'),
             'created_at' => (string)($row['created_at'] ?? $row['addtime'] ?? ''),
             'pay_time' => (string)($row['pay_time'] ?? $row['endtime'] ?? ''),
             'request_payload' => self::normalizeRequestPayload($row['request_payload'] ?? []),
         ];
+    }
+
+    private static function pendingOrders(array $orders): array
+    {
+        return array_values(array_filter($orders, static function (array $row): bool {
+            $code = (int)($row['display_status_code'] ?? OrderStatusService::DISPLAY_PENDING);
+            return in_array($code, [
+                OrderStatusService::DISPLAY_PENDING,
+                OrderStatusService::DISPLAY_PENDING_CONFIRM,
+                OrderStatusService::DISPLAY_CALLBACK_FAILED,
+            ], true);
+        }));
     }
 
     private static function normalizeRequestPayload(mixed $payload): array

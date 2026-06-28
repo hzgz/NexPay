@@ -12,6 +12,7 @@ use Exception;
 
 class JiaofeiyiPlugin extends BasePayment
 {
+    private const ORDER_EXPIRE_SECONDS = 360;
     private const PAY_API_URL = 'https://jfyconsole.lakala.com/order/api/cashier/pay';
     private const QUERY_API_URL = 'https://payment.lakala.com/m/ccss/counter/order/query';
     private const DEFAULT_CHANNEL_ID = '95';
@@ -45,7 +46,7 @@ class JiaofeiyiPlugin extends BasePayment
         if ($ctx->mdevice === 'alipay') {
             return ['type' => 'jump', 'url' => $codeUrl];
         }
-        return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+        return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + self::ORDER_EXPIRE_SECONDS];
     }
 
     public function wxpay(PaymentContext $ctx): array
@@ -61,23 +62,23 @@ class JiaofeiyiPlugin extends BasePayment
             if ($ctx->mdevice === 'wechat' || $ctx->isMobile) {
                 return ['type' => 'jump', 'url' => $codeUrl];
             }
-            return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+                return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + self::ORDER_EXPIRE_SECONDS];
         }
 
         if ($wxpayType === '1') {
             if ($ctx->mdevice === 'wechat' || $ctx->isMobile) {
                 return ['type' => 'jump', 'url' => $codeUrl];
             }
-            return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+                return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + self::ORDER_EXPIRE_SECONDS];
         }
 
         if ($ctx->mdevice === 'wechat') {
             return ['type' => 'jump', 'url' => $codeUrl];
         }
         if ($ctx->isMobile) {
-            return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + self::ORDER_EXPIRE_SECONDS];
         }
-        return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+        return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + self::ORDER_EXPIRE_SECONDS];
     }
 
     public function bank(PaymentContext $ctx): array
@@ -88,7 +89,7 @@ class JiaofeiyiPlugin extends BasePayment
             return ['type' => 'error', 'msg' => 'UnionPay order create failed: ' . $e->getMessage()];
         }
 
-        return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+        return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + self::ORDER_EXPIRE_SECONDS];
     }
 
     public function query(array $order): array
@@ -898,7 +899,7 @@ class JiaofeiyiPlugin extends BasePayment
 
     private function recentPendingTradeNos(int $channelId): array
     {
-        $sinceTs = time() - 300;
+        $sinceTs = time() - self::ORDER_EXPIRE_SECONDS;
         $tradeNos = [];
 
         if (\database_available()) {

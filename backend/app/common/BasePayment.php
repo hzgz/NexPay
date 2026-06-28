@@ -235,23 +235,16 @@ abstract class BasePayment implements PaymentInterface
             return;
         }
 
-        $flow = LocalFundStore::debit(
-            (int)$transfer->merchant_id,
-            number_format((float)($transfer->money ?? 0), 2, '.', ''),
-            '代付扣款',
-            'transfer',
-            (string)$transfer->biz_no,
-            $now,
-            [
-                'out_biz_no' => (string)$transfer->out_biz_no,
-                'type' => (string)$transfer->type,
-                'account' => (string)$transfer->account,
-                'name' => (string)$transfer->name,
-                'plugin_code' => $pluginCode,
-                'channel_order_no' => $channelOrder,
-                'channel_trade_no' => $channelOrder,
-            ]
-        );
+        $flow = LocalFundStore::recordTransferSuccess($transfer, [
+            'source' => 'plugin-transfer-notify',
+            'created_at' => $now,
+            'plugin_code' => $pluginCode,
+            'channel_order_no' => $channelOrder,
+            'channel_trade_no' => $channelOrder,
+            'proof_no' => $channelOrder,
+            'operator' => 'plugin:' . $pluginCode,
+            'result' => 'plugin_transferred',
+        ]);
 
         LocalTransferStore::updateTransfer((string)$transfer->biz_no, [
             'status' => 1,
@@ -371,6 +364,26 @@ abstract class BasePayment implements PaymentInterface
             return;
         }
 
+        $updated = OrderService::completeRefund($refund, [
+            'source' => 'plugin-refund-notify',
+            'created_at' => $now,
+            'amount' => $amount,
+            'trade_no' => (string)$refund->trade_no,
+            'out_trade_no' => (string)$refund->out_trade_no,
+            'out_refund_no' => (string)$refund->out_refund_no,
+            'plugin_code' => $pluginCode,
+            'channel_order_no' => $channelOrder,
+            'channel_trade_no' => $channelOrder,
+            'proof_no' => $channelOrder,
+            'operator' => 'plugin:' . $pluginCode,
+            'result' => 'plugin_refunded',
+            'raw_response' => $callbackPayload,
+        ]);
+        $this->writeRefundProcessLog('success', $refundNo, $outRefundNo, 'plugin refund completed', $callbackPayload + [
+            'balance_after' => (string)($updated->available_money ?? ''),
+        ], $updated);
+        return;
+/*
         $flow = LocalFundStore::debit(
             (int)$refund->merchant_id,
             $amount,
@@ -387,6 +400,18 @@ abstract class BasePayment implements PaymentInterface
                 'channel_trade_no' => $channelOrder,
             ]
         );
+
+        $flow = LocalFundStore::recordRefundSuccess($refund, [
+            'source' => 'plugin-refund-notify',
+            'created_at' => $now,
+            'amount' => $amount,
+            'plugin_code' => $pluginCode,
+            'channel_order_no' => $channelOrder,
+            'channel_trade_no' => $channelOrder,
+            'proof_no' => $channelOrder,
+            'operator' => 'plugin:' . $pluginCode,
+            'result' => 'plugin_refunded',
+        ]);
 
         LocalTransferStore::updateRefund((string)$refund->refund_no, [
             'status' => 1,
@@ -405,6 +430,7 @@ abstract class BasePayment implements PaymentInterface
         $this->writeRefundProcessLog('success', $refundNo, $outRefundNo, 'plugin refund completed', $callbackPayload + [
             'balance_after' => (string)($flow->balance_after ?? ''),
         ], $refund);
+*/
     }
 
     protected function getOrder(string $tradeNo): ?array

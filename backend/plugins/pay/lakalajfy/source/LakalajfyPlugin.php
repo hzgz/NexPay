@@ -37,7 +37,7 @@ class LakalajfyPlugin extends BasePayment
         if ($ctx->mdevice === 'alipay') {
             return ['type' => 'jump', 'url' => $code_url];
         } else {
-            return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
         }
     }
 
@@ -52,9 +52,9 @@ class LakalajfyPlugin extends BasePayment
         if ($ctx->mdevice === 'wechat') {
             return ['type' => 'jump', 'url' => $code_url];
         } elseif ($ctx->isMobile) {
-            return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
         } else {
-            return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
         }
     }
 
@@ -66,7 +66,7 @@ class LakalajfyPlugin extends BasePayment
         } catch (\Exception $ex) {
             return ['type' => 'error', 'msg' => '云闪付下单失败！' . $ex->getMessage()];
         }
-        return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+        return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
     }
 
     private function createQrcode(PaymentContext $ctx): string

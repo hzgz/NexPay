@@ -61,7 +61,7 @@ class AlipaycodePlugin extends BasePayment
         if ($ctx->mdevice === 'alipay') {
             return ['type' => 'jump', 'url' => $code_url];
         } else {
-            return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
         }
     }
 

@@ -42,18 +42,18 @@ class SuixinglifePlugin extends BasePayment
             if ($ctx->mdevice === 'alipay') {
                 return ['type' => 'jump', 'url' => $code_url];
             } else {
-                return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+                return ['type' => 'qrcode', 'page' => 'alipay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
             }
         } elseif ($type === 'wxpay') {
             if ($ctx->mdevice === 'wechat') {
                 return ['type' => 'jump', 'url' => $code_url];
             } elseif ($ctx->isMobile) {
-                return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+                return ['type' => 'qrcode', 'page' => 'wxpay_wap', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
             } else {
-                return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+                return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
             }
         } elseif ($type === 'bank') {
-            return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $code_url, 'expire' => strtotime($ctx->order['addtime']) + 360];
         } else {
             return ['type' => 'error', 'msg' => '不支持的支付方式'];
         }

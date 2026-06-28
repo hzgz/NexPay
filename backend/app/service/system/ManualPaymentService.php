@@ -24,7 +24,9 @@ class ManualPaymentService
             throw new BusinessException('请填写真实收款凭证号或流水号', StatusCode::VALIDATION_ERROR);
         }
 
-        $order = OrderService::findByTradeNo($tradeNo);
+        $order = OrderService::findByTradeNoForRead($tradeNo, [
+            'source' => 'manual-payment-read',
+        ]);
         if (self::isMerchantOwnedOrder($order)) {
             throw new BusinessException('管理员后台不支持对商户订单执行人工确认收款', StatusCode::VALIDATION_ERROR);
         }
@@ -39,7 +41,10 @@ class ManualPaymentService
 
         $expireAt = strtotime((string)($order->expire_time ?? ''));
         if ($expireAt !== false && $expireAt < time()) {
-            OrderService::saveOrder($order, ['status' => OrderService::STATUS_EXPIRED]);
+            OrderService::expireOrder($order, [
+                'source' => 'manual-payment-expired-check',
+                'event_time' => date('Y-m-d H:i:s'),
+            ]);
             throw new BusinessException('订单已过期，不能人工确认收款', StatusCode::VALIDATION_ERROR);
         }
 

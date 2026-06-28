@@ -225,6 +225,7 @@ class PluginExecutorService
         }
 
         $status = self::normalizeQueryStatus($raw);
+        $pendingConfirm = $status === 0 && self::looksLikePendingConfirm($raw);
         $amount = self::formatMoney($raw['money'] ?? $raw['amount'] ?? $raw['total_amount'] ?? $raw['pay_amt'] ?? 0);
         if ($status === 1 && (float)$amount > 0 && round((float)$amount, 2) !== round((float)($order->amount ?? 0), 2)) {
             return self::failed(
@@ -241,7 +242,7 @@ class PluginExecutorService
             'result' => match ($status) {
                 1 => 'plugin_paid',
                 2 => 'plugin_trade_failed',
-                default => 'plugin_unpaid',
+                default => $pendingConfirm ? 'plugin_pending_confirm' : 'plugin_unpaid',
             },
             'errmsg' => $status === 2 ? self::errorMessage($raw) : (string)($raw['errmsg'] ?? $raw['msg'] ?? ''),
             'api_trade_no' => trim((string)($raw['api_trade_no'] ?? $raw['trade_no'] ?? $raw['transaction_id'] ?? $raw['channel_trade_no'] ?? '')),
@@ -250,6 +251,7 @@ class PluginExecutorService
             'buyer' => trim((string)($raw['buyer'] ?? $raw['buyer_user_id'] ?? $raw['openid'] ?? $raw['open_id'] ?? '')),
             'paid_at' => self::normalizeDateTimeString($raw['endtime'] ?? $raw['pay_time'] ?? $raw['paydate'] ?? $raw['success_time'] ?? ''),
             'amount' => $amount,
+            'pending_confirm' => $pendingConfirm,
             'raw' => $raw,
             'channel' => self::channelSummary($channel),
         ];
@@ -482,6 +484,54 @@ class PluginExecutorService
         }
 
         return 0;
+    }
+
+    private static function looksLikePendingConfirm(array $raw): bool
+    {
+        $values = [
+            (string)($raw['status_text'] ?? ''),
+            (string)($raw['msg'] ?? ''),
+            (string)($raw['errmsg'] ?? ''),
+            (string)($raw['message'] ?? ''),
+            (string)($raw['trade_status'] ?? ''),
+            (string)($raw['trade_state'] ?? ''),
+            (string)($raw['orderStatus'] ?? ''),
+            (string)($raw['order_status'] ?? ''),
+            (string)($raw['state'] ?? ''),
+            (string)($raw['tranSts'] ?? ''),
+            (string)($raw['tran_status'] ?? ''),
+            (string)($raw['detail_status'] ?? ''),
+            (string)($raw['result'] ?? ''),
+        ];
+
+        foreach ($values as $value) {
+            $normalized = strtoupper(trim($value));
+            if ($normalized === '') {
+                continue;
+            }
+
+            foreach ([
+                'USERPAYING',
+                'WAIT_BUYER_PAY',
+                'WAIT_PAY',
+                'WAIT_USER_CONFIRM',
+                'PENDING_CONFIRM',
+                'PAYING',
+                'PROCESSING',
+                'TRANSFERING',
+                'ACCEPTED',
+                'CONFIRMING',
+                '已扫码',
+                '待确认',
+                '等待确认',
+            ] as $needle) {
+                if (str_contains($normalized, strtoupper($needle))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static function normalizeRefundStatus(array $raw): int

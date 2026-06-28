@@ -82,10 +82,13 @@ class GatewayCompatService
     public static function queryForV2(array $payload): array
     {
         $merchant = self::resolveV2Merchant($payload);
-        $order = self::findMerchantOrder(
+        $order = self::findMerchantOrderForRead(
             (int)$merchant->id,
             self::stringOrNull($payload['trade_no'] ?? null),
-            self::stringOrNull($payload['out_trade_no'] ?? null)
+            self::stringOrNull($payload['out_trade_no'] ?? null),
+            [
+                'source' => 'gateway-v2-query',
+            ]
         );
 
         return self::signV2Response([
@@ -111,6 +114,7 @@ class GatewayCompatService
     public static function refundForV2(array $payload): array
     {
         $merchant = self::resolveV2Merchant($payload);
+        OpenApiGuardService::assertV2ReplayProtection((int)($merchant->id ?? 0), $payload, 'pay.refund');
         $refund = self::createOrFindRefund($merchant, $payload);
 
         if ((int)($refund->status ?? 0) === 0 && (string)($refund->result ?? '') === 'plugin_refund_pending') {
@@ -173,14 +177,21 @@ class GatewayCompatService
     public static function closeForV2(array $payload): array
     {
         $merchant = self::resolveV2Merchant($payload);
-        $order = self::findMerchantOrder(
+        OpenApiGuardService::assertV2ReplayProtection((int)($merchant->id ?? 0), $payload, 'pay.close');
+        $order = self::findMerchantOrderForRead(
             (int)$merchant->id,
             self::stringOrNull($payload['trade_no'] ?? null),
-            self::stringOrNull($payload['out_trade_no'] ?? null)
+            self::stringOrNull($payload['out_trade_no'] ?? null),
+            [
+                'source' => 'gateway-v2-close-order-read',
+            ]
         );
 
         if ((int)$order->status === OrderService::STATUS_PENDING) {
-            OrderService::saveOrder($order, ['status' => OrderService::STATUS_CLOSED]);
+            OrderService::closePendingOrder($order, [
+                'source' => 'gateway-v2-close',
+                'event_time' => date('Y-m-d H:i:s'),
+            ]);
         }
 
         return self::signV2Response([
@@ -230,6 +241,7 @@ class GatewayCompatService
     public static function transferSubmitForV2(array $payload): array
     {
         $merchant = self::resolveV2Merchant($payload);
+        OpenApiGuardService::assertV2ReplayProtection((int)($merchant->id ?? 0), $payload, 'transfer.submit');
 
         $type = trim((string)($payload['type'] ?? ''));
         if (!in_array($type, ['alipay', 'wxpay', 'qqpay', 'bank'], true)) {
@@ -400,10 +412,13 @@ class GatewayCompatService
 
     private static function buildV1OrderQueryResponse(object $merchant, array $query): array
     {
-        $order = self::findMerchantOrder(
+        $order = self::findMerchantOrderForRead(
             (int)$merchant->id,
             self::stringOrNull($query['trade_no'] ?? null),
-            self::stringOrNull($query['out_trade_no'] ?? null)
+            self::stringOrNull($query['out_trade_no'] ?? null),
+            [
+                'source' => 'gateway-v1-order-query',
+            ]
         );
 
         return [
@@ -490,14 +505,20 @@ class GatewayCompatService
 
     private static function closeForV1(object $merchant, array $payload): array
     {
-        $order = self::findMerchantOrder(
+        $order = self::findMerchantOrderForRead(
             (int)$merchant->id,
             self::stringOrNull($payload['trade_no'] ?? null),
-            self::stringOrNull($payload['out_trade_no'] ?? null)
+            self::stringOrNull($payload['out_trade_no'] ?? null),
+            [
+                'source' => 'gateway-v1-close-order-read',
+            ]
         );
 
         if ((int)$order->status === OrderService::STATUS_PENDING) {
-            OrderService::saveOrder($order, ['status' => OrderService::STATUS_CLOSED]);
+            OrderService::closePendingOrder($order, [
+                'source' => 'gateway-v1-close',
+                'event_time' => date('Y-m-d H:i:s'),
+            ]);
         } elseif ((int)$order->status !== OrderService::STATUS_CLOSED) {
             return [
                 'code' => -1,
@@ -529,7 +550,9 @@ class GatewayCompatService
             throw new BusinessException('Internal refund signature verification failed', StatusCode::UNAUTHORIZED);
         }
 
-        $order = OrderService::findByTradeNo($tradeNo);
+        $order = OrderService::findByTradeNoForRead($tradeNo, [
+            'source' => 'gateway-v1-refund-api-read',
+        ]);
         $merchant = self::resolveMerchantById((int)$order->merchant_id);
         if (!$merchant) {
             throw new BusinessException('Merchant for refund order not found', StatusCode::NOT_FOUND);
@@ -546,10 +569,13 @@ class GatewayCompatService
             throw new BusinessException('Refund amount must be greater than 0', StatusCode::VALIDATION_ERROR);
         }
 
-        $order = self::findMerchantOrder(
+        $order = self::findMerchantOrderForRead(
             (int)$merchant->id,
             self::stringOrNull($payload['trade_no'] ?? null),
-            self::stringOrNull($payload['out_trade_no'] ?? null)
+            self::stringOrNull($payload['out_trade_no'] ?? null),
+            [
+                'source' => 'gateway-refund-order-read',
+            ]
         );
 
         if ((int)($order->status ?? 0) !== OrderService::STATUS_SUCCESS) {
@@ -681,39 +707,23 @@ class GatewayCompatService
 
         $resultChannelId = (int)($result['channel']['id'] ?? $refund->channel_id ?? $channelId);
         $rawResponse = is_array($result['raw'] ?? null) ? $result['raw'] : [];
-        $flow = LocalFundStore::debit(
-            (int)$merchant->id,
-            $money,
-            'Order refund completed',
-            'refund',
-            $finalRefundNo,
-            $now,
-            [
-                'trade_no' => (string)$order->trade_no,
-                'out_trade_no' => (string)$order->out_trade_no,
-                'out_refund_no' => $finalOutRefundNo,
-                'plugin_code' => $pluginCode,
-                'channel_order_no' => $channelOrderNo,
-                'channel_trade_no' => $channelTradeNo,
-            ]
-        );
-        $updated = LocalTransferStore::updateRefund($finalRefundNo, [
-            'status' => 1,
-            'result' => (string)($result['result'] ?? 'plugin_refunded'),
-            'last_error' => '',
+
+        return OrderService::completeRefund(LocalTransferStore::findRefundByNo($finalRefundNo) ?? $refund, [
+            'source' => 'plugin-refund-submit',
+            'created_at' => $now,
+            'amount' => $money,
+            'trade_no' => (string)$order->trade_no,
+            'out_trade_no' => (string)$order->out_trade_no,
+            'out_refund_no' => $finalOutRefundNo,
+            'plugin_code' => $pluginCode,
             'channel_order_no' => $channelOrderNo,
             'channel_trade_no' => $channelTradeNo,
-            'channel_plugin_code' => $pluginCode,
-            'channel_id' => $resultChannelId,
             'proof_no' => $channelOrderNo !== '' ? $channelOrderNo : $channelTradeNo,
             'operator' => 'plugin:' . $pluginCode,
-            'finished_at' => $now,
-            'raw_response' => $rawResponse + [
-                'balance_after' => (string)($flow->balance_after ?? ''),
-            ],
+            'result' => (string)($result['result'] ?? 'plugin_refunded'),
+            'raw_response' => $rawResponse,
+            'channel_id' => $resultChannelId,
         ]);
-
-        return $updated ?? $refund;
     }
 
 
@@ -738,6 +748,7 @@ class GatewayCompatService
         if (!self::verifyV2Signature($payload, $merchant, (string)($payload['sign'] ?? ''))) {
             throw new BusinessException('V2 signature verification failed', StatusCode::UNAUTHORIZED);
         }
+        OpenApiGuardService::assertV2Timestamp($payload);
 
         return $merchant;
     }
@@ -756,6 +767,15 @@ class GatewayCompatService
     private static function findMerchantOrder(int $merchantId, ?string $tradeNo, ?string $outTradeNo): object
     {
         return OrderService::gatewayMerchantOrder($merchantId, $tradeNo, $outTradeNo);
+    }
+
+    private static function findMerchantOrderForRead(
+        int $merchantId,
+        ?string $tradeNo,
+        ?string $outTradeNo,
+        array $options = []
+    ): object {
+        return OrderService::gatewayMerchantOrderForRead($merchantId, $tradeNo, $outTradeNo, $options);
     }
 
     private static function findRefundRecord(int $merchantId, ?string $refundNo, ?string $outRefundNo, ?string $tradeNo): ?object

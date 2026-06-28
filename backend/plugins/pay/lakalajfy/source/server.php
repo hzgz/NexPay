@@ -22,12 +22,12 @@ $plugin = new \plugins\payment\lakalajfy\LakalajfyPlugin($channel);
 
 while (true) {
     $now = time();
-    // 检索5分钟内未支付订单
+    // 检索6分钟内未支付订单
     $list = Db::name('order')
         ->field('trade_no,api_trade_no,channel,subchannel')
         ->where('channel', (int)$channel['id'])
         ->where('status', 0)
-        ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 300))
+        ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 360))
         ->select()
         ->toArray();
     if (empty($list)) {

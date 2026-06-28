@@ -114,6 +114,22 @@ const generatedPublicKeyText = computed(() => formatKeyBlock(generatedPair.publi
 const generatedPrivateKeyText = computed(() => formatKeyBlock(generatedPair.private_key, 128))
 const merchantQrImage = ref('')
 const merchantQrError = ref('')
+const monitorSignRule = computed(() => {
+  const server = info.value.monitor_sign_example
+  if (server && typeof server === 'object') {
+    return {
+      timestamp: String(server.timestamp || ''),
+      sign_source: String(server.sign_source || ''),
+      sign_rule: String(server.sign_rule || 'md5(base64(url) + timestamp + 商户密钥)'),
+    }
+  }
+
+  return {
+    timestamp: '',
+    sign_source: '',
+    sign_rule: 'md5(base64(url) + timestamp + 商户密钥)',
+  }
+})
 
 const merchantKeyText = computed(() => String(info.value.mch_key || '').trim())
 const merchantQrPayload = computed(() => {
@@ -478,7 +494,15 @@ async function renderMerchantQr(value: string) {
               </div>
               <div class="api-tip">
                 <strong>V2 签名</strong>
-                <span>使用商户私钥签名，使用平台公钥验签。</span>
+                <span>使用商户私钥签名，使用平台公钥验签，并提交 10 位秒级 timestamp。</span>
+              </div>
+              <div class="api-tip">
+                <strong>V2 时效</strong>
+                <span>V2 请求默认校验 300 秒时效，退款、关单、代付提交默认启用防重放。</span>
+              </div>
+              <div class="api-tip">
+                <strong>监控签名</strong>
+                <span>监控软件可追加 timestamp 与 sign，规则为 {{ monitorSignRule.sign_rule }}。</span>
               </div>
             </div>
           </section>
@@ -503,6 +527,10 @@ async function renderMerchantQr(value: string) {
               </div>
               <p class="merchant-qr-note">扫描二维码获取商户信息</p>
               <p class="merchant-qr-warning">此二维码涉及商户信息，请勿泄露</p>
+              <div class="merchant-qr-sign">
+                <span>监控签名规则</span>
+                <code>{{ monitorSignRule.sign_rule }}</code>
+              </div>
             </div>
           </section>
         </aside>
@@ -970,6 +998,24 @@ async function renderMerchantQr(value: string) {
 .merchant-qr-warning {
   color: var(--brand-danger);
   font-size: 12px;
+}
+
+.merchant-qr-sign {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.merchant-qr-sign code {
+  display: block;
+  width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--el-text-color-primary);
 }
 
 .api-key-dialog {

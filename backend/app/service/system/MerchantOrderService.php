@@ -6,7 +6,9 @@ use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\model\CallbackQueue;
 use app\service\payment\CallbackService;
+use app\service\payment\LocalOrderEventStore;
 use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
 use Throwable;
 
@@ -53,12 +55,14 @@ class MerchantOrderService
             'deleted_at' => $deletedAt,
             'notify_payload' => $notifyPayload,
         ]);
-
-        return [
-            'trade_no' => (string)($updated->trade_no ?? $order->trade_no ?? ''),
-            'out_trade_no' => (string)($updated->out_trade_no ?? $order->out_trade_no ?? ''),
+        CallbackService::cancelOrderCallbacks($updated);
+        LocalOrderEventStore::recordDeleted($updated, [
+            'source' => 'merchant_delete',
             'deleted_at' => $deletedAt,
-        ];
+        ]);
+        self::appendDeleteLog(self::operatorName($merchantId, ''), $updated, $deletedAt);
+
+        return self::statusSnapshot($updated);
     }
 
     private static function confirmPendingOrder(int $merchantId, object $order, array $payload, string $operator): array
@@ -76,7 +80,10 @@ class MerchantOrderService
 
         $expireAt = strtotime((string)($order->expire_time ?? ''));
         if ($expireAt !== false && $expireAt < time()) {
-            OrderService::saveOrder($order, ['status' => OrderService::STATUS_EXPIRED]);
+            OrderService::expireOrder($order, [
+                'source' => 'merchant-manual-confirm-expired-check',
+                'event_time' => date('Y-m-d H:i:s'),
+            ]);
             throw new BusinessException('订单已过期，不能人工确认成功', StatusCode::VALIDATION_ERROR);
         }
 
@@ -108,8 +115,6 @@ class MerchantOrderService
 
         return [
             'action' => 'confirm',
-            'trade_no' => (string)($completed->trade_no ?? ''),
-            'out_trade_no' => (string)($completed->out_trade_no ?? ''),
             'callback_id' => (int)($callback->id ?? 0),
             'notify_url' => $notifyUrl,
             'txid' => (string)($completed->txid ?? ''),
@@ -119,7 +124,7 @@ class MerchantOrderService
             'deferred' => (int)($result['deferred'] ?? 0),
             'failed' => (int)($result['failed'] ?? 0),
             'message' => (string)($result['message'] ?? ''),
-        ];
+        ] + self::statusSnapshot($completed);
     }
 
     private static function retrySucceededOrder(int $merchantId, object $order, array $payload, string $operator): array
@@ -169,8 +174,6 @@ class MerchantOrderService
 
         return [
             'action' => 'retry',
-            'trade_no' => (string)($order->trade_no ?? ''),
-            'out_trade_no' => (string)($order->out_trade_no ?? ''),
             'callback_id' => (int)($callback->id ?? 0),
             'notify_url' => $notifyUrl,
             'checked' => (int)($result['checked'] ?? 0),
@@ -178,7 +181,7 @@ class MerchantOrderService
             'deferred' => (int)($result['deferred'] ?? 0),
             'failed' => (int)($result['failed'] ?? 0),
             'message' => (string)($result['message'] ?? ''),
-        ];
+        ] + self::statusSnapshot($order);
     }
 
     private static function manualAction(object $order): string
@@ -262,10 +265,13 @@ class MerchantOrderService
             throw new BusinessException('商户信息无效', StatusCode::UNAUTHORIZED);
         }
 
-        return OrderService::gatewayMerchantOrder(
+        return OrderService::gatewayMerchantOrderForRead(
             $merchantId,
             $tradeNo !== '' ? $tradeNo : null,
-            $outTradeNo !== '' ? $outTradeNo : null
+            $outTradeNo !== '' ? $outTradeNo : null,
+            [
+                'source' => 'merchant-order-service-read',
+            ]
         );
     }
 
@@ -341,6 +347,26 @@ class MerchantOrderService
         CompensationAuditLogService::admin($entry);
     }
 
+    private static function appendDeleteLog(string $operator, object $order, string $deletedAt): void
+    {
+        $entry = [
+            'operator' => $operator !== '' ? $operator : 'merchant',
+            'merchant_id' => (int)($order->merchant_id ?? 0),
+            'action' => '商户删除订单：' . (string)($order->trade_no ?? ''),
+            'created_at' => date('Y-m-d H:i:s'),
+            'detail' => [
+                'trade_no' => (string)($order->trade_no ?? ''),
+                'out_trade_no' => (string)($order->out_trade_no ?? ''),
+                'amount' => (string)($order->amount ?? ''),
+                'status' => (string)($order->status ?? ''),
+                'deleted_at' => $deletedAt,
+            ],
+        ];
+
+        CompensationAuditLogService::merchant($entry);
+        CompensationAuditLogService::admin($entry);
+    }
+
     private static function isChannelTestOrder(object $order): bool
     {
         $payload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
@@ -361,5 +387,32 @@ class MerchantOrderService
     private static function isDeleted(object $order): bool
     {
         return trim((string)($order->deleted_at ?? '')) !== '';
+    }
+
+    private static function statusSnapshot(object $order): array
+    {
+        $status = OrderStatusService::forOperations($order);
+
+        return [
+            'trade_no' => (string)($order->trade_no ?? ''),
+            'out_trade_no' => (string)($order->out_trade_no ?? ''),
+            'status' => (string)($status['label'] ?? ''),
+            'status_code' => (int)($status['code'] ?? OrderStatusService::DISPLAY_PENDING),
+            'status_key' => (string)($status['key'] ?? 'pending'),
+            'status_theme' => (string)($status['theme'] ?? 'warning'),
+            'payment_status_label' => (string)($status['payment_status_label'] ?? ''),
+            'payment_status_code' => (int)($status['payment_status_code'] ?? 0),
+            'payment_status_key' => (string)($status['payment_status_key'] ?? ''),
+            'callback_status_label' => (string)($status['callback_status_label'] ?? ''),
+            'callback_status_code' => (int)($status['callback_status_code'] ?? 0),
+            'callback_status_key' => (string)($status['callback_status_key'] ?? ''),
+            'callback_status_theme' => (string)($status['callback_status_theme'] ?? 'warning'),
+            'callback_status_hint' => (string)($status['callback_status_hint'] ?? ''),
+            'callback_count' => (int)($order->callback_count ?? 0),
+            'notify_url' => trim((string)($order->notify_url ?? '')),
+            'txid' => trim((string)($order->txid ?? '')),
+            'deleted_at' => (string)($order->deleted_at ?? ''),
+            'is_deleted' => self::isDeleted($order),
+        ];
     }
 }

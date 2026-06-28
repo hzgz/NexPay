@@ -73,7 +73,9 @@ class QrCodeService
 
     public static function imageResponseByTradeNo(string $tradeNo, int $size = self::DEFAULT_SIZE): Response
     {
-        $order = OrderService::findByTradeNo($tradeNo);
+        $order = OrderService::findByTradeNoForRead($tradeNo, [
+            'source' => 'qr-image-read',
+        ]);
         return self::imageResponseForOrder($order, $size);
     }
 
@@ -584,7 +586,7 @@ class QrCodeService
         $provider = self::normalizeProvider($provider ?: self::decodeProvider());
         $tmp = tempnam(sys_get_temp_dir(), 'qr_');
         if ($tmp === false) {
-            throw new \RuntimeException('鏃犳硶鍒涘缓涓存椂鏂囦欢');
+            throw new \RuntimeException('无法创建临时文件');
         }
 
         $pngPath = $tmp . '.png';

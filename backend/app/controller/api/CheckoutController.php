@@ -48,7 +48,12 @@ class CheckoutController extends BaseApiController
 
     public function show(Request $request, string $trade_no): Response
     {
-        $order = $this->normalizeCheckoutOrderState(OrderService::findByTradeNo($trade_no));
+        $order = $this->normalizeCheckoutOrderState(
+            OrderService::findByTradeNoForRead($trade_no, [
+                'source' => 'checkout-show-read',
+                'min_interval_seconds' => 2,
+            ])
+        );
         $statusInfo = OrderStatusService::forCheckout($order);
         $settings = MerchantChannelService::all((int) $order->merchant_id)['payment_settings'] ?? [];
         $template = $this->normalizeTemplateCode((string) ($settings['template'] ?? ''));
@@ -93,7 +98,12 @@ class CheckoutController extends BaseApiController
     public function status(Request $request, string $trade_no): Response
     {
         return $this->execute(function () use ($trade_no) {
-            $order = $this->normalizeCheckoutOrderState(OrderService::findByTradeNo($trade_no));
+            $order = $this->normalizeCheckoutOrderState(
+                OrderService::findByTradeNoForRead($trade_no, [
+                    'source' => 'checkout-status-read',
+                    'min_interval_seconds' => 2,
+                ])
+            );
             $statusInfo = OrderStatusService::forCheckout($order);
             $settings = MerchantChannelService::all((int) $order->merchant_id)['payment_settings'] ?? [];
 
@@ -130,7 +140,10 @@ class CheckoutController extends BaseApiController
                 throw new BusinessException('资源不存在', StatusCode::NOT_FOUND);
             }
 
-            $target = OrderService::findByTradeNo($trade_no);
+            $target = OrderService::findByTradeNoForRead($trade_no, [
+                'source' => 'checkout-mock-complete-read',
+                'min_interval_seconds' => 2,
+            ]);
             $requestPayload = is_array($target->request_payload ?? null) ? $target->request_payload : [];
             $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
             if (($meta['business'] ?? '') !== 'homepage_payment_test') {
@@ -798,14 +811,7 @@ HTML;
 
     private function normalizeCheckoutOrderState(object $order): object
     {
-        $order = OrderService::syncHomepageTestOrder($order);
         $order = $this->bootstrapPendingQrSource($order);
-        if (
-            (int) ($order->status ?? 0) === OrderService::STATUS_PENDING
-            && $this->isOrderExpired($order)
-        ) {
-            $order = OrderService::saveOrder($order, ['status' => OrderService::STATUS_EXPIRED]);
-        }
 
         return $order;
     }
@@ -840,7 +846,9 @@ HTML;
             return $order;
         }
 
-        return OrderService::findByTradeNo((string)($order->trade_no ?? ''));
+        return OrderService::findByTradeNoForRead((string)($order->trade_no ?? ''), [
+            'source' => 'checkout-bootstrap-readback',
+        ]);
     }
 
     private function checkoutTemplateVariables(object $order): array

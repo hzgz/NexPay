@@ -260,8 +260,6 @@ function resolveOrderSubjectFallback(item: Record<string, any>) {
       return '通道测试订单'
     case 'homepage_payment_test':
       return '首页支付测试订单'
-    case 'software_compat_test':
-      return '监控软件测试订单'
     default:
       return '支付订单'
   }
@@ -334,7 +332,34 @@ function orderStatusClass(item: Record<string, any>) {
   }
 }
 
+function orderCallbackStatusClass(item: Record<string, any>) {
+  const theme = String(item.callback_status_theme || '').trim()
+  if (theme) return theme
+
+  const key = String(item.callback_status_key || '').trim()
+  if (key === 'success') return 'success'
+  if (key === 'none' || key === 'queued') return 'muted'
+  if (['retry_exhausted', 'runtime_exception', 'failed', 'rejected', 'canceled'].includes(key)) return 'danger'
+  return 'warning'
+}
+
+function showOrderCallbackDetail(item: Record<string, any>) {
+  const key = String(item.callback_status_key || '').trim()
+  return key !== '' && key !== 'none'
+}
+
+function orderCallbackDetailText(item: Record<string, any>) {
+  const hint = String(item.callback_status_hint || '').trim()
+  if (hint !== '') {
+    return hint
+  }
+
+  return String(item.callback_status_label || '').trim()
+}
+
 function callbackStatusClass(item: Record<string, any>) {
+  const theme = String(item.result_theme || '').trim()
+  if (theme) return theme
   if (Number(item.status_code) === 2) return 'success'
   if (Number(item.status_code) === 1) return 'danger'
   if (item.runtime_exception || item.due_now) return 'warning'
@@ -578,7 +603,17 @@ onMounted(loadOrders)
 
           <span class="ellipsis-text" :title="resolvePaymentMethodLabel(item)">{{ resolvePaymentMethodLabel(item) }}</span>
           <span>{{ item.amount }}</span>
-          <span><span class="status-chip" :class="orderStatusClass(item)">{{ item.status }}</span></span>
+          <div class="status-stack">
+            <span class="status-chip" :class="orderStatusClass(item)">{{ item.status }}</span>
+            <small
+              v-if="showOrderCallbackDetail(item)"
+              class="status-note"
+              :title="orderCallbackDetailText(item)"
+            >
+              <span class="status-chip status-chip--subtle" :class="orderCallbackStatusClass(item)">{{ item.callback_status_label }}</span>
+              <span v-if="orderCallbackDetailText(item) !== item.callback_status_label" class="status-note__text">{{ orderCallbackDetailText(item) }}</span>
+            </small>
+          </div>
           <span>{{ item.created_at || '-' }}</span>
 
           <div class="inline-actions order-actions">
@@ -662,7 +697,10 @@ onMounted(loadOrders)
             >
               {{ displayText(item.notify_url) }}
             </button>
-            <span><span class="status-chip" :class="callbackStatusClass(item)">{{ item.result }}</span></span>
+            <span class="callback-result">
+              <span class="status-chip" :class="callbackStatusClass(item)">{{ item.result }}</span>
+              <small v-if="item.result_hint" class="callback-note">{{ item.result_hint }}</small>
+            </span>
             <button
               class="table-copy-text"
               type="button"
@@ -886,6 +924,32 @@ onMounted(loadOrders)
 .order-actions__hint {
   color: var(--brand-subtle);
   font-size: 12px;
+}
+
+.status-stack {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.status-note {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.status-note__text {
+  min-width: 0;
+  color: var(--brand-text-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.status-chip--subtle {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .table-copy-text {

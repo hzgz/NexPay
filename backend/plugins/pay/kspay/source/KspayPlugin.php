@@ -16,7 +16,7 @@ class KspayPlugin extends BasePayment
     private const CASHIER_API_URL = 'https://pay.ssl.kuaishou.com/rest/k/pay/kscoin/deposit/nlogin/kspay/cashier';
     private const QRCODE_API_URL = 'https://www.kuaishoupay.com/pay/order/pc/trade/cashier';
     private const CONFIRM_API_URL = 'https://pay.ssl.kuaishou.com/rest/k/pay/kscoin/deposit/nlogin/kspay/confirm';
-    private const DEFAULT_EXPIRE_SECONDS = 300;
+    private const DEFAULT_EXPIRE_SECONDS = 360;
 
     public function submit(PaymentContext $ctx): array
     {

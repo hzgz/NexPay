@@ -135,7 +135,7 @@ export const docSections: DocSection[] = [
     method: 'READ',
     notes: [
       'V1 必须提交 `pid` 与 `sign`，签名方式为 MD5。',
-      'V2 必须提交 `pid`、`sign_type=RSA` 与 `sign`。',
+      'V2 必须提交 `pid`、`timestamp`、`sign_type=RSA` 与 `sign`。',
       '支付方式编码由系统支付方式配置决定，常见如 `alipay`、`wxpay`、`qqpay`、`bank`。',
       '商户订单号 `out_trade_no` 在同一商户下必须唯一。',
     ],
@@ -212,6 +212,7 @@ export const docSections: DocSection[] = [
       { name: 'money', type: 'string', required: '是', description: '订单金额，单位元，必须大于 0' },
       { name: 'clientip', type: 'string', required: '否', description: '客户端 IP' },
       { name: 'param', type: 'string', required: '否', description: '附加参数，回调时原样返回' },
+      { name: 'timestamp', type: 'string', required: '是', description: '10 位秒级时间戳，默认校验 300 秒有效期' },
       { name: 'sign_type', type: 'string', required: '是', description: '固定为 RSA' },
       { name: 'sign', type: 'string', required: '是', description: '按 V2 RSA 规则生成的签名' },
     ],
@@ -226,6 +227,7 @@ export const docSections: DocSection[] = [
   "money": "26.80",
   "clientip": "127.0.0.1",
   "param": "package-buy",
+  "timestamp": "1751112000",
   "sign_type": "RSA",
   "sign": "rsa_signature_here"
 }`,
@@ -251,6 +253,8 @@ export const docSections: DocSection[] = [
 }`,
     errorRows: [
       { code: '401', description: 'V2 RSA 签名校验失败' },
+      { code: '401/422', description: 'timestamp 缺失、过期或格式错误' },
+      { code: '429', description: '退款、关单、代付等变更请求被判定为重复提交' },
       { code: '422', description: '商户订单号为空、重复或金额不合法' },
       { code: '1000', description: '支付方式无可用通道或商户配置不完整' },
     ],
@@ -268,6 +272,7 @@ export const docSections: DocSection[] = [
       { name: 'pid', type: 'string', required: '是', description: '商户 PID' },
       { name: 'trade_no', type: 'string', required: '二选一', description: '平台订单号' },
       { name: 'out_trade_no', type: 'string', required: '二选一', description: '商户订单号' },
+      { name: 'timestamp', type: 'string', required: '是', description: '10 位秒级时间戳，默认校验 300 秒有效期' },
       { name: 'sign_type', type: 'string', required: '是', description: '固定为 RSA' },
       { name: 'sign', type: 'string', required: '是', description: '按 V2 RSA 规则生成的签名' },
     ],

@@ -522,6 +522,36 @@ function statusClass(item: Record<string, any>) {
   return 'warning'
 }
 
+function callbackStatusClass(item: Record<string, any>) {
+  const theme = String(item.callback_status_theme || '').trim()
+  if (theme) return theme
+
+  const key = String(item.callback_status_key || '').trim()
+  if (key === 'success') return 'success'
+  if (key === 'none' || key === 'queued') return 'muted'
+  if (['retry_exhausted', 'runtime_exception', 'failed', 'rejected', 'canceled'].includes(key)) return 'danger'
+  return 'warning'
+}
+
+function showCallbackDetail(item: Record<string, any>) {
+  const key = String(item.callback_status_key || '').trim()
+  return key !== '' && key !== 'none'
+}
+
+function callbackDetailText(item: Record<string, any>) {
+  const hint = String(item.callback_status_hint || '').trim()
+  if (hint !== '') {
+    return hint
+  }
+
+  return String(item.callback_status_label || '').trim()
+}
+
+function showEarningCallbackDetail(item: Record<string, any>) {
+  const key = String(item.callback_status_key || '').trim()
+  return key !== '' && key !== 'none'
+}
+
 onMounted(loadData)
 
 watch([activeSection, keyword, orderStatusFilter, payoutMode], () => {
@@ -625,7 +655,17 @@ watch([activeSection, keyword, orderStatusFilter, payoutMode], () => {
                 </div>
                 <span class="ellipsis-text" :title="displayText(item.method_name || item.channel_code)">{{ displayText(item.method_name || item.channel_code) }}</span>
                 <strong class="amount-strong">{{ item.amount }}</strong>
-                <span><span class="status-chip" :class="statusClass(item)">{{ item.status }}</span></span>
+                <div class="status-stack">
+                  <span class="status-chip" :class="statusClass(item)">{{ item.status }}</span>
+                  <small
+                    v-if="showCallbackDetail(item)"
+                    class="status-note"
+                    :title="callbackDetailText(item)"
+                  >
+                    <span class="status-chip status-chip--subtle" :class="callbackStatusClass(item)">{{ item.callback_status_label }}</span>
+                    <span v-if="callbackDetailText(item) !== item.callback_status_label" class="status-note__text">{{ callbackDetailText(item) }}</span>
+                  </small>
+                </div>
                 <span>{{ item.created_at }}</span>
                 <div class="order-payment-stack">
                   <button
@@ -811,7 +851,17 @@ watch([activeSection, keyword, orderStatusFilter, payoutMode], () => {
                 <span class="ellipsis-text" :title="displayText(item.subject || item.remark)">{{ displayText(item.subject || item.remark) }}</span>
                 <span class="ellipsis-text" :title="displayText(item.method_name)">{{ displayText(item.method_name) }}</span>
                 <strong class="amount-strong">{{ item.amount }}</strong>
-                <span><span class="status-chip" :class="statusClass(item)">{{ item.status || '-' }}</span></span>
+                <div class="status-stack">
+                  <span class="status-chip" :class="statusClass(item)">{{ item.status || '-' }}</span>
+                  <small
+                    v-if="showEarningCallbackDetail(item)"
+                    class="status-note"
+                    :title="callbackDetailText(item)"
+                  >
+                    <span class="status-chip status-chip--subtle" :class="callbackStatusClass(item)">{{ item.callback_status_label }}</span>
+                    <span v-if="callbackDetailText(item) !== item.callback_status_label" class="status-note__text">{{ callbackDetailText(item) }}</span>
+                  </small>
+                </div>
                 <span>{{ item.created_at }}</span>
               </div>
               <div v-if="!currentRows.length" class="table-empty">{{ sectionEmptyText }}</div>
@@ -1115,6 +1165,32 @@ watch([activeSection, keyword, orderStatusFilter, payoutMode], () => {
 .amount-strong {
   font-size: 13px;
   font-weight: 700;
+}
+
+.status-stack {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.status-note {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.status-note__text {
+  min-width: 0;
+  color: var(--brand-text-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.status-chip--subtle {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .trade-actions {

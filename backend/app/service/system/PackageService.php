@@ -5,7 +5,7 @@ namespace app\service\system;
 use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\service\payment\LocalFundStore;
-use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderService;
 use Throwable;
 use think\facade\Db;
 
@@ -26,22 +26,10 @@ class PackageService
 
                 if ($rows !== []) {
                     return [
-                        'items' => array_map(static function ($item): array {
-                            $row = (array)$item;
-                            $statusCode = (int)($row['status'] ?? 0) === 1 ? 1 : 0;
-                            $benefits = self::normalizeBenefits($row['benefits'] ?? []);
-
-                            return [
-                                'id' => (int)($row['id'] ?? 0),
-                                'name' => trim((string)($row['name'] ?? '')),
-                                'price' => number_format((float)($row['price'] ?? 0), 2, '.', ''),
-                                'duration_days' => (int)($row['duration_days'] ?? 0),
-                                'benefits' => $benefits,
-                                'status' => $statusCode === 1 ? '上架中' : '已下架',
-                                'status_code' => $statusCode,
-                                'created_at' => (string)($row['created_at'] ?? ''),
-                            ];
-                        }, $rows),
+                        'items' => array_map(
+                            static fn($item): array => self::shapePackage((array)$item),
+                            $rows
+                        ),
                     ];
                 }
             } catch (Throwable) {
@@ -65,7 +53,7 @@ class PackageService
 
     public static function save(array $payload): array
     {
-        $name = trim((string)($payload['name'] ?? ''));
+        $name = self::normalizeText((string)($payload['name'] ?? ''));
         $price = trim((string)($payload['price'] ?? ''));
         $durationDays = (int)($payload['duration_days'] ?? 0);
         $statusCode = (int)($payload['status_code'] ?? 1) === 1 ? 1 : 0;
@@ -143,7 +131,7 @@ class PackageService
             $items[] = [
                 'id' => (int)($item['id'] ?? 0),
                 'package_id' => $packageId,
-                'name' => (string)($item['name'] ?? ''),
+                'name' => self::normalizeText((string)($item['name'] ?? '')),
                 'price' => number_format((float)($item['price'] ?? 0), 2, '.', ''),
                 'status' => $status,
                 'start_time' => (string)($item['start_time'] ?? ''),
@@ -169,13 +157,22 @@ class PackageService
 
         $packageId = (int)($payload['package_id'] ?? $payload['id'] ?? 0);
         $package = self::findActivePackage($packageId);
-        if (!$package) {
+        if ($package === null) {
             throw new BusinessException('套餐不存在或未上架', StatusCode::NOT_FOUND);
         }
 
         $price = number_format((float)($package['price'] ?? 0), 2, '.', '');
+        OrderService::assertPositiveOrderAmount($price, '套餐金额');
+        $subject = OrderService::normalizeGatewayOrderSubject(
+            '套餐购买 - ' . self::normalizeText((string)($package['name'] ?? '')),
+            '套餐购买 - 商户套餐'
+        );
+        $outTradeNo = OrderService::normalizeGatewayOutTradeNo(
+            self::generatePurchaseOutTradeNo($merchantId, $packageId)
+        );
+
         if ((float)$price <= 0) {
-            $grant = self::grantPackage($merchantId, $package, null, 'system');
+            $grant = self::grantPackage($merchantId, $package, null, date('Y-m-d H:i:s'));
 
             return [
                 'payment_required' => false,
@@ -187,33 +184,37 @@ class PackageService
 
         $balance = LocalFundStore::balanceForMerchant($merchantId);
         if ((float)($balance['available'] ?? '0.00') >= (float)$price) {
-            $orderNo = self::generatePackageRecordNo();
-            $now = date('Y-m-d H:i:s');
-            $flow = LocalFundStore::debit(
+            $order = self::createBalancePurchaseOrder(
                 $merchantId,
+                $packageId,
+                $package,
+                $payload,
                 $price,
-                '套餐购买',
-                'package_purchase',
-                $orderNo,
-                $now,
-                [
-                    'business' => self::BUSINESS_PACKAGE_PURCHASE,
-                    'package_id' => $packageId,
-                    'name' => (string)($package['name'] ?? ''),
-                    'price' => $price,
-                    'duration_days' => (int)($package['duration_days'] ?? 0),
-                    'benefits' => array_values((array)($package['benefits'] ?? [])),
-                ]
+                $subject,
+                $outTradeNo
             );
-            $grant = self::grantPackage($merchantId, $package, $orderNo, $now);
+            $completed = OrderService::completeOrder($order, [
+                'source' => 'package-balance-pay',
+                'paid_at' => date('Y-m-d H:i:s'),
+                'txid' => (string)$order->trade_no,
+                'buyer' => 'merchant-balance',
+            ]);
+            $tradeNo = trim((string)($completed->trade_no ?? $order->trade_no ?? ''));
+            $flow = $tradeNo !== ''
+                ? LocalFundStore::findFlowByReference($merchantId, 'package_purchase', $tradeNo)
+                : null;
+            $grant = self::merchantPackageByTradeNo($tradeNo);
+            if ($grant === null) {
+                throw new BusinessException('套餐购买记录未落地，请刷新后重试', StatusCode::BUSINESS_ERROR);
+            }
 
             return [
                 'payment_required' => false,
                 'balance_paid' => true,
-                'order_no' => (string)($grant['order_no'] ?? $orderNo),
-                'trade_no' => (string)($grant['trade_no'] ?? $orderNo),
+                'order_no' => (string)($grant['order_no'] ?? $tradeNo),
+                'trade_no' => (string)($grant['trade_no'] ?? $tradeNo),
                 'amount' => $price,
-                'balance_after' => (string)($flow->balance_after ?? ''),
+                'balance_after' => (string)($flow->balance_after ?? (LocalFundStore::balanceForMerchant($merchantId)['available'] ?? '')),
                 'record' => $grant,
                 'my_packages' => self::merchantPackages($merchantId),
             ];
@@ -227,30 +228,35 @@ class PackageService
             throw new BusinessException('请选择后台已启用的支付方式', StatusCode::VALIDATION_ERROR);
         }
 
-        $order = SystemBusinessPaymentService::create('system_checkout', [
-            'merchant_id' => $merchantId,
-            'out_trade_no' => self::generatePurchaseOutTradeNo($merchantId, $packageId),
-            'channel_code' => $methodCode,
-            'channel_category' => 2,
-            'force_configured_gateway' => true,
-            'subject' => '套餐购买 - ' . (string)($package['name'] ?? '商户套餐'),
-            'amount' => $price,
-            'notify_url' => '',
-            'return_url' => '/user/funds/packages',
-            'client_ip' => (string)($payload['client_ip'] ?? ''),
-            'param' => 'merchant-package-purchase',
-            'request_payload' => [
-                '_meta' => [
-                    'business' => self::BUSINESS_PACKAGE_PURCHASE,
-                    'merchant_id' => $merchantId,
-                    'requested_method' => $methodCode,
-                    'package_id' => $packageId,
-                    'package_name' => (string)($package['name'] ?? ''),
-                    'duration_days' => (int)($package['duration_days'] ?? 0),
-                    'benefits' => array_values((array)($package['benefits'] ?? [])),
+        $order = SystemBusinessPaymentService::createBusinessOrder(
+            'system_checkout',
+            $merchantId,
+            self::BUSINESS_PACKAGE_PURCHASE,
+            [
+                'merchant_id' => $merchantId,
+                'out_trade_no' => $outTradeNo !== '' ? $outTradeNo : SystemBusinessPaymentService::fallbackBusinessOutTradeNo('PKG', $merchantId, [$packageId]),
+                'channel_code' => $methodCode,
+                'channel_category' => 2,
+                'force_configured_gateway' => true,
+                'subject' => $subject,
+                'amount' => $price,
+                'notify_url' => '',
+                'return_url' => '/user/funds/packages',
+                'client_ip' => (string)($payload['client_ip'] ?? ''),
+                'param' => 'merchant-package-purchase',
+                'request_payload' => [
+                    '_meta' => [
+                        'business' => self::BUSINESS_PACKAGE_PURCHASE,
+                        'merchant_id' => $merchantId,
+                        'requested_method' => $methodCode,
+                        'package_id' => $packageId,
+                        'package_name' => self::normalizeText((string)($package['name'] ?? '')),
+                        'duration_days' => (int)($package['duration_days'] ?? 0),
+                        'benefits' => array_values((array)($package['benefits'] ?? [])),
+                    ],
                 ],
-            ],
-        ]);
+            ]
+        );
 
         return [
             'payment_required' => true,
@@ -274,18 +280,8 @@ class PackageService
         }
 
         $tradeNo = trim((string)($order->trade_no ?? ''));
-        if ($tradeNo === '') {
+        if ($tradeNo === '' || self::merchantPackageByTradeNo($tradeNo) !== null) {
             return;
-        }
-
-        foreach (JsonStoreService::load(self::PURCHASE_STORE_KEY, []) as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-
-            if (trim((string)($item['trade_no'] ?? '')) === $tradeNo) {
-                return;
-            }
         }
 
         $merchantId = (int)($meta['merchant_id'] ?? $order->merchant_id ?? 0);
@@ -295,7 +291,7 @@ class PackageService
         if ($package === null) {
             $package = [
                 'id' => $packageId,
-                'name' => (string)($meta['package_name'] ?? '商户套餐'),
+                'name' => self::normalizeText((string)($meta['package_name'] ?? '商户套餐')),
                 'price' => number_format((float)($order->amount ?? 0), 2, '.', ''),
                 'duration_days' => (int)($meta['duration_days'] ?? 30),
                 'benefits' => array_values(array_filter(array_map('strval', (array)($meta['benefits'] ?? [])))),
@@ -328,14 +324,81 @@ class PackageService
         return true;
     }
 
+    private static function createBalancePurchaseOrder(
+        int $merchantId,
+        int $packageId,
+        array $package,
+        array $payload,
+        string $price,
+        string $subject,
+        string $outTradeNo
+    ): object {
+        $requestPayload = [
+            '_meta' => [
+                'business' => self::BUSINESS_PACKAGE_PURCHASE,
+                'merchant_id' => $merchantId,
+                'requested_method' => 'balance',
+                'package_id' => $packageId,
+                'package_name' => self::normalizeText((string)($package['name'] ?? '')),
+                'duration_days' => (int)($package['duration_days'] ?? 0),
+                'benefits' => array_values((array)($package['benefits'] ?? [])),
+                'method_name' => '余额支付',
+                'order_amount' => $price,
+                'gross_amount' => $price,
+                'balance_paid' => true,
+                'source_protocol' => self::BUSINESS_PACKAGE_PURCHASE,
+                'order_origin' => 'system_business',
+                'order_scene' => self::BUSINESS_PACKAGE_PURCHASE,
+            ],
+        ];
+
+        return OrderService::persistCreatedOrder(
+            OrderService::buildPendingOrderPayload([
+                'trade_no' => OrderService::nextTradeNo(),
+                'out_trade_no' => $outTradeNo !== '' ? $outTradeNo : SystemBusinessPaymentService::fallbackBusinessOutTradeNo('PKGB', $merchantId, [$packageId]),
+                'merchant_id' => $merchantId,
+                'merchant_channel_id' => 0,
+                'channel_code' => 'balance',
+                'channel_category' => 2,
+                'subject' => $subject,
+                'amount' => $price,
+                'payable_amount' => $price,
+                'status' => OrderService::STATUS_PENDING,
+                'notify_url' => '',
+                'return_url' => '/user/funds/packages',
+                'client_ip' => (string)($payload['client_ip'] ?? ''),
+                'param' => 'merchant-package-purchase-balance',
+                'expire_time' => date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS),
+                'request_payload' => $requestPayload,
+                'notify_payload' => [],
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]),
+            OrderService::buildOrderCreationEventMeta($requestPayload, [
+                'scene' => 'system_business',
+                'business' => 'system_business',
+                'order_origin' => 'system_business',
+                'order_scene' => 'system_business',
+            ])
+        );
+    }
+
     private static function grantPackage(int $merchantId, array $package, ?string $tradeNo, string $startTime): array
     {
         if ($merchantId <= 0) {
             throw new BusinessException('商户身份无效', StatusCode::UNAUTHORIZED);
         }
 
+        if ($tradeNo !== null && trim($tradeNo) !== '') {
+            $existing = self::merchantPackageByTradeNo($tradeNo);
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+
         $items = JsonStoreService::load(self::PURCHASE_STORE_KEY, []);
-        $normalizedStartTime = trim($startTime) !== '' ? $startTime : date('Y-m-d H:i:s');
+        $timestamp = strtotime($startTime);
+        $normalizedStartTime = $timestamp !== false ? date('Y-m-d H:i:s', $timestamp) : date('Y-m-d H:i:s');
         $durationDays = max(1, (int)($package['duration_days'] ?? 0));
         $endTime = date('Y-m-d H:i:s', strtotime($normalizedStartTime . ' +' . $durationDays . ' days'));
 
@@ -343,15 +406,15 @@ class PackageService
             'id' => self::nextId($items),
             'merchant_id' => $merchantId,
             'package_id' => (int)($package['id'] ?? 0),
-            'trade_no' => $tradeNo ?? '',
-            'order_no' => trim($tradeNo ?? '') !== '' ? $tradeNo : self::generatePackageRecordNo(),
-            'name' => (string)($package['name'] ?? ''),
+            'trade_no' => trim((string)($tradeNo ?? '')),
+            'order_no' => trim((string)($tradeNo ?? '')) !== '' ? trim((string)$tradeNo) : self::generatePackageRecordNo(),
+            'name' => self::normalizeText((string)($package['name'] ?? '')),
             'price' => number_format((float)($package['price'] ?? 0), 2, '.', ''),
             'status' => '生效中',
             'start_time' => $normalizedStartTime,
             'end_time' => $endTime,
             'benefits' => array_values((array)($package['benefits'] ?? [])),
-            'created_at' => date('Y-m-d H:i:s'),
+            'created_at' => $normalizedStartTime,
         ];
 
         $items[] = $record;
@@ -364,6 +427,26 @@ class PackageService
     {
         foreach (self::activeBusinessPackages() as $item) {
             if ((int)($item['id'] ?? 0) === $packageId && (int)($item['status_code'] ?? 0) === 1) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    private static function merchantPackageByTradeNo(string $tradeNo): ?array
+    {
+        $tradeNo = trim($tradeNo);
+        if ($tradeNo === '') {
+            return null;
+        }
+
+        foreach (JsonStoreService::load(self::PURCHASE_STORE_KEY, []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            if (trim((string)($item['trade_no'] ?? '')) === $tradeNo) {
                 return $item;
             }
         }
@@ -384,20 +467,40 @@ class PackageService
     private static function normalizeBenefits(mixed $benefits): array
     {
         if (is_array($benefits)) {
-            return array_values(array_filter(array_map(static fn($item) => trim((string)$item), $benefits), static fn(string $item): bool => $item !== ''));
+            return array_values(array_filter(
+                array_map(static fn($item) => self::normalizeText((string)$item), $benefits),
+                static fn(string $item): bool => $item !== ''
+            ));
         }
 
         if (is_string($benefits)) {
             $decoded = json_decode($benefits, true);
             if (is_array($decoded)) {
-                return array_values(array_filter(array_map('strval', $decoded), static fn(string $item): bool => trim($item) !== ''));
+                return array_values(array_filter(
+                    array_map(static fn($item) => self::normalizeText((string)$item), $decoded),
+                    static fn(string $item): bool => $item !== ''
+                ));
             }
         }
 
         return array_values(array_filter(
-            preg_split('/[\r\n,]+/', (string)$benefits, -1, PREG_SPLIT_NO_EMPTY) ?: [],
-            static fn(string $item): bool => trim($item) !== ''
+            array_map(
+                static fn($item) => self::normalizeText((string)$item),
+                preg_split('/[\r\n,]+/', (string)$benefits, -1, PREG_SPLIT_NO_EMPTY) ?: []
+            ),
+            static fn(string $item): bool => $item !== ''
         ));
+    }
+
+    private static function normalizeText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $repaired = EncodingRepairService::repair($value);
+        return is_string($repaired) ? trim($repaired) : $value;
     }
 
     private static function nextId(array $items): int
@@ -447,7 +550,7 @@ class PackageService
 
         return [
             'id' => (int)($item['id'] ?? 0),
-            'name' => trim((string)($item['name'] ?? '')),
+            'name' => self::normalizeText((string)($item['name'] ?? '')),
             'price' => number_format((float)($item['price'] ?? 0), 2, '.', ''),
             'duration_days' => (int)($item['duration_days'] ?? 0),
             'benefits' => self::normalizeBenefits($item['benefits'] ?? []),

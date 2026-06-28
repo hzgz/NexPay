@@ -65,6 +65,58 @@ class TaskService
         ];
     }
 
+    public static function scheduledTasks(): array
+    {
+        $items = self::all()['items'];
+        $scheduled = [];
+        $pluginDaemonTasks = [];
+        $daemonGroupTask = null;
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $key = trim((string)($item['key'] ?? ''));
+            $cron = trim((string)($item['cron'] ?? ''));
+            if ($key === '' || $cron === '' || !self::isValidCron($cron)) {
+                continue;
+            }
+
+            $status = self::sanitizeStatus((string)($item['status'] ?? '待命'));
+            if ($status === '已停用') {
+                continue;
+            }
+
+            $entry = [
+                'key' => $key,
+                'name' => self::displayNameFor($key, (string)($item['name'] ?? $key)),
+                'cron' => $cron,
+            ];
+
+            if (str_starts_with($key, 'plugin-daemon:')) {
+                if ($key === PluginTaskService::TASK_KEY_ALL_DAEMONS) {
+                    $daemonGroupTask = $entry;
+                    continue;
+                }
+                $pluginDaemonTasks[] = $entry;
+                continue;
+            }
+
+            $scheduled[] = $entry;
+        }
+
+        if ($pluginDaemonTasks !== []) {
+            return array_merge($scheduled, $pluginDaemonTasks);
+        }
+
+        if ($daemonGroupTask !== null) {
+            $scheduled[] = $daemonGroupTask;
+        }
+
+        return $scheduled;
+    }
+
     public static function saveCron(string $key, string $cron): array
     {
         $key = trim($key);
@@ -251,7 +303,9 @@ class TaskService
             }
 
             $map[$key]['cron'] = trim((string)($item['cron'] ?? $map[$key]['cron']));
-            $map[$key]['status'] = self::sanitizeStatus((string)($item['status'] ?? $map[$key]['status']));
+            $definitionStatus = self::sanitizeStatus((string)($map[$key]['status'] ?? '待命'));
+            $storedStatus = self::sanitizeStatus((string)($item['status'] ?? $map[$key]['status']));
+            $map[$key]['status'] = $definitionStatus === '已停用' ? '已停用' : $storedStatus;
             $map[$key]['last_run'] = trim((string)($item['last_run'] ?? $map[$key]['last_run']));
         }
 
@@ -477,6 +531,57 @@ class TaskService
 
     private static function formatResult(array $metrics): string
     {
+        if (isset($metrics['expired']) && count($metrics) === 1) {
+            return '过期订单处理完成：' . (int)$metrics['expired'] . ' 笔';
+        }
+
+        if (($metrics['source'] ?? '') === 'plugin-daemon') {
+            return sprintf(
+                '支付状态同步：候选 %d，检查 %d，完成 %d，待处理 %d，待确认 %d，失败 %d，跳过 %d，插件异常 %d',
+                (int)($metrics['candidates'] ?? 0),
+                (int)($metrics['checked'] ?? 0),
+                (int)($metrics['completed'] ?? 0),
+                (int)($metrics['deferred'] ?? 0),
+                (int)($metrics['pending_confirm'] ?? 0),
+                (int)($metrics['failed'] ?? 0),
+                (int)($metrics['skipped'] ?? 0),
+                (int)($metrics['plugin_errors'] ?? 0),
+            );
+        }
+
+        if (($metrics['source'] ?? '') === 'payout-sync') {
+            return sprintf(
+                '退款/代付同步：候选 %d，检查 %d，完成 %d，待处理 %d，失败 %d，转人工 %d，插件异常 %d，关注项 %d -> %d',
+                (int)($metrics['candidates'] ?? 0),
+                (int)($metrics['checked'] ?? 0),
+                (int)($metrics['completed'] ?? 0),
+                (int)($metrics['deferred'] ?? 0),
+                (int)($metrics['failed'] ?? 0),
+                (int)($metrics['manualized'] ?? 0),
+                (int)($metrics['plugin_errors'] ?? 0),
+                (int)($metrics['payout_attention_before'] ?? 0),
+                (int)($metrics['payout_attention_after'] ?? 0),
+            );
+        }
+
+        if (array_key_exists('queue_due_before', $metrics) || array_key_exists('queue_due_after', $metrics)) {
+            return sprintf(
+                '回调重试：检查 %d，成功 %d，延后 %d，失败 %d，到期队列 %d -> %d，耗尽重试 %d -> %d，异常 %d，手动重试 %d，已拒绝 %d，已取消 %d',
+                (int)($metrics['checked'] ?? 0),
+                (int)($metrics['succeeded'] ?? 0),
+                (int)($metrics['deferred'] ?? 0),
+                (int)($metrics['failed'] ?? 0),
+                (int)($metrics['queue_due_before'] ?? 0),
+                (int)($metrics['queue_due_after'] ?? 0),
+                (int)($metrics['queue_exhausted_before'] ?? 0),
+                (int)($metrics['queue_exhausted_after'] ?? 0),
+                (int)($metrics['runtime_exception_total'] ?? 0),
+                (int)($metrics['manual_retry_total'] ?? 0),
+                (int)($metrics['rejected_total'] ?? 0),
+                (int)($metrics['canceled_total'] ?? 0),
+            );
+        }
+
         $pairs = [];
         foreach ($metrics as $key => $value) {
             if (is_array($value)) {

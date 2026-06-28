@@ -59,7 +59,7 @@ $loadChannels = static function () use ($watchAll, $singleChannel): array {
 
 while (true) {
     $startedAt = microtime(true);
-    $sinceTime = date('Y-m-d H:i:s', time() - 300);
+    $sinceTime = date('Y-m-d H:i:s', time() - 360);
 
     $channels = $loadChannels();
     if (empty($channels)) {

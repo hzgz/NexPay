@@ -4,6 +4,7 @@ namespace app\service\system;
 
 use app\model\SystemConfig;
 use app\service\payment\SignService;
+use RuntimeException;
 use Throwable;
 
 class ConfigService
@@ -126,15 +127,25 @@ class ConfigService
 
     public static function platformPrivateKey(): string
     {
-        return (string)self::get('platform_private_key', '');
+        $privateKey = trim((string)self::get('platform_private_key', ''));
+        if ($privateKey === '') {
+            throw new RuntimeException('平台私钥未配置，拒绝继续签名');
+        }
+
+        return $privateKey;
     }
 
     public static function internalRefundSecret(): string
     {
-        return (string)self::get(
+        $secret = trim((string)self::get(
             'internal_refund_secret',
             env('INTERNAL_REFUND_SECRET', env('TOKEN_SECRET', ''))
-        );
+        ));
+        if ($secret === '') {
+            throw new RuntimeException('内部退款密钥未配置，拒绝继续处理内部退款验签');
+        }
+
+        return $secret;
     }
 
     protected static function normalizeValue(mixed $value): mixed

@@ -4,6 +4,7 @@ namespace app\service\system;
 
 use app\constant\StatusCode;
 use app\exception\BusinessException;
+use app\service\payment\OrderService;
 
 class MerchantFundService
 {
@@ -63,9 +64,7 @@ class MerchantFundService
         }
 
         $amount = number_format((float)($payload['amount'] ?? 0), 2, '.', '');
-        if ((float)$amount <= 0) {
-            throw new BusinessException('充值金额必须大于 0', StatusCode::VALIDATION_ERROR);
-        }
+        OrderService::assertPositiveOrderAmount($amount, '充值金额');
 
         $method = self::resolveRechargeMethodCode($payload);
         if ($method === '') {
@@ -98,7 +97,11 @@ class MerchantFundService
             );
         }
 
-        $order = SystemBusinessPaymentService::create('system_checkout', [
+        $order = SystemBusinessPaymentService::createBusinessOrder(
+            'system_checkout',
+            $merchantId,
+            'merchant_recharge',
+            [
             'merchant_id' => $merchantId,
             'out_trade_no' => self::generateOutTradeNo($merchantId),
             'channel_code' => $method,
@@ -117,7 +120,8 @@ class MerchantFundService
                     'requested_method' => $method,
                 ],
             ],
-        ]);
+            ]
+        );
 
         return [
             'trade_no' => (string)$order->trade_no,
@@ -161,6 +165,6 @@ class MerchantFundService
 
     private static function generateOutTradeNo(int $merchantId): string
     {
-        return 'RECHARGE-' . date('YmdHis') . '-' . $merchantId . '-' . random_int(100000, 999999);
+        return SystemBusinessPaymentService::fallbackBusinessOutTradeNo('RECHARGE', $merchantId);
     }
 }

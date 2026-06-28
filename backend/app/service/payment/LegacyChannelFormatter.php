@@ -15,13 +15,26 @@ class LegacyChannelFormatter
         $merchantChannel = $channel['merchant_channel'] ?? null;
         $channelType = $channel['channel_type'] ?? null;
         $config = is_array($merchantChannel->config ?? null) ? $merchantChannel->config : [];
+        $methodCode = PaymentMetaService::normalizeMethodCode((string)($channelType->code ?? $config['method_code'] ?? ''));
+        $pluginCode = PluginCodeService::normalize((string)($config['plugin_code'] ?? ''));
+        $pluginKind = trim((string)($config['plugin_kind'] ?? ''));
+        $displayValue = self::displayValue($config);
+        $paymentAddress = trim((string)($config['payment_address'] ?? ''));
+        if ($paymentAddress === '') {
+            $paymentAddress = $displayValue;
+        }
 
         return [
             'merchant_channel_id' => (int)($merchantChannel->id ?? 0),
             'merchant_id' => (int)($merchantChannel->merchant_id ?? 0),
             'channel_type_id' => (int)($channelType->id ?? 0),
-            'channel_code' => (string)($channelType->code ?? ''),
+            'channel_code' => $methodCode,
             'channel_category' => (int)($channelType->category ?? 0),
+            'plugin_code' => $pluginCode,
+            'plugin_kind' => $pluginKind,
+            'method_name' => trim((string)($config['method_name'] ?? PaymentMetaService::friendlyMethodName($methodCode))),
+            'payment_address' => $paymentAddress,
+            'display_value' => $displayValue,
             'config' => $config,
             'rate' => (float)($merchantChannel->rate ?? 0),
             'remark' => (string)($merchantChannel->remark ?? ''),

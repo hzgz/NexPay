@@ -46,6 +46,8 @@ class OrderStatusService
             'callback_status_key' => (string)$callback['key'],
             'callback_status_label' => (string)$callback['label'],
             'callback_status_code' => (int)$callback['code'],
+            'callback_status_theme' => (string)($callback['theme'] ?? 'warning'),
+            'callback_status_hint' => (string)($callback['hint'] ?? ''),
             'refund_amount' => number_format($refundAmount, 2, '.', ''),
         ]);
     }
@@ -75,6 +77,8 @@ class OrderStatusService
             'callback_status_key' => (string)$callback['key'],
             'callback_status_label' => (string)$callback['label'],
             'callback_status_code' => (int)$callback['code'],
+            'callback_status_theme' => (string)($callback['theme'] ?? 'warning'),
+            'callback_status_hint' => (string)($callback['hint'] ?? ''),
             'refund_amount' => number_format(self::refundAmount($row), 2, '.', ''),
         ]);
     }
@@ -160,12 +164,22 @@ class OrderStatusService
             ];
         }
 
-        return match ($status) {
-            2 => ['key' => 'success', 'label' => '回调成功', 'code' => 2],
-            3 => ['key' => 'failed', 'label' => '回调失败', 'code' => 3],
-            1 => ['key' => 'pending', 'label' => '回调中', 'code' => 1],
-            default => ['key' => 'queued', 'label' => '待回调', 'code' => 0],
-        };
+        $notifyPayload = is_array($row['notify_payload'] ?? null) ? $row['notify_payload'] : [];
+        $callbackPayload = is_array($notifyPayload['callback'] ?? null) ? $notifyPayload['callback'] : [];
+        $state = CallbackService::describeCallbackState(
+            $status,
+            $callbackPayload,
+            (int)($row['callback_count'] ?? 0),
+            0
+        );
+
+        return [
+            'key' => (string)($state['key'] ?? 'queued'),
+            'label' => (string)($state['label'] ?? '待回调'),
+            'code' => $status === 0 ? 0 : $status,
+            'theme' => (string)($state['theme'] ?? 'warning'),
+            'hint' => (string)($state['hint'] ?? ''),
+        ];
     }
 
     private static function refundAmount(array $row): float

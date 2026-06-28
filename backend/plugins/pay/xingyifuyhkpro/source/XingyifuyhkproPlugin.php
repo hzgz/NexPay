@@ -60,7 +60,7 @@ class XingyifuyhkproPlugin extends BasePayment
                 $url = 'alipays://platformapi/startapp?saId=10000007&qrcode=' . urlencode($codeUrl);
                 return ['type' => 'jump', 'url' => $url];
             }
-            $expiresIn = (string)(strtotime($ctx->order['addtime']) + 300 - time());
+            $expiresIn = (string)(strtotime($ctx->order['addtime']) + 360 - time());
             return view($this->payRoot . 'view/alipay_qrcode.html', [
                 'code_url' => $codeUrl,
                 'order' => $ctx->order,
@@ -74,11 +74,11 @@ class XingyifuyhkproPlugin extends BasePayment
                 $url = 'weixin://dl/business/?appid=wx7cd05626d476f4cc&path=pages/scene/index&query=' . $query;
                 return ['type' => 'scheme', 'page' => 'wxpay_mini', 'url' => $url];
             }
-            return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'wxpay_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 360];
         }
 
         if ($type === 'bank') {
-            return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 300];
+            return ['type' => 'qrcode', 'page' => 'bank_qrcode', 'url' => $codeUrl, 'expire' => strtotime($ctx->order['addtime']) + 360];
         }
 
         return ['type' => 'error', 'msg' => '不支持的支付方式'];

@@ -10,9 +10,11 @@ use app\model\MerchantChannel;
 use app\model\Order;
 use app\service\payment\CallbackTrustService;
 use app\service\payment\LocalOrderStore;
+use app\service\payment\OpenApiGuardService;
 use app\service\payment\OrderService;
 use app\service\payment\PluginNotifyLogService;
 use app\service\system\AccountService;
+use app\service\system\ConfigService;
 use app\service\system\JsonStoreService;
 use app\service\system\MerchantApiService;
 use app\service\system\MerchantChannelService;
@@ -26,6 +28,9 @@ class SoftwareCompatController extends BaseApiController
     public function verify(Request $request): Response
     {
         $payload = $this->compatPayload($request);
+        if (($guard = $this->validateSoftwareCompatRequest($payload, 'software.verify')) !== null) {
+            return $guard;
+        }
         $merchantId = $this->resolveMerchantId($payload);
         $key = $this->resolveCredential($payload, ['key', 'token']);
 
@@ -44,6 +49,9 @@ class SoftwareCompatController extends BaseApiController
     public function heartbeat(Request $request): Response
     {
         $payload = $this->compatPayload($request);
+        if (($guard = $this->validateSoftwareCompatRequest($payload, 'software.heartbeat')) !== null) {
+            return $guard;
+        }
         $merchantId = $this->resolveMerchantId($payload);
         $key = $this->resolveCredential($payload, ['key', 'token']);
         $channelId = $this->resolveChannelId($payload);
@@ -70,6 +78,9 @@ class SoftwareCompatController extends BaseApiController
     public function checkOrder(Request $request): Response
     {
         $payload = $this->compatPayload($request);
+        if (($guard = $this->validateSoftwareCompatRequest($payload, 'software.check-order')) !== null) {
+            return $guard;
+        }
         $merchantId = $this->resolveMerchantId($payload);
         $key = $this->resolveCredential($payload, ['key', 'token']);
         $channelId = $this->resolveChannelId($payload);
@@ -130,6 +141,9 @@ class SoftwareCompatController extends BaseApiController
     public function pcNotify(Request $request): Response
     {
         $payload = $this->compatPayload($request);
+        if (($guard = $this->validateSoftwareCompatRequest($payload, 'software.pc-notify')) !== null) {
+            return $guard;
+        }
         $merchantId = $this->resolveMerchantId($payload);
         $key = $this->resolveCredential($payload, ['key', 'token']);
         $channelId = $this->resolveChannelId($payload);
@@ -201,7 +215,13 @@ class SoftwareCompatController extends BaseApiController
     public function report(Request $request, string $merchantId = ''): Response
     {
         $payload = $this->compatPayload($request);
-        $resolvedMerchantId = $this->resolveMerchantId($payload, $merchantId !== '' ? $merchantId : $this->extractReportMerchantId($request));
+        $reportMerchantId = $merchantId !== '' ? $merchantId : $this->extractReportMerchantId($request);
+        $payload['report_url'] = rtrim((string)config_get('app_url', ConfigService::gatewayBaseUrl()), '/')
+            . '/api/report/' . trim((string)$reportMerchantId);
+        if (($guard = $this->validateMonitorReportRequest($payload)) !== null) {
+            return $guard;
+        }
+        $resolvedMerchantId = $this->resolveMerchantId($payload, $reportMerchantId);
         $token = $this->resolveCredential($payload, ['token', 'key']);
 
         if ($resolvedMerchantId <= 0) {
@@ -309,6 +329,26 @@ class SoftwareCompatController extends BaseApiController
     {
         $payload = $this->payload($request);
         return is_array($payload) ? $payload : [];
+    }
+
+    private function validateSoftwareCompatRequest(array $payload, string $scope): ?Response
+    {
+        try {
+            OpenApiGuardService::assertSoftwareCompatFreshness($payload, $scope);
+            return null;
+        } catch (Throwable $exception) {
+            return $this->legacyResponse(201, $exception->getMessage());
+        }
+    }
+
+    private function validateMonitorReportRequest(array $payload): ?Response
+    {
+        try {
+            OpenApiGuardService::assertSoftwareCompatFreshness($payload, 'software.report');
+            return null;
+        } catch (Throwable $exception) {
+            return $this->monitorResponse(201, $exception->getMessage());
+        }
     }
 
     private function authorizeMerchant(int $merchantId, string $providedKey): ?object
@@ -427,6 +467,40 @@ class SoftwareCompatController extends BaseApiController
 
     private function merchantOrders(int $merchantId): array
     {
+        $items = [];
+        $seenTradeNos = [];
+
+        foreach ($this->rawMerchantOrders($merchantId) as $order) {
+            $tradeNo = trim((string)($order->trade_no ?? ''));
+            if ($tradeNo === '' || isset($seenTradeNos[$tradeNo])) {
+                continue;
+            }
+
+            try {
+                $items[] = OrderService::findByTradeNoForRead($tradeNo, [
+                    'source' => 'software-compat-merchant-orders',
+                ]);
+            } catch (Throwable) {
+                $items[] = $order;
+            }
+            $seenTradeNos[$tradeNo] = true;
+        }
+
+        usort($items, function (object $left, object $right): int {
+            $leftId = (int)($left->id ?? 0);
+            $rightId = (int)($right->id ?? 0);
+            if ($leftId !== $rightId) {
+                return $rightId <=> $leftId;
+            }
+
+            return strcmp((string)($right->created_at ?? ''), (string)($left->created_at ?? ''));
+        });
+
+        return $items;
+    }
+
+    private function rawMerchantOrders(int $merchantId): array
+    {
         $orders = [];
 
         if (database_available()) {
@@ -450,18 +524,7 @@ class SoftwareCompatController extends BaseApiController
             $orders[$tradeNo] = $order;
         }
 
-        $items = array_values($orders);
-        usort($items, function (object $left, object $right): int {
-            $leftId = (int)($left->id ?? 0);
-            $rightId = (int)($right->id ?? 0);
-            if ($leftId !== $rightId) {
-                return $rightId <=> $leftId;
-            }
-
-            return strcmp((string)($right->created_at ?? ''), (string)($left->created_at ?? ''));
-        });
-
-        return $items;
+        return array_values($orders);
     }
 
     private function isPendingOrder(object $order): bool

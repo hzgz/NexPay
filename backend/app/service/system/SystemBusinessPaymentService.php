@@ -7,6 +7,8 @@ use app\exception\BusinessException;
 use app\service\payment\LegacyPaymentGatewayService;
 use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
+use app\service\system\MerchantAuthService;
+use app\service\system\PackageService;
 use Throwable;
 
 class SystemBusinessPaymentService
@@ -16,11 +18,99 @@ class SystemBusinessPaymentService
     private const MODE_V1 = 'v1';
     private const MODE_V2 = 'v2';
     private const MIN_AMOUNT_DEFAULT = '0.10';
+    private const IDEMPOTENT_BUSINESSES = [
+        'merchant_recharge',
+        'merchant_package_purchase',
+        'merchant_register_fee',
+        'homepage_payment_test',
+        'channel_test',
+    ];
+
+    private const FUND_BUSINESSES = [
+        'merchant_recharge',
+        'merchant_package_purchase',
+        'merchant_register_fee',
+    ];
+
+    private const TEST_SYNC_BUSINESSES = [
+        'homepage_payment_test',
+        'channel_test',
+    ];
+
+    private const FUND_BUSINESS_REF_TYPES = [
+        'merchant_recharge' => 'recharge',
+        'merchant_register_fee' => 'register_fee',
+        'merchant_package_purchase' => 'package_purchase',
+    ];
+
+    private const FUND_ORDER_TYPE_LABELS = [
+        'merchant_recharge' => '在线充值订单',
+        'merchant_register_fee' => '商户注册收费订单',
+        'merchant_package_purchase' => '套餐购买订单',
+    ];
+
+    private const BUSINESS_META = [
+        'merchant_recharge' => [
+            'type' => '商户充值订单',
+            'source' => '在线充值',
+        ],
+        'merchant_package_purchase' => [
+            'type' => '套餐购买订单',
+            'source' => '套餐购买',
+        ],
+        'merchant_register_fee' => [
+            'type' => '商户注册收费订单',
+            'source' => '注册收费',
+        ],
+        'homepage_payment_test' => [
+            'type' => '首页测试订单',
+            'source' => '首页测试',
+        ],
+        'channel_test' => [
+            'type' => '通道测试订单',
+            'source' => '通道测试',
+        ],
+    ];
 
     public static function create(string $configKey, array $payload): object
     {
         $config = self::gatewayConfig($configKey, $payload);
         return self::createResolvedOrder($config, $payload);
+    }
+
+    public static function createBusinessOrder(
+        string $configKey,
+        int $merchantId,
+        string $business,
+        array $payload,
+        array $extraMeta = []
+    ): object {
+        return self::create($configKey, self::composeBusinessCreatePayload(
+            $merchantId,
+            $business,
+            $payload,
+            $extraMeta
+        ));
+    }
+
+    public static function createBusinessOrderFromLegacyChannelSnapshot(
+        array $snapshot,
+        int $merchantId,
+        string $business,
+        array $payload,
+        array $extraMeta = []
+    ): object {
+        $resolvedMerchantId = $merchantId > 0 ? $merchantId : (int)($snapshot['merchant_id'] ?? 0);
+        if ($resolvedMerchantId <= 0) {
+            throw new BusinessException('业务订单缺少商户信息', StatusCode::VALIDATION_ERROR);
+        }
+
+        return self::createFromLegacyChannelSnapshot($snapshot, self::composeBusinessCreatePayload(
+            $resolvedMerchantId,
+            $business,
+            $payload,
+            $extraMeta
+        ));
     }
 
     public static function createFromLegacyChannelSnapshot(array $snapshot, array $payload): object
@@ -43,50 +133,131 @@ class SystemBusinessPaymentService
         ], $payload);
     }
 
+    public static function composeBusinessCreatePayload(
+        int $merchantId,
+        string $business,
+        array $payload,
+        array $extraMeta = []
+    ): array {
+        $requestPayload = is_array($payload['request_payload'] ?? null) ? $payload['request_payload'] : [];
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+        $requestedMethod = trim((string)(
+            $payload['channel_code']
+            ?? $payload['type']
+            ?? $payload['method_code']
+            ?? $extraMeta['requested_method']
+            ?? $meta['requested_method']
+            ?? ''
+        ));
+
+        $mergedMeta = array_replace($meta, $extraMeta);
+        $mergedMeta['business'] = trim((string)($mergedMeta['business'] ?? $business)) ?: $business;
+        $mergedMeta['merchant_id'] = $merchantId;
+        if ($requestedMethod !== '') {
+            $mergedMeta['requested_method'] = $requestedMethod;
+        }
+
+        $requestPayload['_meta'] = $mergedMeta;
+
+        $mergedPayload = array_replace([
+            'merchant_id' => $merchantId,
+            'channel_category' => 2,
+            'notify_url' => '',
+        ], $payload);
+        $mergedPayload['merchant_id'] = $merchantId;
+        $mergedPayload['channel_category'] = (int)($mergedPayload['channel_category'] ?? 2);
+        $mergedPayload['notify_url'] = trim((string)($mergedPayload['notify_url'] ?? ''));
+        $mergedPayload['request_payload'] = $requestPayload;
+
+        return $mergedPayload;
+    }
+
+    public static function fallbackBusinessOutTradeNo(string $prefix, int $merchantId, array $segments = []): string
+    {
+        $parts = [strtoupper(trim($prefix)), date('YmdHis'), (string)$merchantId];
+        foreach ($segments as $segment) {
+            $clean = OrderService::normalizeGatewayOutTradeNo((string)$segment);
+            if ($clean !== '') {
+                $parts[] = $clean;
+            }
+        }
+
+        $parts[] = (string)random_int(100000, 999999);
+
+        return OrderService::normalizeGatewayOutTradeNo(implode('-', $parts));
+    }
+
     private static function createResolvedOrder(array $config, array $payload): object
     {
-        $merchantId = (int)($payload['merchant_id'] ?? 0);
+        $normalized = OrderService::normalizeGatewayCreateInput($payload, [
+            'subject' => '系统业务订单',
+        ]);
+
+        $merchantId = (int)($normalized['merchant_id'] ?? 0);
         if ($merchantId <= 0) {
             throw new BusinessException('业务订单缺少商户信息', StatusCode::VALIDATION_ERROR);
         }
 
-        $amount = number_format((float)($payload['amount'] ?? 0), 2, '.', '');
-        if ((float)$amount <= 0) {
-            throw new BusinessException('支付金额必须大于 0', StatusCode::VALIDATION_ERROR);
-        }
+        $amount = number_format((float)($normalized['amount'] ?? 0), 2, '.', '');
+        OrderService::assertPositiveOrderAmount($amount);
         self::assertMinimumAmount($amount, (string)($config['min_amount'] ?? self::MIN_AMOUNT_DEFAULT));
 
-        $tradeNo = self::resolvedTradeNo((string)($payload['trade_no'] ?? ''));
+        $tradeNo = self::resolvedTradeNo((string)($normalized['trade_no'] ?? ''));
         $createdAt = date('Y-m-d H:i:s');
-        $returnUrl = trim((string)($payload['return_url'] ?? ''));
-        $requestPayload = is_array($payload['request_payload'] ?? null) ? $payload['request_payload'] : [];
+        $returnUrl = trim((string)($normalized['return_url'] ?? ''));
+        $requestPayload = is_array($normalized['request_payload'] ?? null) ? $normalized['request_payload'] : [];
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
-        $sourceProtocol = strtolower(trim((string)($payload['source_protocol'] ?? $meta['source_protocol'] ?? $config['source_protocol'] ?? $config['mode'] ?? '')));
+        $sourceProtocol = strtolower(trim((string)($normalized['source_protocol'] ?? $meta['source_protocol'] ?? $config['source_protocol'] ?? $config['mode'] ?? '')));
         if ($sourceProtocol !== '') {
             $meta['source_protocol'] = $sourceProtocol;
         }
-        $gatewaySource = trim((string)($payload['gateway_source'] ?? $config['source'] ?? 'configured')) ?: 'configured';
+        $gatewaySource = trim((string)($normalized['gateway_source'] ?? $config['source'] ?? 'configured')) ?: 'configured';
         $meta['gateway_source'] = $gatewaySource;
-        $meta['order_origin'] = trim((string)($payload['order_origin'] ?? $meta['order_origin'] ?? 'system_business')) ?: 'system_business';
-        $meta['order_scene'] = trim((string)($payload['order_scene'] ?? $meta['order_scene'] ?? $meta['business'] ?? 'system_business')) ?: 'system_business';
-        $meta['business'] = trim((string)($payload['business'] ?? $meta['business'] ?? 'system_business')) ?: 'system_business';
-        $requestedMethod = trim((string)($payload['channel_code'] ?? $payload['type'] ?? $meta['requested_method'] ?? ''));
+        $meta['order_origin'] = trim((string)($normalized['order_origin'] ?? $meta['order_origin'] ?? 'system_business')) ?: 'system_business';
+        $meta['order_scene'] = trim((string)($normalized['order_scene'] ?? $meta['order_scene'] ?? $meta['business'] ?? 'system_business')) ?: 'system_business';
+        $meta['business'] = trim((string)($normalized['business'] ?? $meta['business'] ?? 'system_business')) ?: 'system_business';
+        $meta['config_key'] = trim((string)($normalized['config_key'] ?? $meta['config_key'] ?? ($config['config_key'] ?? '')));
+        $meta['requested_provider'] = trim((string)($normalized['requested_provider'] ?? $meta['requested_provider'] ?? ($normalized['provider'] ?? '')));
+        $meta['gateway_provider'] = trim((string)($normalized['gateway_provider'] ?? $meta['gateway_provider'] ?? ($config['provider'] ?? '')));
+        $meta['gateway_mode'] = trim((string)($normalized['gateway_mode'] ?? $meta['gateway_mode'] ?? ($config['mode'] ?? '')));
+        $meta['route_type'] = trim((string)($normalized['route_type'] ?? $meta['route_type'] ?? self::routeType($config)));
+        $requestedMethod = trim((string)($normalized['channel_code'] ?? $normalized['type'] ?? $meta['requested_method'] ?? ''));
         if ($requestedMethod !== '') {
             $meta['requested_method'] = $requestedMethod;
         }
         $credential = AccountService::merchantCredentialById($merchantId) ?? [];
-        $merchantName = trim((string)($payload['merchant_name'] ?? $credential['merchant_name'] ?? $credential['nickname'] ?? $credential['username'] ?? ''));
+        $merchantName = trim((string)($normalized['merchant_name'] ?? $credential['merchant_name'] ?? $credential['nickname'] ?? $credential['username'] ?? ''));
         if ($merchantName !== '') {
             $meta['merchant_name'] = $merchantName;
         }
-        $meta['merchant_pid'] = trim((string)($payload['merchant_pid'] ?? $credential['id'] ?? $merchantId));
+        $meta['merchant_pid'] = trim((string)($normalized['merchant_pid'] ?? $credential['id'] ?? $merchantId));
         $meta['merchant_id'] = $merchantId;
-        $carrierMerchantId = (int)($payload['carrier_merchant_id'] ?? $config['carrier_merchant_id'] ?? 0);
+        $carrierMerchantId = (int)($normalized['carrier_merchant_id'] ?? $config['carrier_merchant_id'] ?? 0);
         if ($carrierMerchantId > 0) {
             $meta['carrier_merchant_id'] = $carrierMerchantId;
         }
+        $localMerchantId = (int)($normalized['local_merchant_id'] ?? $config['local_merchant_id'] ?? 0);
+        if ($localMerchantId > 0) {
+            $meta['local_merchant_id'] = $localMerchantId;
+        }
 
-        $legacyChannel = self::legacyChannelSnapshot($config, $payload);
+        $outTradeNo = self::outTradeNo((string)($normalized['out_trade_no'] ?? ''), '');
+        if ($outTradeNo === '') {
+            $outTradeNo = self::resolvedTradeNo((string)($normalized['trade_no'] ?? ''));
+        }
+
+        $existing = self::findExistingBusinessOrder($merchantId, $outTradeNo, (string)($meta['business'] ?? ''));
+        if ($existing !== null) {
+            if ((int)($existing->status ?? OrderService::STATUS_PENDING) === OrderService::STATUS_SUCCESS) {
+                return OrderService::completeOrder($existing, [
+                    'source' => 'system-business-idempotent-reuse',
+                ]);
+            }
+
+            return $existing;
+        }
+
+        $legacyChannel = self::legacyChannelSnapshot($config, $normalized);
         $creationContext = OrderService::buildOrderCreationContext([
             'request_payload' => $requestPayload,
             'source_protocol' => $sourceProtocol,
@@ -94,11 +265,17 @@ class SystemBusinessPaymentService
             'gateway_source' => $gatewaySource,
             'order_origin' => (string)($meta['order_origin'] ?? 'system_business'),
             'order_scene' => (string)($meta['order_scene'] ?? 'system_business'),
+            'requested_provider' => (string)($meta['requested_provider'] ?? ''),
+            'gateway_provider' => (string)($meta['gateway_provider'] ?? ''),
+            'gateway_mode' => (string)($meta['gateway_mode'] ?? ''),
+            'config_key' => (string)($meta['config_key'] ?? ''),
+            'route_type' => (string)($meta['route_type'] ?? ''),
             'merchant_name' => $merchantName,
             'merchant_pid' => (string)($meta['merchant_pid'] ?? $merchantId),
             'merchant_id' => $merchantId,
-            'merchant_channel_id' => (int)($payload['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
+            'merchant_channel_id' => (int)($normalized['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
             'carrier_merchant_id' => $carrierMerchantId,
+            'local_merchant_id' => $localMerchantId,
             'type' => $requestedMethod,
             'legacy_channel_snapshot' => $legacyChannel,
         ], [
@@ -110,19 +287,19 @@ class SystemBusinessPaymentService
         $requestPayload = $creationContext['request_payload'] ?? [];
         $orderPayload = OrderService::buildPendingOrderPayload([
             'trade_no' => $tradeNo,
-            'out_trade_no' => self::outTradeNo((string)($payload['out_trade_no'] ?? ''), $tradeNo),
+            'out_trade_no' => $outTradeNo !== '' ? $outTradeNo : $tradeNo,
             'merchant_id' => $merchantId,
-            'merchant_channel_id' => (int)($payload['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
-            'channel_code' => (string)($payload['channel_code'] ?? $legacyChannel['channel_code'] ?? ''),
-            'channel_category' => (int)($payload['channel_category'] ?? $legacyChannel['channel_category'] ?? 2),
-            'subject' => trim((string)($payload['subject'] ?? '系统业务订单')) ?: '系统业务订单',
+            'merchant_channel_id' => (int)($normalized['merchant_channel_id'] ?? $legacyChannel['merchant_channel_id'] ?? 0),
+            'channel_code' => (string)($normalized['channel_code'] ?? $legacyChannel['channel_code'] ?? ''),
+            'channel_category' => (int)($normalized['channel_category'] ?? $legacyChannel['channel_category'] ?? 2),
+            'subject' => trim((string)($normalized['subject'] ?? '系统业务订单')) ?: '系统业务订单',
             'amount' => $amount,
             'status' => OrderService::STATUS_PENDING,
-            'notify_url' => trim((string)($payload['notify_url'] ?? '')),
+            'notify_url' => trim((string)($normalized['notify_url'] ?? '')),
             'return_url' => $returnUrl,
-            'client_ip' => trim((string)($payload['client_ip'] ?? '')),
-            'param' => trim((string)($payload['param'] ?? 'business-payment')),
-            'expire_time' => trim((string)($payload['expire_time'] ?? date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS))),
+            'client_ip' => trim((string)($normalized['client_ip'] ?? '')),
+            'param' => trim((string)($normalized['param'] ?? 'business-payment')),
+            'expire_time' => trim((string)($normalized['expire_time'] ?? date('Y-m-d H:i:s', time() + OrderService::DEFAULT_EXPIRE_SECONDS))),
             'request_payload' => $requestPayload,
             'notify_payload' => [],
             'legacy_channel_snapshot' => $legacyChannel,
@@ -180,9 +357,63 @@ class SystemBusinessPaymentService
         return rtrim((string)ConfigService::gatewayBaseUrl(), '/') . '/pay/checkout/' . rawurlencode($tradeNo);
     }
 
+    public static function isBusinessIdempotent(string $business): bool
+    {
+        return in_array(strtolower(trim($business)), self::IDEMPOTENT_BUSINESSES, true);
+    }
+
+    public static function isFundBusiness(string $business): bool
+    {
+        return in_array(strtolower(trim($business)), self::FUND_BUSINESSES, true);
+    }
+
+    public static function isTestSyncBusiness(string $business): bool
+    {
+        return in_array(strtolower(trim($business)), self::TEST_SYNC_BUSINESSES, true);
+    }
+
+    public static function fundRefType(string $business): string
+    {
+        return self::FUND_BUSINESS_REF_TYPES[strtolower(trim($business))] ?? '';
+    }
+
+    public static function businessByFundRefType(string $refType): string
+    {
+        $normalized = strtolower(trim($refType));
+        foreach (self::FUND_BUSINESS_REF_TYPES as $business => $mappedRefType) {
+            if ($mappedRefType === $normalized) {
+                return $business;
+            }
+        }
+
+        return '';
+    }
+
+    public static function fundOrderTypeLabel(string $business): string
+    {
+        return self::FUND_ORDER_TYPE_LABELS[strtolower(trim($business))] ?? '系统订单';
+    }
+
+    public static function businessMeta(string $business): array
+    {
+        return self::BUSINESS_META[strtolower(trim($business))] ?? [];
+    }
+
+    public static function businessSourceLabel(string $business): string
+    {
+        return (string)(self::businessMeta($business)['source'] ?? '');
+    }
+
+    public static function businessTypeLabel(string $business): string
+    {
+        return (string)(self::businessMeta($business)['type'] ?? '');
+    }
+
     public static function paymentResult(string $tradeNo): array
     {
-        $order = OrderService::syncHomepageTestOrder(OrderService::findByTradeNo($tradeNo));
+        $order = OrderService::findByTradeNoForRead($tradeNo, [
+            'source' => 'system-business-payment-result-read',
+        ]);
         $statusInfo = OrderStatusService::forCheckout($order);
         $requestPayload = is_array($order->request_payload ?? null) ? $order->request_payload : [];
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
@@ -206,6 +437,23 @@ class SystemBusinessPaymentService
         ];
     }
 
+    public static function completeBusinessOrder(object $order): void
+    {
+        $business = self::businessKeyFromOrder($order);
+        if ($business === '') {
+            return;
+        }
+
+        if ($business === 'merchant_register_fee') {
+            MerchantAuthService::completeRegistrationPayment($order);
+            return;
+        }
+
+        if ($business === 'merchant_package_purchase') {
+            PackageService::completePurchasePayment($order);
+        }
+    }
+
     private static function persistOrder(array $orderPayload): object
     {
         $requestPayload = is_array($orderPayload['request_payload'] ?? null) ? $orderPayload['request_payload'] : [];
@@ -219,6 +467,16 @@ class SystemBusinessPaymentService
                 'order_scene' => 'system_business',
             ])
         );
+    }
+
+    public static function businessKeyFromOrder(object|array $order): string
+    {
+        $requestPayload = is_array($order)
+            ? (is_array($order['request_payload'] ?? null) ? $order['request_payload'] : [])
+            : (is_array($order->request_payload ?? null) ? $order->request_payload : []);
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+
+        return strtolower(trim((string)($meta['business'] ?? '')));
     }
 
     private static function resolvedTradeNo(string $candidate): string
@@ -967,6 +1225,37 @@ class SystemBusinessPaymentService
     private static function pluginName(string $pluginCode): string
     {
         return $pluginCode === 'epay' ? '易支付 V1' : '易支付 V2';
+    }
+
+    private static function findExistingBusinessOrder(int $merchantId, string $outTradeNo, string $business): ?object
+    {
+        if ($merchantId <= 0 || $outTradeNo === '') {
+            return null;
+        }
+
+        if (!self::isBusinessIdempotent($business)) {
+            return null;
+        }
+
+        return OrderService::gatewayMerchantOrderOrNull($merchantId, null, $outTradeNo);
+    }
+
+    private static function routeType(array $config): string
+    {
+        $source = trim((string)($config['source'] ?? ''));
+        if ($source === 'collector_channel') {
+            return 'collector_channel';
+        }
+
+        if ($source === 'merchant_channel') {
+            return 'merchant_channel';
+        }
+
+        if ($source === 'merchant_channel_snapshot') {
+            return 'merchant_channel_snapshot';
+        }
+
+        return 'configured_gateway';
     }
 
     private static function normalizeGatewayBaseUrl(string $value, string $mode): string

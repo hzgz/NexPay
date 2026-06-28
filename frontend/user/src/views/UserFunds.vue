@@ -315,6 +315,14 @@ function flowStatusClass(item: Record<string, any>) {
   return 'warning'
 }
 
+function displayText(value: unknown) {
+  return String(value ?? '').trim() || '-'
+}
+
+function flowOrderTitle(item: Record<string, any>) {
+  return [item.trade_no, item.out_trade_no].map((value) => String(value || '').trim()).filter(Boolean).join('\n') || '-'
+}
+
 onMounted(loadFunds)
 </script>
 
@@ -504,6 +512,7 @@ onMounted(loadFunds)
         <div class="table-head flow-grid">
           <span>类型</span>
           <span>订单号</span>
+          <span>商品名称</span>
           <span>支付方式</span>
           <span>变动金额</span>
           <span>变动后余额</span>
@@ -512,13 +521,20 @@ onMounted(loadFunds)
           <span>时间</span>
         </div>
         <div v-for="item in pagedFlows" :key="item.row_key || (item.type + item.created_at + item.remark)" class="table-row flow-grid">
-          <strong>{{ item.type }}</strong>
-          <span>{{ item.trade_no || item.out_trade_no || '-' }}</span>
-          <span>{{ item.method_name || '-' }}</span>
+          <div class="flow-type-stack">
+            <strong>{{ item.type }}</strong>
+            <span class="flow-type-stack__meta">{{ item.source_label || '-' }}</span>
+          </div>
+          <div class="flow-order-stack" :title="flowOrderTitle(item)">
+            <span class="ellipsis-text">{{ displayText(item.trade_no) }}</span>
+            <span v-if="item.out_trade_no" class="flow-order-stack__sub ellipsis-text">{{ displayText(item.out_trade_no) }}</span>
+          </div>
+          <span class="ellipsis-text" :title="displayText(item.subject)">{{ displayText(item.subject) }}</span>
+          <span class="ellipsis-text" :title="displayText(item.method_name)">{{ displayText(item.method_name) }}</span>
           <span>{{ item.amount }}</span>
           <span>{{ item.balance_after || '-' }}</span>
           <span><span class="status-chip" :class="flowStatusClass(item)">{{ item.status || '-' }}</span></span>
-          <span>{{ item.remark || '-' }}</span>
+          <span class="ellipsis-text" :title="displayText(item.remark)">{{ displayText(item.remark) }}</span>
           <span>{{ item.created_at }}</span>
         </div>
         <AppPagination
@@ -781,9 +797,29 @@ onMounted(loadFunds)
 
 .flow-grid {
   display: grid;
-  grid-template-columns: 0.9fr 1.2fr 0.9fr 0.7fr 0.8fr 0.8fr 1.2fr 1fr;
+  grid-template-columns: 0.9fr 1.3fr 1.1fr 0.95fr 0.72fr 0.82fr 0.86fr 1.15fr 1fr;
   gap: 12px;
   align-items: center;
+}
+
+.flow-type-stack,
+.flow-order-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.flow-type-stack__meta,
+.flow-order-stack__sub {
+  color: var(--brand-text-soft);
+  font-size: 12px;
+}
+
+.ellipsis-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .payout-grid {

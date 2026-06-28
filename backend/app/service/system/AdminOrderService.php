@@ -6,7 +6,9 @@ use app\constant\StatusCode;
 use app\exception\BusinessException;
 use app\model\Order;
 use app\service\payment\CallbackService;
+use app\service\payment\LocalOrderEventStore;
 use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
 use Throwable;
 
@@ -63,8 +65,6 @@ class AdminOrderService
         ]);
 
         return [
-            'trade_no' => (string)($order->trade_no ?? ''),
-            'out_trade_no' => (string)($order->out_trade_no ?? ''),
             'callback_id' => (int)($callback->id ?? 0),
             'notify_url' => $notifyUrl,
             'checked' => (int)($result['checked'] ?? 0),
@@ -72,7 +72,7 @@ class AdminOrderService
             'deferred' => (int)($result['deferred'] ?? 0),
             'failed' => (int)($result['failed'] ?? 0),
             'message' => (string)($result['message'] ?? ''),
-        ];
+        ] + self::statusSnapshot($order);
     }
 
     public static function deleteOrder(array $payload = [], string $operator = 'admin'): array
@@ -95,16 +95,17 @@ class AdminOrderService
             'deleted_at' => $deletedAt,
             'notify_payload' => $notifyPayload,
         ]);
+        CallbackService::cancelOrderCallbacks($updated);
+        LocalOrderEventStore::recordDeleted($updated, [
+            'source' => 'admin_delete',
+            'deleted_at' => $deletedAt,
+        ]);
 
         self::appendAdminLog($operator, '删除订单', $updated, [
             'deleted_at' => $deletedAt,
         ]);
 
-        return [
-            'trade_no' => (string)($updated->trade_no ?? $order->trade_no ?? ''),
-            'out_trade_no' => (string)($updated->out_trade_no ?? $order->out_trade_no ?? ''),
-            'deleted_at' => $deletedAt,
-        ];
+        return self::statusSnapshot($updated);
     }
 
     private static function resolveOrderIdentity(array $payload): array
@@ -122,14 +123,18 @@ class AdminOrderService
     private static function findOrder(string $tradeNo, string $outTradeNo): object
     {
         if ($tradeNo !== '') {
-            return OrderService::findByTradeNo($tradeNo);
+            return OrderService::findByTradeNoForRead($tradeNo, [
+                'source' => 'admin-order-service-trade-no-read',
+            ]);
         }
 
         if (\database_available()) {
             try {
                 $order = Order::where('out_trade_no', $outTradeNo)->order('id', 'desc')->find();
                 if ($order) {
-                    return $order;
+                    return OrderService::normalizeOrderForRead($order, [
+                        'source' => 'admin-order-service-out-trade-no-read',
+                    ]);
                 }
             } catch (Throwable) {
             }
@@ -137,7 +142,9 @@ class AdminOrderService
 
         foreach (array_reverse(LocalOrderStore::allOrders()) as $order) {
             if (trim((string)($order->out_trade_no ?? '')) === $outTradeNo) {
-                return $order;
+                return OrderService::normalizeOrderForRead($order, [
+                    'source' => 'admin-order-service-out-trade-no-read',
+                ]);
             }
         }
 
@@ -163,5 +170,31 @@ class AdminOrderService
                 'status' => (string)($order->status ?? ''),
             ], $detail),
         ]);
+    }
+
+    private static function statusSnapshot(object $order): array
+    {
+        $status = OrderStatusService::forOperations($order);
+
+        return [
+            'trade_no' => (string)($order->trade_no ?? ''),
+            'out_trade_no' => (string)($order->out_trade_no ?? ''),
+            'status' => (string)($status['label'] ?? ''),
+            'status_code' => (int)($status['code'] ?? OrderStatusService::DISPLAY_PENDING),
+            'status_key' => (string)($status['key'] ?? 'pending'),
+            'status_theme' => (string)($status['theme'] ?? 'warning'),
+            'payment_status_label' => (string)($status['payment_status_label'] ?? ''),
+            'payment_status_code' => (int)($status['payment_status_code'] ?? 0),
+            'payment_status_key' => (string)($status['payment_status_key'] ?? ''),
+            'callback_status_label' => (string)($status['callback_status_label'] ?? ''),
+            'callback_status_code' => (int)($status['callback_status_code'] ?? 0),
+            'callback_status_key' => (string)($status['callback_status_key'] ?? ''),
+            'callback_status_theme' => (string)($status['callback_status_theme'] ?? 'warning'),
+            'callback_status_hint' => (string)($status['callback_status_hint'] ?? ''),
+            'callback_count' => (int)($order->callback_count ?? 0),
+            'notify_url' => trim((string)($order->notify_url ?? '')),
+            'deleted_at' => (string)($order->deleted_at ?? ''),
+            'is_deleted' => self::isDeleted($order),
+        ];
     }
 }

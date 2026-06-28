@@ -2,6 +2,8 @@
 
 namespace app\service\auth;
 
+use RuntimeException;
+
 class TokenService
 {
     public static function issue(string $guard, int $subjectId, array $claims = []): string
@@ -41,7 +43,12 @@ class TokenService
 
     private static function secret(): string
     {
-        return trim((string)env('TOKEN_SECRET', ''));
+        $secret = trim((string)env('TOKEN_SECRET', ''));
+        if ($secret === '') {
+            throw new RuntimeException('TOKEN_SECRET 未配置，系统拒绝签发或解析登录令牌');
+        }
+
+        return $secret;
     }
 
     private static function base64UrlEncode(string $value): string

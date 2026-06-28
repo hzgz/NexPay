@@ -228,6 +228,7 @@ CREATE TABLE IF NOT EXISTS `callback_queue` (
   `merchant_id` INT UNSIGNED NOT NULL,
   `notify_url` VARCHAR(255) NOT NULL,
   `payload` JSON NOT NULL,
+  `payload_hash` CHAR(64) DEFAULT NULL,
   `retry_count` INT NOT NULL DEFAULT 0,
   `max_retry` INT NOT NULL DEFAULT 10,
   `status` TINYINT(1) NOT NULL DEFAULT 0,
@@ -235,7 +236,78 @@ CREATE TABLE IF NOT EXISTS `callback_queue` (
   `last_error` TEXT DEFAULT NULL,
   `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX `idx_callback_queue_status_next` (`status`, `next_time`)
+  INDEX `idx_callback_queue_status_next` (`status`, `next_time`),
+  INDEX `idx_callback_queue_order_status` (`order_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `order_events` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `event_key` VARCHAR(120) NOT NULL UNIQUE,
+  `event_type` VARCHAR(40) NOT NULL,
+  `trade_no` VARCHAR(32) NOT NULL,
+  `out_trade_no` VARCHAR(64) DEFAULT NULL,
+  `merchant_id` INT UNSIGNED NOT NULL DEFAULT 0,
+  `merchant_channel_id` INT UNSIGNED NOT NULL DEFAULT 0,
+  `channel_code` VARCHAR(32) DEFAULT NULL,
+  `business` VARCHAR(64) DEFAULT NULL,
+  `source_protocol` VARCHAR(32) DEFAULT NULL,
+  `subject` VARCHAR(200) DEFAULT NULL,
+  `amount` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000,
+  `payable_amount` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000,
+  `status` TINYINT(1) NOT NULL DEFAULT 0,
+  `event_time` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  `meta` JSON DEFAULT NULL,
+  `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_order_events_trade_no_time` (`trade_no`, `event_time`),
+  INDEX `idx_order_events_merchant_time` (`merchant_id`, `event_time`),
+  INDEX `idx_order_events_type_time` (`event_type`, `event_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `payout_events` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `event_key` VARCHAR(160) NOT NULL UNIQUE,
+  `event_type` VARCHAR(40) NOT NULL,
+  `kind` VARCHAR(20) NOT NULL,
+  `reference_no` VARCHAR(64) NOT NULL,
+  `trade_no` VARCHAR(32) DEFAULT NULL,
+  `out_trade_no` VARCHAR(64) DEFAULT NULL,
+  `out_refund_no` VARCHAR(64) DEFAULT NULL,
+  `out_biz_no` VARCHAR(64) DEFAULT NULL,
+  `merchant_id` INT UNSIGNED NOT NULL DEFAULT 0,
+  `channel_plugin_code` VARCHAR(64) DEFAULT NULL,
+  `channel_id` INT UNSIGNED NOT NULL DEFAULT 0,
+  `target_type` VARCHAR(32) DEFAULT NULL,
+  `target_account` VARCHAR(128) DEFAULT NULL,
+  `target_name` VARCHAR(64) DEFAULT NULL,
+  `amount` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000,
+  `status` TINYINT(1) NOT NULL DEFAULT 0,
+  `result` VARCHAR(64) DEFAULT NULL,
+  `event_time` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  `meta` JSON DEFAULT NULL,
+  `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_payout_events_reference_time` (`reference_no`, `event_time`),
+  INDEX `idx_payout_events_merchant_time` (`merchant_id`, `event_time`),
+  INDEX `idx_payout_events_type_time` (`event_type`, `event_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `fund_flows` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `event_key` VARCHAR(160) NOT NULL UNIQUE,
+  `merchant_id` INT UNSIGNED NOT NULL DEFAULT 0,
+  `type` VARCHAR(80) NOT NULL,
+  `amount` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000,
+  `balance_before` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000,
+  `balance_after` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000,
+  `ref_type` VARCHAR(64) DEFAULT NULL,
+  `ref_no` VARCHAR(64) DEFAULT NULL,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'success',
+  `meta` JSON DEFAULT NULL,
+  `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_fund_flows_merchant_created` (`merchant_id`, `created_at`),
+  INDEX `idx_fund_flows_merchant_ref` (`merchant_id`, `ref_type`, `ref_no`),
+  INDEX `idx_fund_flows_ref_created` (`ref_type`, `ref_no`, `created_at`),
+  INDEX `idx_fund_flows_status_created` (`status`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `operation_logs` (

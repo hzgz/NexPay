@@ -63,7 +63,7 @@ return [
       'key' => 'appmchid',
       'label' => '订单有效期(秒)',
       'type' => 'text',
-      'note' => '默认300秒',
+      'note' => '默认360秒',
     ],
   ],
   'source' => 

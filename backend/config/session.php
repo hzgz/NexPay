@@ -16,13 +16,20 @@ use Webman\Session\FileSessionHandler;
 use Webman\Session\RedisSessionHandler;
 use Webman\Session\RedisClusterSessionHandler;
 
+$sessionDriver = strtolower(trim((string)env('SESSION_DRIVER', 'redis')));
+$sessionSecureCookie = filter_var(env('SESSION_SECURE_COOKIE', null), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+$sessionSameSite = trim((string)env('SESSION_SAME_SITE', 'Lax'));
+$sessionDomain = trim((string)env('SESSION_DOMAIN', ''));
+$sessionGcNumerator = max(0, (int)env('SESSION_GC_NUMERATOR', 1));
+$sessionGcDenominator = max(1, (int)env('SESSION_GC_DENOMINATOR', 1000));
+
 return [
 
-    'type' => env('SESSION_DRIVER', 'redis'), // file or redis or redis_cluster
+    'type' => $sessionDriver, // file or redis or redis_cluster
 
-    'handler' => env('SESSION_DRIVER', 'redis') === 'file'
+    'handler' => $sessionDriver === 'file'
         ? FileSessionHandler::class
-        : (env('SESSION_DRIVER', 'redis') === 'redis_cluster'
+        : ($sessionDriver === 'redis_cluster'
             ? RedisClusterSessionHandler::class
             : RedisSessionHandler::class),
 
@@ -50,20 +57,20 @@ return [
     
     'auto_update_timestamp' => false,
 
-    'lifetime' => 7*24*60*60,
+    'lifetime' => max(1800, (int)env('SESSION_LIFETIME', 7 * 24 * 60 * 60)),
 
-    'cookie_lifetime' => 365*24*60*60,
+    'cookie_lifetime' => max(0, (int)env('SESSION_COOKIE_LIFETIME', 7 * 24 * 60 * 60)),
 
     'cookie_path' => '/',
 
-    'domain' => '',
+    'domain' => $sessionDomain,
     
     'http_only' => true,
 
-    'secure' => (bool)env('SESSION_SECURE_COOKIE', false),
+    'secure' => $sessionSecureCookie ?? false,
     
-    'same_site' => env('SESSION_SAME_SITE', 'Lax'),
+    'same_site' => in_array($sessionSameSite, ['Lax', 'Strict', 'None'], true) ? $sessionSameSite : 'Lax',
 
-    'gc_probability' => [1, 1000],
+    'gc_probability' => [$sessionGcNumerator, $sessionGcDenominator],
 
 ];

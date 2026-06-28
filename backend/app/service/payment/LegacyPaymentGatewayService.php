@@ -36,15 +36,15 @@ class LegacyPaymentGatewayService
 
     public static function run(string $tradeNo, string $action, Request $request, ?string $method = null): array
     {
-        $order = OrderService::findByTradeNo($tradeNo);
-        $channel = self::resolveLegacyChannel($order);
-        $plugin = self::instantiatePlugin($channel);
-        $legacyOrder = self::legacyOrderArray($order);
         $action = strtolower(trim($action));
         if ($action === '') {
             $action = 'submit';
         }
 
+        $order = self::resolveOrderForAction($tradeNo, $action);
+        $channel = self::resolveLegacyChannel($order);
+        $plugin = self::instantiatePlugin($channel);
+        $legacyOrder = self::legacyOrderArray($order);
         $context = self::buildContext($legacyOrder, $request, $method, $channel, $action);
 
         if (!method_exists($plugin, $action)) {
@@ -59,6 +59,30 @@ class LegacyPaymentGatewayService
         }
 
         return (array)$plugin->{$action}($context);
+    }
+
+    private static function resolveOrderForAction(string $tradeNo, string $action): object
+    {
+        if (self::shouldUseNormalizedRead($action)) {
+            return OrderService::findByTradeNoForRead($tradeNo, [
+                'source' => 'legacy-gateway-' . $action,
+            ]);
+        }
+
+        return OrderService::findByTradeNo($tradeNo);
+    }
+
+    private static function shouldUseNormalizedRead(string $action): bool
+    {
+        return !in_array($action, [
+            'notify',
+            'refundnotify',
+            'transfernotify',
+            'preauthnotify',
+            'complainnotify',
+            'dividenotify',
+            'cashiernotify',
+        ], true);
     }
 
 
@@ -135,7 +159,9 @@ class LegacyPaymentGatewayService
 
     public static function query(string $tradeNo): array
     {
-        $order = OrderService::findByTradeNo($tradeNo);
+        $order = OrderService::findByTradeNoForRead($tradeNo, [
+            'source' => 'legacy-gateway-query',
+        ]);
         $channel = self::resolveLegacyChannel($order);
         $plugin = self::instantiatePlugin($channel);
 

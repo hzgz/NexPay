@@ -4,6 +4,7 @@ namespace app\service\home;
 
 use app\constant\StatusCode;
 use app\exception\BusinessException;
+use app\service\payment\OrderService;
 use app\service\system\AccountService;
 use app\service\system\PaymentMetaService;
 use app\service\system\SettingsService;
@@ -87,10 +88,10 @@ class DemoCheckoutService
             (string)($frontendTest['amount'] ?? ''),
             (string)($frontendTest['min_amount'] ?? '0.10')
         );
-        $subject = trim((string)($payload['subject'] ?? 'NexPay 支付测试订单'));
-        if ($subject === '') {
-            $subject = 'NexPay 支付测试订单';
-        }
+        $subject = OrderService::normalizeGatewayOrderSubject(
+            (string)($payload['subject'] ?? ''),
+            'NexPay 支付测试订单'
+        );
 
         $merchantId = self::resolveDemoMerchantId($methodCode, (int)($payload['merchant_id'] ?? 0));
         $context = SystemBusinessPaymentService::inspectContext('frontend_test', [
@@ -107,7 +108,11 @@ class DemoCheckoutService
         $tradeNoSeed = date('YmdHis') . random_int(100000, 999999);
         $outTradeNo = self::requestedOutTradeNo($payload, $tradeNoSeed);
 
-        $order = SystemBusinessPaymentService::create('frontend_test', [
+        $order = SystemBusinessPaymentService::createBusinessOrder(
+            'frontend_test',
+            $merchantId,
+            'homepage_payment_test',
+            [
             'merchant_id' => $merchantId,
             'out_trade_no' => $outTradeNo,
             'channel_code' => $methodCode,
@@ -128,7 +133,11 @@ class DemoCheckoutService
                     'requested_method' => $methodCode,
                 ],
             ],
-        ]);
+            ],
+            [
+                'requested_provider' => $provider['value'],
+            ]
+        );
 
         return [
             'trade_no' => (string)$order->trade_no,
@@ -184,9 +193,7 @@ class DemoCheckoutService
             }
 
             $amount = number_format((float)$requested, 2, '.', '');
-            if ((float)$amount <= 0) {
-                throw new BusinessException('测试金额必须大于 0', StatusCode::VALIDATION_ERROR);
-            }
+            OrderService::assertPositiveOrderAmount($amount, '测试金额');
             if ((float)$amount < (float)$minimum) {
                 throw new BusinessException('测试金额不能低于 ' . $minimum . ' 元', StatusCode::VALIDATION_ERROR);
             }
@@ -232,9 +239,9 @@ class DemoCheckoutService
 
     private static function requestedOutTradeNo(array $payload, string $tradeNo): string
     {
-        $requested = preg_replace('/[^A-Za-z0-9._-]+/', '', trim((string)($payload['trade_no'] ?? '')));
-        if (is_string($requested) && $requested !== '') {
-            return substr($requested, 0, 64);
+        $requested = OrderService::normalizeGatewayOutTradeNo((string)($payload['trade_no'] ?? ''));
+        if ($requested !== '') {
+            return $requested;
         }
 
         return 'public-test-' . $tradeNo;

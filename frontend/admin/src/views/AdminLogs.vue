@@ -323,13 +323,18 @@ async function copyCellText(value: unknown, label: string) {
 }
 
 function callbackStatusClass(item: Record<string, any>) {
+  const theme = toText(item.result_theme)
+  if (theme) return theme
   if (Number(item.status_code) === 2) return 'success'
   if (Number(item.status_code) === 1) return 'danger'
   if (item.runtime_exception || item.due_now) return 'warning'
   return 'muted'
 }
 
-function callbackHint() {
+function callbackHint(item: Record<string, any>) {
+  const hint = toText(item.result_hint)
+  if (hint) return hint
+  if (item.due_now) return '已到执行时间'
   return ''
 }
 
@@ -648,7 +653,7 @@ watch(activeSection, () => {
                 </button>
                 <span class="callback-result">
                   <span class="status-chip" :class="callbackStatusClass(item)">{{ formatCallbackResult(item.result) }}</span>
-                  <small v-if="callbackHint()" class="callback-note">{{ callbackHint() }}</small>
+                  <small v-if="callbackHint(item)" class="callback-note">{{ callbackHint(item) }}</small>
                 </span>
                 <button
                   class="table-copy-text"

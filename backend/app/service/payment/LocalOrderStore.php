@@ -3,6 +3,7 @@
 namespace app\service\payment;
 
 use app\service\system\JsonStoreService;
+use app\service\system\SystemBusinessPaymentService;
 use stdClass;
 
 class LocalOrderStore
@@ -157,19 +158,10 @@ class LocalOrderStore
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
 
         $business = strtolower(trim((string)($meta['business'] ?? '')));
-        if ($business === 'homepage_payment_test') {
-            return false;
-        }
-        if ($business === 'merchant_register_fee') {
-            return false;
-        }
-        if ($business === 'merchant_recharge') {
-            return false;
-        }
-        if ($business === 'merchant_package_purchase') {
-            return false;
-        }
-        if ($business === 'channel_test') {
+        if (
+            SystemBusinessPaymentService::isTestSyncBusiness($business)
+            || SystemBusinessPaymentService::isFundBusiness($business)
+        ) {
             return false;
         }
 
@@ -194,6 +186,17 @@ class LocalOrderStore
             'trc20-submit',
             'v2-smoke',
             'plugin-callback-verify',
+        ], true)) {
+            return false;
+        }
+
+        $subject = strtolower(trim((string)($row['subject'] ?? '')));
+        if (in_array($subject, [
+            'callback event verify',
+            'heartbeat test order',
+            'checkorder test order',
+            'pcnotify test order',
+            'report test order',
         ], true)) {
             return false;
         }
@@ -229,30 +232,19 @@ class LocalOrderStore
 
     public static function expirePendingOrders(): int
     {
-        $rows = self::loadOrders();
         $changed = 0;
         $now = date('Y-m-d H:i:s');
 
-        foreach ($rows as $index => $row) {
-            if ((int)($row['status'] ?? -1) !== OrderService::STATUS_PENDING) {
+        foreach (self::pendingOrders(0) as $order) {
+            if ((string)($order->expire_time ?? '') >= $now) {
                 continue;
             }
 
-            if (($row['expire_time'] ?? '') >= $now) {
-                continue;
-            }
-
-            $rows[$index]['status'] = OrderService::STATUS_EXPIRED;
-            $rows[$index]['updated_at'] = $now;
-            LocalOrderEventStore::recordExpired(self::hydrateOrder($rows[$index]), [
+            OrderService::expireOrder($order, [
                 'source' => 'local-expire-task',
                 'event_time' => $now,
             ]);
             $changed++;
-        }
-
-        if ($changed > 0) {
-            self::saveOrders($rows);
         }
 
         return $changed;
@@ -348,12 +340,8 @@ class LocalOrderStore
 
     public static function hasPendingOrSuccessCallback(int $orderId): bool
     {
-        foreach (self::loadCallbacks() as $row) {
-            if ((int)($row['order_id'] ?? 0) !== $orderId) {
-                continue;
-            }
-
-            if (in_array((int)($row['status'] ?? -1), [0, 2], true)) {
+        foreach (self::callbacksByOrderId($orderId) as $callback) {
+            if (in_array((int)($callback->status ?? -1), [0, 2], true)) {
                 return true;
             }
         }
@@ -361,15 +349,49 @@ class LocalOrderStore
         return false;
     }
 
-    public static function findCallbackByOrderId(int $orderId): ?object
+    public static function findActiveCallbackByOrderId(int $orderId): ?object
     {
-        foreach (self::loadCallbacks() as $row) {
-            if ((int)($row['order_id'] ?? 0) === $orderId) {
-                return self::hydrateCallback($row);
+        foreach (self::callbacksByOrderId($orderId) as $callback) {
+            if (in_array((int)($callback->status ?? -1), [0, 2], true)) {
+                return $callback;
             }
         }
 
         return null;
+    }
+
+    public static function findCallbackByOrderId(int $orderId): ?object
+    {
+        $items = self::callbacksByOrderId($orderId);
+        return $items[0] ?? null;
+    }
+
+    public static function callbacksByOrderId(int $orderId): array
+    {
+        $orderId = max(0, $orderId);
+        if ($orderId <= 0) {
+            return [];
+        }
+
+        $items = [];
+        foreach (self::loadCallbacks() as $row) {
+            if ((int)($row['order_id'] ?? 0) !== $orderId) {
+                continue;
+            }
+
+            $items[] = self::normalizeCallback($row);
+        }
+
+        usort($items, static function (array $left, array $right): int {
+            $updatedCompare = strcmp((string)($right['updated_at'] ?? ''), (string)($left['updated_at'] ?? ''));
+            if ($updatedCompare !== 0) {
+                return $updatedCompare;
+            }
+
+            return (int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0);
+        });
+
+        return array_map(static fn(array $row): object => self::hydrateCallback($row), $items);
     }
 
     public static function deleteMerchantOrder(int $merchantId, string $tradeNo = '', string $outTradeNo = '', int $orderId = 0): int
@@ -436,6 +458,34 @@ class LocalOrderStore
         }
 
         return $deleted;
+    }
+
+    public static function updateCallbacksByOrderId(int $orderId, array $changes): int
+    {
+        $orderId = max(0, $orderId);
+        if ($orderId <= 0) {
+            return 0;
+        }
+
+        $rows = self::loadCallbacks();
+        $updated = 0;
+
+        foreach ($rows as $index => $row) {
+            if ((int)($row['order_id'] ?? 0) !== $orderId) {
+                continue;
+            }
+
+            $rows[$index] = self::normalizeCallback(array_merge($row, $changes, [
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]));
+            $updated++;
+        }
+
+        if ($updated > 0) {
+            self::saveCallbacks($rows);
+        }
+
+        return $updated;
     }
 
     private static function loadOrders(): array
@@ -531,6 +581,7 @@ class LocalOrderStore
             'merchant_id' => 0,
             'notify_url' => '',
             'payload' => [],
+            'payload_hash' => '',
             'retry_count' => 0,
             'max_retry' => 5,
             'status' => 0,

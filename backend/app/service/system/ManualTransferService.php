@@ -24,7 +24,7 @@ class ManualTransferService
             throw new BusinessException('代付记录不存在', StatusCode::NOT_FOUND);
         }
         if (!LocalTransferStore::isBusinessTransfer($transfer)) {
-            throw new BusinessException('测试或联调代付不能审核为真实业务', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('测试或联调代付不允许审核为真实业务', StatusCode::VALIDATION_ERROR);
         }
 
         if ((int)($transfer->status ?? 0) !== 0) {
@@ -45,23 +45,23 @@ class ManualTransferService
         }
 
         return [
-            'biz_no' => (string)$transfer->biz_no,
-            'out_biz_no' => (string)$transfer->out_biz_no,
-            'merchant_id' => (int)$transfer->merchant_id,
-            'type' => (string)$transfer->type,
-            'account' => self::maskAccount((string)$transfer->account),
-            'name' => (string)$transfer->name,
+            'biz_no' => (string)($transfer->biz_no ?? ''),
+            'out_biz_no' => (string)($transfer->out_biz_no ?? ''),
+            'merchant_id' => (int)($transfer->merchant_id ?? 0),
+            'type' => (string)($transfer->type ?? ''),
+            'account' => self::maskAccount((string)($transfer->account ?? '')),
+            'name' => (string)($transfer->name ?? ''),
             'money' => self::formatMoney($transfer->money ?? 0),
-            'status' => (int)$transfer->status,
-            'status_text' => self::statusText((int)$transfer->status),
-            'result' => (string)$transfer->result,
-            'errmsg' => (string)$transfer->last_error,
+            'status' => (int)($transfer->status ?? 0),
+            'status_text' => self::statusText((int)($transfer->status ?? 0)),
+            'result' => (string)($transfer->result ?? ''),
+            'errmsg' => (string)($transfer->last_error ?? ''),
             'proof_no' => (string)($transfer->proof_no ?? $transfer->channel_order_no ?? ''),
             'operator' => (string)($transfer->operator ?? ''),
             'remark' => (string)($transfer->remark ?? ''),
             'finished_at' => (string)($transfer->finished_at ?? ''),
             'rejected_at' => (string)($transfer->rejected_at ?? ''),
-            'created_at' => (string)$transfer->created_at,
+            'created_at' => (string)($transfer->created_at ?? ''),
         ];
     }
 
@@ -85,27 +85,8 @@ class ManualTransferService
         }
 
         $now = date('Y-m-d H:i:s');
-        $flow = LocalFundStore::debit(
-            $merchantId,
-            $money,
-            '代付扣款',
-            'transfer',
-            (string)$transfer->biz_no,
-            $now,
-            [
-                'out_biz_no' => (string)$transfer->out_biz_no,
-                'type' => (string)$transfer->type,
-                'account' => self::maskAccount((string)$transfer->account),
-                'name' => (string)$transfer->name,
-                'proof_no' => $proofNo,
-                'operator' => $operator,
-                'remark' => $remark,
-            ]
-        );
-
-        $updated = LocalTransferStore::updateTransfer((string)$transfer->biz_no, [
+        $updated = LocalTransferStore::updateTransfer((string)($transfer->biz_no ?? ''), [
             'status' => 1,
-            'available_money' => (string)($flow->balance_after ?? ''),
             'channel_order_no' => $proofNo,
             'channel_trade_no' => $proofNo,
             'result' => 'manual_transferred',
@@ -114,12 +95,27 @@ class ManualTransferService
             'operator' => $operator,
             'remark' => $remark,
             'finished_at' => $now,
+        ]) ?? $transfer;
+
+        $flow = LocalFundStore::recordTransferSuccess($updated, [
+            'source' => 'manual-transfer-review',
+            'created_at' => $now,
+            'proof_no' => $proofNo,
+            'channel_order_no' => $proofNo,
+            'channel_trade_no' => $proofNo,
+            'operator' => $operator,
+            'remark' => $remark,
+            'result' => 'manual_transferred',
         ]);
 
-        self::appendAuditLog($updated ?? $transfer, $operator, 'approve', $proofNo, $remark);
+        $updated = LocalTransferStore::updateTransfer((string)($updated->biz_no ?? ''), [
+            'available_money' => (string)($flow->balance_after ?? ''),
+        ]) ?? $updated;
+
+        self::appendAuditLog($updated, $operator, 'approve', $proofNo, $remark);
 
         return [
-            'transfer' => self::shapeTransfer($updated ?? $transfer),
+            'transfer' => self::shapeTransfer($updated),
             'balance' => LocalFundStore::balanceForMerchant($merchantId),
         ];
     }
@@ -132,20 +128,20 @@ class ManualTransferService
         }
 
         $now = date('Y-m-d H:i:s');
-        $updated = LocalTransferStore::updateTransfer((string)$transfer->biz_no, [
+        $updated = LocalTransferStore::updateTransfer((string)($transfer->biz_no ?? ''), [
             'status' => 2,
             'result' => 'manual_rejected',
             'last_error' => $reason,
             'operator' => $operator,
             'remark' => $reason,
             'rejected_at' => $now,
-        ]);
+        ]) ?? $transfer;
 
-        self::appendAuditLog($updated ?? $transfer, $operator, 'reject', '', $reason);
+        self::appendAuditLog($updated, $operator, 'reject', '', $reason);
 
         return [
-            'transfer' => self::shapeTransfer($updated ?? $transfer),
-            'balance' => LocalFundStore::balanceForMerchant((int)$transfer->merchant_id),
+            'transfer' => self::shapeTransfer($updated),
+            'balance' => LocalFundStore::balanceForMerchant((int)($transfer->merchant_id ?? 0)),
         ];
     }
 
@@ -163,7 +159,7 @@ class ManualTransferService
             'result' => (string)($transfer->result ?? ''),
         ];
 
-        $actionText = ($action === 'approve' ? '人工确认代付：' : '人工驳回代付：') . (string)($transfer->biz_no ?? '');
+        $actionText = ($action === 'approve' ? '人工确认代付: ' : '人工驳回代付: ') . (string)($transfer->biz_no ?? '');
 
         CompensationAuditLogService::merchant([
             'operator' => $operator,

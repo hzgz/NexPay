@@ -34,7 +34,7 @@ while (true) {
         ->field('trade_no,realmoney')
         ->where('channel', (int)$channel['id'])
         ->where('status', 0)
-        ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480));
+        ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 360));
     if ($subChannelId !== null && $subChannelId > 0) {
         $orderQuery->where('subchannel', $subChannelId);
     }

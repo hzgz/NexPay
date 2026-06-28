@@ -13,6 +13,7 @@ class SecurityBootstrap implements Bootstrap
         'epay-plus-demo-secret',
         'changeme',
         '123456',
+        'please_change_to_a_random_32_plus_char_secret',
     ];
 
     public static function start(?Worker $worker): void

@@ -9,6 +9,7 @@ use app\model\MerchantBalance;
 use app\model\MerchantUser;
 use app\model\Order;
 use app\service\payment\LocalOrderStore;
+use app\service\payment\OrderService;
 use Throwable;
 use think\facade\Db;
 
@@ -209,6 +210,7 @@ class MerchantAuthService
             'email' => $email,
             'phone' => $phone,
             'merchant_name' => $merchantName,
+            'contact_name' => $contactName,
             'password_hash' => password_hash($password, PASSWORD_BCRYPT),
             'status' => $merchantStatus,
             'audit_status' => $auditStatus,
@@ -514,9 +516,17 @@ class MerchantAuthService
         if ($methodCode === '') {
             throw new BusinessException('请先在后台系统业务支付配置中启用至少一种支付方式', StatusCode::BUSINESS_ERROR);
         }
-        return SystemBusinessPaymentService::create('system_checkout', [
+        $outTradeNo = OrderService::normalizeGatewayOutTradeNo(
+            'REG-' . date('YmdHis') . '-' . preg_replace('/[^a-zA-Z0-9_-]/', '', $username)
+        );
+
+        return SystemBusinessPaymentService::createBusinessOrder(
+            'system_checkout',
+            $merchantId,
+            'merchant_register_fee',
+            [
             'merchant_id' => $merchantId,
-            'out_trade_no' => 'REG-' . date('YmdHis') . '-' . preg_replace('/[^a-zA-Z0-9_-]/', '', $username),
+            'out_trade_no' => $outTradeNo !== '' ? $outTradeNo : SystemBusinessPaymentService::fallbackBusinessOutTradeNo('REG', $merchantId, [$username]),
             'channel_code' => $methodCode,
             'channel_category' => 2,
             'force_configured_gateway' => true,
@@ -538,7 +548,8 @@ class MerchantAuthService
                     'next_audit_status' => $autoAudit ? 'approved' : 'pending',
                 ],
             ],
-        ]);
+            ]
+        );
     }
 
     private static function attachRegistrationPayment(array $user, object $order, string $amount): array

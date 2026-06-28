@@ -135,6 +135,27 @@ frontend/
 - `POST /api/transfer/query`
 - `POST /api/transfer/balance`
 
+V2 规则补充：
+
+- 请求签名算法为 `RSA`
+- 请求必须携带 `timestamp`，默认校验 300 秒有效期
+- `退款 / 关单 / 代付提交` 默认启用短时防重放
+
+### 监控兼容接口
+
+- `POST /api/Software/verify`
+- `POST /api/Software/heartbeat`
+- `POST /api/Software/checkOrder`
+- `POST /api/Software/PCNotify`
+- `POST /api/report/{merchantId}`
+
+监控接口兼容说明：
+
+- 继续兼容原有 `id / key(token) / channel_id / content` 传参
+- 可追加 `timestamp` 与 `sign`
+- 推荐签名规则：`md5(base64(url) + timestamp + 商户密钥)`
+- 严格时效校验与防重放可通过环境变量开启
+
 ## 数据库初始化
 
 数据库结构文件位于：

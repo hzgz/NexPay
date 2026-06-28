@@ -4,6 +4,7 @@ namespace app\service\payment;
 
 use app\service\system\JsonStoreService;
 use stdClass;
+use Throwable;
 
 class LocalTransferStore
 {
@@ -251,11 +252,44 @@ class LocalTransferStore
     {
         $row = self::rowFromMixed($refund);
         $tradeNo = trim((string)($row['trade_no'] ?? ''));
+        $merchantId = (int)($row['merchant_id'] ?? 0);
         $outTradeNo = strtoupper(trim((string)($row['out_trade_no'] ?? '')));
 
-        $order = $tradeNo !== '' ? LocalOrderStore::findByTradeNo($tradeNo) : null;
-        if ($order !== null && !LocalOrderStore::isBusinessOrder($order)) {
-            return false;
+        $order = null;
+        if ($tradeNo !== '') {
+            try {
+                $order = OrderService::findByTradeNoForRead($tradeNo, [
+                    'source' => 'local-transfer-business-refund-read',
+                ]);
+            } catch (Throwable) {
+                $order = LocalOrderStore::findByTradeNo($tradeNo);
+            }
+        } elseif ($merchantId > 0 && $outTradeNo !== '') {
+            try {
+                $order = OrderService::gatewayMerchantOrderForRead(
+                    $merchantId,
+                    null,
+                    $outTradeNo,
+                    [
+                        'source' => 'local-transfer-business-refund-merchant-order-read',
+                    ]
+                );
+            } catch (Throwable) {
+            }
+        }
+        if ($order !== null) {
+            if (!LocalOrderStore::isBusinessOrder($order)) {
+                return false;
+            }
+
+            return !self::hasTestMarker($row, [
+                'manual refund verification',
+                'test-refund',
+                'out-test-refund',
+                'rf-manual-',
+                '楠岃瘉',
+                '楠岃瘉',
+            ]);
         }
 
         foreach (['VERIFY', 'TEST-', 'OUT-TEST', 'CB', 'PLUGIN-CALLBACK'] as $prefix) {
@@ -268,7 +302,6 @@ class LocalTransferStore
             'manual refund verification',
             'test-refund',
             'out-test-refund',
-            'plugin-refund-notify',
             'rf-manual-',
             '验证',
             '验证',
@@ -290,7 +323,6 @@ class LocalTransferStore
 
         return !self::hasTestMarker($row, [
             'manual transfer verification',
-            'plugin-transfer-notify',
             'transfer notify verification',
             '测试',
             '测试收款人',

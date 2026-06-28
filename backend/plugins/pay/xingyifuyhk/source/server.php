@@ -26,7 +26,7 @@ while (true) {
             ->field('trade_no,realmoney,channel')
             ->whereIn('channel', $channelIds)
             ->where('status', 0)
-            ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 480))
+            ->whereTime('addtime', '>=', date('Y-m-d H:i:s', time() - 360))
             ->select()
             ->toArray();
     if (empty($list)) {

@@ -27,12 +27,11 @@ class SettlementService
         $accountName = trim((string)($payload['account_name'] ?? $payload['name'] ?? ''));
         $outSettleNo = trim((string)($payload['out_settle_no'] ?? ''));
 
-        if ((float)$money <= 0) {
-            throw new BusinessException('提现金额必须大于 0', StatusCode::VALIDATION_ERROR);
-        }
+        OrderService::assertPositiveOrderAmount($money, '提现金额');
         if ($accountType === '' || $account === '' || $accountName === '') {
             throw new BusinessException('请完整填写提现账户信息', StatusCode::VALIDATION_ERROR);
         }
+
         if ($outSettleNo !== '') {
             $existing = LocalSettlementStore::findByOutSettleNo($merchantId, $outSettleNo);
             if ($existing) {
@@ -74,6 +73,7 @@ class SettlementService
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+
         self::ensureWithdrawFlow($record);
 
         return [
@@ -89,7 +89,7 @@ class SettlementService
             throw new BusinessException('结算记录不存在', StatusCode::NOT_FOUND);
         }
         if (!LocalSettlementStore::isBusinessSettlement($settlement)) {
-            throw new BusinessException('测试或联调结算不能审核为真实业务', StatusCode::VALIDATION_ERROR);
+            throw new BusinessException('测试或联调结算不允许审核为真实业务', StatusCode::VALIDATION_ERROR);
         }
 
         $action = strtolower(trim($action));
@@ -106,7 +106,7 @@ class SettlementService
 
                 return [
                     'settlement' => self::shapeSettlement($settlement),
-                    'balance' => LocalFundStore::balanceForMerchant((int)$settlement->merchant_id),
+                    'balance' => LocalFundStore::balanceForMerchant((int)($settlement->merchant_id ?? 0)),
                     'idempotent' => true,
                 ];
             }
@@ -141,7 +141,7 @@ class SettlementService
 
             return [
                 'settlement' => self::shapeSettlement($updated),
-                'balance' => LocalFundStore::balanceForMerchant((int)$settlement->merchant_id),
+                'balance' => LocalFundStore::balanceForMerchant((int)($settlement->merchant_id ?? 0)),
             ];
         }
 
@@ -183,10 +183,12 @@ class SettlementService
             throw new BusinessException('商户余额不足，无法发起提现', StatusCode::BUSINESS_ERROR);
         }
 
-        LocalFundStore::debit($merchantId, $money, '提现申请', 'settlement_withdraw', $settleNo, (string)($settlement->created_at ?? date('Y-m-d H:i:s')), [
-            'account_type' => (string)($settlement->account_type ?? ''),
-            'account' => self::maskAccount((string)($settlement->account ?? '')),
-            'out_settle_no' => (string)($settlement->out_settle_no ?? ''),
+        LocalFundStore::recordSettlementWithdraw($settlement, [
+            'source' => 'settlement-request',
+            'created_at' => (string)($settlement->created_at ?? date('Y-m-d H:i:s')),
+            'result' => (string)($settlement->result ?? 'pending_manual_review'),
+            'remark' => (string)($settlement->remark ?? ''),
+            'operator' => (string)($settlement->operator ?? ''),
         ]);
     }
 
@@ -202,18 +204,14 @@ class SettlementService
             return;
         }
 
-        LocalFundStore::credit(
-            $merchantId,
-            (string)$settlement->money,
-            '提现驳回退回',
-            'settlement_reject',
-            $settleNo,
-            (string)($settlement->audited_at ?: date('Y-m-d H:i:s')),
-            [
-                'reason' => $reason,
-                'out_settle_no' => (string)$settlement->out_settle_no,
-            ]
-        );
+        LocalFundStore::recordSettlementReject($settlement, [
+            'source' => 'settlement-review',
+            'created_at' => (string)($settlement->audited_at ?: date('Y-m-d H:i:s')),
+            'reason' => $reason,
+            'result' => (string)($settlement->result ?? 'manual_rejected'),
+            'operator' => (string)($settlement->operator ?? ''),
+            'remark' => (string)($settlement->remark ?? ''),
+        ]);
     }
 
     public static function merchantSettlements(int $merchantId): array
@@ -249,18 +247,18 @@ class SettlementService
     {
         return array_map(static function (object $item): array {
             return [
-                'settle_no' => (string)$item->settle_no,
-                'out_settle_no' => (string)$item->out_settle_no,
-                'status' => (int)$item->status,
-                'result' => (string)$item->result,
-                'money' => number_format((float)$item->money, 2, '.', ''),
-                'fee' => number_format((float)$item->fee, 2, '.', ''),
-                'realmoney' => number_format((float)$item->real_money, 2, '.', ''),
-                'account' => self::maskAccount((string)$item->account),
-                'username' => (string)$item->account_name,
-                'addtime' => (string)$item->created_at,
-                'endtime' => (string)($item->audited_at ?: $item->updated_at),
-                'errmsg' => (string)$item->last_error,
+                'settle_no' => (string)($item->settle_no ?? ''),
+                'out_settle_no' => (string)($item->out_settle_no ?? ''),
+                'status' => (int)($item->status ?? 0),
+                'result' => (string)($item->result ?? ''),
+                'money' => number_format((float)($item->money ?? 0), 2, '.', ''),
+                'fee' => number_format((float)($item->fee ?? 0), 2, '.', ''),
+                'realmoney' => number_format((float)($item->real_money ?? 0), 2, '.', ''),
+                'account' => self::maskAccount((string)($item->account ?? '')),
+                'username' => (string)($item->account_name ?? ''),
+                'addtime' => (string)($item->created_at ?? ''),
+                'endtime' => (string)($item->audited_at ?: $item->updated_at ?? ''),
+                'errmsg' => (string)($item->last_error ?? ''),
             ];
         }, LocalSettlementStore::businessSettlements($merchantId));
     }
@@ -272,25 +270,25 @@ class SettlementService
         }
 
         return [
-            'settle_no' => (string)$item->settle_no,
-            'out_settle_no' => (string)$item->out_settle_no,
-            'merchant_id' => (int)$item->merchant_id,
-            'merchant' => self::merchantName((int)$item->merchant_id),
-            'type' => self::typeLabel((string)$item->type),
-            'account_type' => (string)$item->account_type,
-            'account' => self::maskAccount((string)$item->account),
-            'account_name' => (string)$item->account_name,
-            'money' => number_format((float)$item->money, 2, '.', ''),
-            'fee' => number_format((float)$item->fee, 2, '.', ''),
-            'real_money' => number_format((float)$item->real_money, 2, '.', ''),
-            'status' => self::statusLabel((int)$item->status),
-            'status_code' => (int)$item->status,
-            'result' => (string)$item->result,
-            'errmsg' => (string)$item->last_error,
-            'remark' => (string)$item->remark,
-            'operator' => (string)$item->operator,
-            'audited_at' => (string)$item->audited_at,
-            'created_at' => (string)$item->created_at,
+            'settle_no' => (string)($item->settle_no ?? ''),
+            'out_settle_no' => (string)($item->out_settle_no ?? ''),
+            'merchant_id' => (int)($item->merchant_id ?? 0),
+            'merchant' => self::merchantName((int)($item->merchant_id ?? 0)),
+            'type' => self::typeLabel((string)($item->type ?? '')),
+            'account_type' => (string)($item->account_type ?? ''),
+            'account' => self::maskAccount((string)($item->account ?? '')),
+            'account_name' => (string)($item->account_name ?? ''),
+            'money' => number_format((float)($item->money ?? 0), 2, '.', ''),
+            'fee' => number_format((float)($item->fee ?? 0), 2, '.', ''),
+            'real_money' => number_format((float)($item->real_money ?? 0), 2, '.', ''),
+            'status' => self::statusLabel((int)($item->status ?? 0)),
+            'status_code' => (int)($item->status ?? 0),
+            'result' => (string)($item->result ?? ''),
+            'errmsg' => (string)($item->last_error ?? ''),
+            'remark' => (string)($item->remark ?? ''),
+            'operator' => (string)($item->operator ?? ''),
+            'audited_at' => (string)($item->audited_at ?? ''),
+            'created_at' => (string)($item->created_at ?? ''),
         ];
     }
 

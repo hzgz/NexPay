@@ -11,6 +11,7 @@ use think\facade\Db;
 
 class LeshuaproPlugin extends BasePayment
 {
+    private const ORDER_EXPIRE_SECONDS = 360;
     private const DEFAULT_GATEWAY = 'https://paygate.leshuazf.com/cgi-bin/lepos_pay_gateway.cgi';
 
     private const PAY_URL_KEYS = [
@@ -263,7 +264,7 @@ class LeshuaproPlugin extends BasePayment
         if ($payUrl !== '') {
             if ($this->shouldPreferQrcode($payUrl)) {
                 $page = $payWay === 'ZFBZF' ? 'alipay_qrcode' : 'wxpay_qrcode';
-                return ['type' => 'qrcode', 'page' => $page, 'url' => $payUrl, 'expire' => strtotime((string)($ctx->order['addtime'] ?? '')) + 300];
+                return ['type' => 'qrcode', 'page' => $page, 'url' => $payUrl, 'expire' => strtotime((string)($ctx->order['addtime'] ?? '')) + self::ORDER_EXPIRE_SECONDS];
             }
             return ['type' => 'jump', 'url' => $payUrl];
         }
@@ -273,7 +274,7 @@ class LeshuaproPlugin extends BasePayment
         }
 
         $page = $payWay === 'ZFBZF' ? 'alipay_qrcode' : 'wxpay_qrcode';
-        return ['type' => 'qrcode', 'page' => $page, 'url' => $codeValue, 'expire' => strtotime((string)($ctx->order['addtime'] ?? '')) + 300];
+        return ['type' => 'qrcode', 'page' => $page, 'url' => $codeValue, 'expire' => strtotime((string)($ctx->order['addtime'] ?? '')) + self::ORDER_EXPIRE_SECONDS];
     }
 
     private function parseJsapiInfo($value): array
@@ -589,7 +590,7 @@ class LeshuaproPlugin extends BasePayment
     {
         $expire = trim((string)($this->channel['appmchid'] ?? ''));
         if ($expire === '' || !preg_match('/^\d+$/', $expire)) {
-            $expire = '300';
+            $expire = (string)self::ORDER_EXPIRE_SECONDS;
         }
         return $expire;
     }

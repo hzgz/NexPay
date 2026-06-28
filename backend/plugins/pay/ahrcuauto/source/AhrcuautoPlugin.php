@@ -196,7 +196,7 @@ class AhrcuautoPlugin extends BasePayment
         if ($shopId === '') throw new Exception('shop_id不能为空');
         if ($staffId === '') throw new Exception('staff_id不能为空');
 
-        $timeout = $this->readPositiveInt($this->channel['qrcode_timeout'] ?? null, self::DEFAULT_QRCODE_TIMEOUT, 30, 300);
+        $timeout = $this->readPositiveInt($this->channel['qrcode_timeout'] ?? null, self::DEFAULT_QRCODE_TIMEOUT, 30, 360);
         $amountFen = (string)max(1, (int)round($amountYuan * 100));
         $aesPin = $this->buildAesPin($mchntCd, $shopId, $staffId);
 

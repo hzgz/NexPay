@@ -11,6 +11,8 @@ use app\service\payment\LocalFundStore;
 use app\service\payment\LocalOrderEventStore;
 use app\service\payment\LocalOrderStore;
 use app\service\payment\LocalPayoutEventStore;
+use app\service\payment\LocalSettlementStore;
+use app\service\payment\OpenApiGuardService;
 use app\service\payment\OrderStatusService;
 use app\service\payment\OrderService;
 use app\service\payment\LocalTransferStore;
@@ -221,42 +223,19 @@ class ResourceDataService
         $rechargeOrders = [];
         $packageOrders = [];
         $seenTradeNos = [];
+        $merchants = [];
 
         if (\database_available()) {
             try {
-                $merchants = [];
                 foreach (Merchant::select()->toArray() as $merchant) {
                     $row = self::row($merchant);
                     $merchants[(int)($row['id'] ?? 0)] = $row;
-                }
-
-                foreach (Order::order('id', 'desc')->limit(200)->select()->toArray() as $order) {
-                    $row = self::row($order);
-                    if (self::isDeletedOrderRow($row)) {
-                        continue;
-                    }
-                    $bucket = self::adminOrderBucket($row);
-                    if ($bucket === '') {
-                        continue;
-                    }
-
-                    $merchant = $merchants[(int)($row['merchant_id'] ?? 0)] ?? [];
-                    self::appendAdminOrderBucketRow(
-                        $bucket,
-                        $row,
-                        (string)($merchant['name'] ?? ''),
-                        $items,
-                        $rechargeOrders,
-                        $packageOrders,
-                        $seenTradeNos
-                    );
                 }
             } catch (Throwable) {
             }
         }
 
-        foreach (LocalOrderStore::allOrders() as $order) {
-            $row = self::row($order);
+        foreach (self::loadAdminOrderRecords(200) as $row) {
             if (self::isDeletedOrderRow($row)) {
                 continue;
             }
@@ -265,10 +244,11 @@ class ResourceDataService
                 continue;
             }
 
+            $merchant = $merchants[(int)($row['merchant_id'] ?? 0)] ?? [];
             self::appendAdminOrderBucketRow(
                 $bucket,
                 $row,
-                '',
+                (string)($merchant['name'] ?? ''),
                 $items,
                 $rechargeOrders,
                 $packageOrders,
@@ -279,6 +259,7 @@ class ResourceDataService
         usort($items, static function (array $left, array $right): int {
             return strcmp((string)($right['created_at'] ?? ''), (string)($left['created_at'] ?? ''));
         });
+        self::appendAdminSystemFundOrders($items, $rechargeOrders, $packageOrders, $seenTradeNos, $merchants);
         usort($rechargeOrders, static function (array $left, array $right): int {
             return strcmp((string)($right['created_at'] ?? ''), (string)($left['created_at'] ?? ''));
         });
@@ -446,6 +427,7 @@ class ResourceDataService
             'key' => (string)($merchant['mch_key'] ?? ''),
         ];
         $monitorPayloadJson = (string)json_encode($monitorPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $monitorSignExample = OpenApiGuardService::compatSignExample('/api/report/' . $merchantId);
 
         return [
             'pid' => (string)$merchantId,
@@ -463,6 +445,7 @@ class ResourceDataService
             'monitor_payload' => $monitorPayload,
             'monitor_payload_json' => $monitorPayloadJson,
             'monitor_payload_base64' => base64_encode($monitorPayloadJson),
+            'monitor_sign_example' => $monitorSignExample,
             'monitor_verify_url' => $baseUrl . '/api/Software/verify',
             'monitor_heartbeat_url' => $baseUrl . '/api/Software/heartbeat',
             'monitor_check_order_url' => $baseUrl . '/api/Software/checkOrder',
@@ -686,7 +669,11 @@ class ResourceDataService
             return strcmp((string)($right['created_at'] ?? ''), (string)($left['created_at'] ?? ''));
         });
 
-        return array_slice($rows, 0, 100);
+        return self::normalizeLoadedOrderRowsForRead(
+            array_slice($rows, 0, 100),
+            'resource-merchant-orders-read',
+            16
+        );
     }
 
     private static function merchantFundFlows(int $merchantId, ?array $systemOrderRows = null, ?array $orderLookup = null): array
@@ -696,6 +683,7 @@ class ResourceDataService
 
         foreach (LocalFundStore::businessFlowsForMerchant($merchantId) as $row) {
             $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+            $refType = (string)($row['ref_type'] ?? '');
             $tradeNo = self::firstNonEmptyString(
                 $meta['trade_no'] ?? '',
                 in_array((string)($row['ref_type'] ?? ''), ['recharge', 'order_income'], true) ? (string)($row['ref_no'] ?? '') : ''
@@ -703,6 +691,7 @@ class ResourceDataService
             $outTradeNo = self::firstNonEmptyString($meta['out_trade_no'] ?? '');
             $orderRow = self::lookupMerchantOrderRow($merchantId, $orderLookup, $tradeNo, $outTradeNo);
             $methodCode = self::firstNonEmptyString($meta['channel_code'] ?? '', self::orderMethodCode($orderRow));
+            $statusInfo = self::displayFundFlowStatusMeta($row);
             $displayTradeNo = self::firstNonEmptyString($tradeNo, (string)($orderRow['trade_no'] ?? ''));
             if ($displayTradeNo === '') {
                 $displayTradeNo = self::firstNonEmptyString((string)($row['ref_no'] ?? ''), $outTradeNo, (string)($orderRow['out_trade_no'] ?? ''));
@@ -717,11 +706,16 @@ class ResourceDataService
                 'type' => (string)($row['type'] ?? ''),
                 'trade_no' => $displayTradeNo,
                 'out_trade_no' => $displayOutTradeNo,
+                'source_label' => self::fundFlowSourceLabel($refType, $orderRow),
+                'subject' => self::fundFlowSubject((string)($row['type'] ?? ''), $refType, $meta, $orderRow),
                 'method_code' => $methodCode,
                 'method_name' => self::fundFlowMethodName((string)($row['ref_type'] ?? ''), $meta, $orderRow, $methodCode),
-                'amount' => (string)($row['amount'] ?? '0.00'),
+                'amount' => self::displayFlowAmount($row),
                 'balance_after' => self::amount((string)($row['balance_after'] ?? '0.00')),
-                'status' => self::fundFlowStatusLabel((string)($row['status'] ?? 'success')),
+                'status' => (string)($statusInfo['label'] ?? '成功'),
+                'status_code' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_SUCCESS),
+                'status_key' => (string)($statusInfo['key'] ?? 'success'),
+                'status_theme' => (string)($statusInfo['theme'] ?? 'success'),
                 'created_at' => (string)($row['created_at'] ?? ''),
                 'remark' => self::fundFlowRemark($row, $orderRow),
             ];
@@ -733,25 +727,31 @@ class ResourceDataService
                 continue;
             }
 
-            $transferStatus = match ((int)($row['status'] ?? 0)) {
-                2 => '已驳回',
-                default => (trim((string)($row['last_error'] ?? '')) !== '' ? '未执行' : '处理中'),
-            };
             $transferRemark = trim((string)($row['last_error'] ?? ''));
             if ($transferRemark === '') {
                 $transferRemark = (string)($row['result'] ?? $row['biz_no'] ?? '');
             }
+            $statusInfo = self::transferStatusMeta(
+                (int)($row['status'] ?? 0),
+                (string)($row['result'] ?? ''),
+                (string)($row['last_error'] ?? '')
+            );
 
             $flows[] = [
                 'row_key' => 'transfer:' . (string)($row['biz_no'] ?? md5((string)json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))),
                 'type' => '转账',
                 'trade_no' => '',
                 'out_trade_no' => (string)($row['out_biz_no'] ?? ''),
+                'source_label' => '余额代付',
+                'subject' => '余额代付',
                 'method_code' => '',
                 'method_name' => '余额代付',
                 'amount' => '-' . self::amount((string)($row['money'] ?? '0.00')),
                 'balance_after' => '',
-                'status' => $transferStatus,
+                'status' => (string)($statusInfo['label'] ?? '处理中'),
+                'status_code' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING),
+                'status_key' => (string)($statusInfo['key'] ?? 'pending'),
+                'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
                 'created_at' => (string)($row['created_at'] ?? ''),
                 'remark' => $transferRemark,
             ];
@@ -770,17 +770,27 @@ class ResourceDataService
                 (string)($row['out_trade_no'] ?? '')
             );
             $methodCode = self::orderMethodCode($orderRow);
+            $statusInfo = self::refundStatusMeta(
+                (int)($row['status'] ?? 0),
+                (string)($row['result'] ?? ''),
+                (string)($row['last_error'] ?? '')
+            );
 
             $flows[] = [
                 'row_key' => 'refund:' . (string)($row['refund_no'] ?? md5((string)json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))),
                 'type' => '退款',
                 'trade_no' => (string)($row['trade_no'] ?? ''),
                 'out_trade_no' => self::firstNonEmptyString((string)($row['out_trade_no'] ?? ''), (string)($orderRow['out_trade_no'] ?? '')),
+                'source_label' => self::firstNonEmptyString(self::orderSourceLabel($orderRow), '原路退款'),
+                'subject' => self::fundFlowSubject('退款', 'refund', [], $orderRow),
                 'method_code' => $methodCode,
                 'method_name' => self::fundFlowMethodName('refund', [], $orderRow, $methodCode),
                 'amount' => '-' . self::amount((string)($row['reducemoney'] ?? $row['money'] ?? '0.00')),
                 'balance_after' => '',
-                'status' => (int)($row['status'] ?? 0) === 2 ? '失败' : '处理中',
+                'status' => (string)($statusInfo['label'] ?? '未执行'),
+                'status_code' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING),
+                'status_key' => (string)($statusInfo['key'] ?? 'pending'),
+                'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
                 'created_at' => (string)($row['created_at'] ?? ''),
                 'remark' => (string)($row['last_error'] ?? $row['refund_no'] ?? ''),
             ];
@@ -825,6 +835,7 @@ class ResourceDataService
             $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
             $business = match ($refType) {
                 'recharge' => 'merchant_recharge',
+                'register_fee' => 'merchant_register_fee',
                 'package_purchase' => 'merchant_package_purchase',
                 default => '',
             };
@@ -853,18 +864,11 @@ class ResourceDataService
                 continue;
             }
 
-            $tradeNo = trim((string)($row['trade_no'] ?? ''));
-            $statusInfo = OrderStatusService::forOperations($row);
-            $statusCode = (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING);
-            if (
-                $business === 'merchant_recharge'
-                && $tradeNo !== ''
-                && $statusCode === OrderStatusService::DISPLAY_SUCCESS
-                && LocalFundStore::findFlowByReference($merchantId, 'recharge', $tradeNo) !== null
-            ) {
+            if (self::systemFundOrderHasBusinessFlow($merchantId, $business, $row)) {
                 continue;
             }
 
+            $tradeNo = trim((string)($row['trade_no'] ?? ''));
             $referenceNo = self::firstNonEmptyString($tradeNo, (string)($row['out_trade_no'] ?? ''));
             $dedupKey = self::merchantFundOrderCountKey($business, $referenceNo, $row);
             if (isset($seenKeys[$dedupKey])) {
@@ -899,6 +903,7 @@ class ResourceDataService
     private static function merchantFundOrderRowsFromOrders(int $merchantId, array $orders): array
     {
         $items = [];
+        $orderLookup = self::merchantFlowOrderLookup($merchantId, $orders);
 
         foreach ($orders as $row) {
             $business = self::systemFundOrderBusiness($row);
@@ -906,34 +911,32 @@ class ResourceDataService
                 continue;
             }
 
-            $tradeNo = trim((string)($row['trade_no'] ?? ''));
-            $statusInfo = OrderStatusService::forOperations($row);
-            $statusCode = (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING);
-
-            if (
-                $business === 'merchant_recharge'
-                && $statusCode === OrderStatusService::DISPLAY_SUCCESS
-                && $tradeNo !== ''
-                && LocalFundStore::findFlowByReference($merchantId, 'recharge', $tradeNo) !== null
-            ) {
+            if (self::systemFundOrderHasBusinessFlow($merchantId, $business, $row)) {
                 continue;
             }
+
+            $resolvedRow = self::resolveSystemFundOrderRow($merchantId, $orderLookup, $row, $business);
+            $tradeNo = trim((string)($row['trade_no'] ?? ''));
+            $statusInfo = OrderStatusService::forOperations($resolvedRow);
+            $statusCode = (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING);
 
             $items[] = [
                 'row_key' => 'system-order:' . ($tradeNo !== '' ? $tradeNo : md5((string)json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))),
                 'type' => self::systemFundOrderTypeLabel($business),
                 'trade_no' => $tradeNo,
-                'out_trade_no' => (string)($row['out_trade_no'] ?? ''),
-                'method_code' => self::orderMethodCode($row),
-                'method_name' => self::orderMethodName($row),
-                'amount' => self::amount((string)($row['amount'] ?? '0.00')),
+                'out_trade_no' => (string)($resolvedRow['out_trade_no'] ?? ''),
+                'source_label' => self::orderSourceLabel($resolvedRow),
+                'subject' => self::orderProductName($resolvedRow),
+                'method_code' => self::orderMethodCode($resolvedRow),
+                'method_name' => self::orderMethodName($resolvedRow),
+                'amount' => self::systemFundOrderDisplayAmount($resolvedRow),
                 'balance_after' => '',
                 'status' => (string)($statusInfo['label'] ?? '待支付'),
                 'status_code' => $statusCode,
                 'status_key' => (string)($statusInfo['key'] ?? 'pending'),
                 'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
-                'created_at' => (string)($row['created_at'] ?? ''),
-                'remark' => self::systemFundOrderRemark($row, $business),
+                'created_at' => (string)($resolvedRow['created_at'] ?? ''),
+                'remark' => self::systemFundOrderRemark($resolvedRow, $business),
             ];
         }
 
@@ -978,7 +981,11 @@ class ResourceDataService
             return strcmp((string)($right['created_at'] ?? ''), (string)($left['created_at'] ?? ''));
         });
 
-        return array_slice($rows, 0, 100);
+        return self::normalizeLoadedOrderRowsForRead(
+            array_slice($rows, 0, 100),
+            'resource-merchant-fund-orders-read',
+            12
+        );
     }
 
     private static function isSystemFundOrder(array $row): bool
@@ -998,30 +1005,24 @@ class ResourceDataService
     {
         $business = self::orderBusiness($row);
 
-        return in_array($business, ['merchant_recharge', 'merchant_package_purchase'], true) ? $business : '';
+        return self::isSystemFundBusiness($business) ? $business : '';
     }
 
     private static function adminEarningBusiness(array $row): string
     {
-        $business = self::orderSourceKey($row);
+        $business = self::orderBusiness($row);
+        if (self::isSystemEarningBusiness($business)) {
+            return $business;
+        }
 
-        return in_array($business, [
-            'merchant_recharge',
-            'merchant_package_purchase',
-            'merchant_register_fee',
-            'homepage_payment_test',
-            'channel_test',
-            'software_compat_test',
-        ], true) ? $business : '';
+        $sourceKey = self::orderSourceKey($row);
+
+        return self::isSystemEarningBusiness($sourceKey) ? $sourceKey : '';
     }
 
     private static function systemFundOrderTypeLabel(string $business): string
     {
-        return match ($business) {
-            'merchant_recharge' => '在线充值订单',
-            'merchant_package_purchase' => '套餐购买订单',
-            default => '系统订单',
-        };
+        return SystemBusinessPaymentService::fundOrderTypeLabel($business);
     }
 
     private static function systemFundOrderRemark(array $row, string $business): string
@@ -1051,57 +1052,19 @@ class ResourceDataService
         $items = [];
 
         foreach (LocalTransferStore::businessRefunds($merchantId) as $refund) {
-            $row = self::row($refund);
-            if ((int)($row['status'] ?? 0) !== 0) {
+            $payload = self::refundReadPayload(self::row($refund));
+            if ((int)($payload['raw_status'] ?? 0) !== 0 || !((bool)($payload['is_pending'] ?? false))) {
                 continue;
             }
-
-            $items[] = [
-                'category' => 'refund',
-                'category_label' => '退款',
-                'biz_no' => (string)($row['refund_no'] ?? ''),
-                'out_biz_no' => (string)($row['out_refund_no'] ?? ''),
-                'trade_no' => (string)($row['trade_no'] ?? ''),
-                'amount' => self::amount((string)($row['reducemoney'] ?? $row['money'] ?? '0.00')),
-                'status_code' => 0,
-                'status' => self::refundStatusLabel(0, (string)($row['result'] ?? ''), (string)($row['last_error'] ?? '')),
-                'result' => (string)($row['result'] ?? ''),
-                'errmsg' => (string)($row['last_error'] ?? ''),
-                'proof_no' => (string)($row['proof_no'] ?? ''),
-                'operator' => (string)($row['operator'] ?? ''),
-                'channel_plugin_code' => (string)($row['channel_plugin_code'] ?? ''),
-                'mode' => trim((string)($row['result'] ?? '')) === 'manual_refund_pending' ? 'manual' : 'auto',
-                'mode_label' => trim((string)($row['result'] ?? '')) === 'manual_refund_pending' ? '人工处理' : '自动同步',
-                'created_at' => (string)($row['created_at'] ?? ''),
-                'finished_at' => (string)($row['finished_at'] ?? ''),
-            ];
+            $items[] = $payload;
         }
 
         foreach (LocalTransferStore::businessTransfers($merchantId) as $transfer) {
-            $row = self::row($transfer);
-            if ((int)($row['status'] ?? 0) !== 0) {
+            $payload = self::transferReadPayload(self::row($transfer));
+            if ((int)($payload['raw_status'] ?? 0) !== 0 || !((bool)($payload['is_pending'] ?? false))) {
                 continue;
             }
-
-            $items[] = [
-                'category' => 'transfer',
-                'category_label' => '代付',
-                'biz_no' => (string)($row['biz_no'] ?? ''),
-                'out_biz_no' => (string)($row['out_biz_no'] ?? ''),
-                'trade_no' => '',
-                'amount' => self::amount((string)($row['money'] ?? '0.00')),
-                'status_code' => 0,
-                'status' => self::transferStatusLabel(0, (string)($row['result'] ?? ''), (string)($row['last_error'] ?? '')),
-                'result' => (string)($row['result'] ?? ''),
-                'errmsg' => (string)($row['last_error'] ?? ''),
-                'proof_no' => (string)($row['proof_no'] ?? $row['channel_order_no'] ?? ''),
-                'operator' => (string)($row['operator'] ?? ''),
-                'channel_plugin_code' => (string)($row['channel_plugin_code'] ?? ''),
-                'mode' => trim((string)($row['result'] ?? '')) === 'manual_transfer_pending' ? 'manual' : 'auto',
-                'mode_label' => trim((string)($row['result'] ?? '')) === 'manual_transfer_pending' ? '人工处理' : '自动同步',
-                'created_at' => (string)($row['created_at'] ?? ''),
-                'finished_at' => (string)($row['finished_at'] ?? ''),
-            ];
+            $items[] = $payload;
         }
 
         usort($items, static function (array $left, array $right): int {
@@ -1115,59 +1078,67 @@ class ResourceDataService
     {
         $items = [];
         foreach (LocalTransferStore::businessRefunds() as $refund) {
-            $row = self::row($refund);
-            $items[] = [
-                'refund_no' => (string)($row['refund_no'] ?? ''),
-                'out_refund_no' => (string)($row['out_refund_no'] ?? ''),
-                'trade_no' => (string)($row['trade_no'] ?? ''),
-                'merchant' => self::merchantDisplayName((int)($row['merchant_id'] ?? 0)),
-                'amount' => self::amount((string)($row['reducemoney'] ?? $row['money'] ?? '0.00')),
-                'status_code' => (int)($row['status'] ?? 0),
-                'status' => self::refundStatusLabel((int)($row['status'] ?? 0), (string)($row['result'] ?? ''), (string)($row['last_error'] ?? '')),
-                'result' => (string)($row['result'] ?? ''),
-                'mode' => trim((string)($row['result'] ?? '')) === 'manual_refund_pending' ? 'manual' : 'auto',
-                'errmsg' => (string)($row['last_error'] ?? ''),
-                'proof_no' => (string)($row['proof_no'] ?? ''),
-                'channel_order_no' => (string)($row['channel_order_no'] ?? ''),
-                'channel_trade_no' => (string)($row['channel_trade_no'] ?? ''),
-                'channel_plugin_code' => (string)($row['channel_plugin_code'] ?? ''),
-                'operator' => (string)($row['operator'] ?? ''),
-                'finished_at' => (string)($row['finished_at'] ?? ''),
-                'created_at' => (string)($row['created_at'] ?? ''),
-            ];
+            $items[] = self::refundReadPayload(self::row($refund), true);
         }
 
         return $items;
+    }
+
+    private static function systemFundOrderHasBusinessFlow(int $merchantId, string $business, array $row): bool
+    {
+        if ($merchantId <= 0) {
+            return false;
+        }
+
+        $refType = self::systemFundRefType($business);
+        if ($refType === '') {
+            return false;
+        }
+
+        $tradeNo = trim((string)($row['trade_no'] ?? ''));
+        $outTradeNo = trim((string)($row['out_trade_no'] ?? ''));
+        if ($tradeNo !== '' && LocalFundStore::findFlowByReference($merchantId, $refType, $tradeNo) !== null) {
+            return true;
+        }
+
+        if ($outTradeNo !== '' && LocalFundStore::findFlowByReference($merchantId, $refType, $outTradeNo) !== null) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static function resolveSystemFundOrderRow(int $merchantId, array &$orderLookup, array $row, string $business): array
+    {
+        $tradeNo = trim((string)($row['trade_no'] ?? ''));
+        $outTradeNo = trim((string)($row['out_trade_no'] ?? ''));
+        if ($merchantId <= 0 || ($tradeNo === '' && $outTradeNo === '')) {
+            return $row;
+        }
+
+        $resolved = self::lookupMerchantOrderRow($merchantId, $orderLookup, $tradeNo, $outTradeNo);
+        if ($resolved === []) {
+            return $row;
+        }
+
+        if (self::systemFundOrderBusiness($resolved) === '') {
+            $requestPayload = is_array($resolved['request_payload'] ?? null) ? $resolved['request_payload'] : [];
+            $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+            if ($business !== '') {
+                $meta['business'] = $business;
+                $requestPayload['_meta'] = $meta;
+                $resolved['request_payload'] = $requestPayload;
+            }
+        }
+
+        return array_replace($row, $resolved);
     }
 
     private static function adminTransfers(): array
     {
         $items = [];
         foreach (LocalTransferStore::businessTransfers() as $transfer) {
-            $row = self::row($transfer);
-            $statusCode = (int)($row['status'] ?? 0);
-            $items[] = [
-                'biz_no' => (string)($row['biz_no'] ?? ''),
-                'out_biz_no' => (string)($row['out_biz_no'] ?? ''),
-                'merchant' => self::merchantDisplayName((int)($row['merchant_id'] ?? 0)),
-                'type' => (string)($row['type'] ?? ''),
-                'account' => self::maskAccount((string)($row['account'] ?? '')),
-                'name' => (string)($row['name'] ?? ''),
-                'amount' => self::amount((string)($row['money'] ?? '0.00')),
-                'status_code' => $statusCode,
-                'status' => self::transferStatusLabel($statusCode, (string)($row['result'] ?? ''), (string)($row['last_error'] ?? '')),
-                'result' => (string)($row['result'] ?? ''),
-                'mode' => trim((string)($row['result'] ?? '')) === 'manual_transfer_pending' ? 'manual' : 'auto',
-                'errmsg' => (string)($row['last_error'] ?? ''),
-                'proof_no' => (string)($row['proof_no'] ?? $row['channel_order_no'] ?? ''),
-                'channel_order_no' => (string)($row['channel_order_no'] ?? ''),
-                'channel_trade_no' => (string)($row['channel_trade_no'] ?? ''),
-                'channel_plugin_code' => (string)($row['channel_plugin_code'] ?? ''),
-                'operator' => (string)($row['operator'] ?? ''),
-                'finished_at' => (string)($row['finished_at'] ?? ''),
-                'rejected_at' => (string)($row['rejected_at'] ?? ''),
-                'created_at' => (string)($row['created_at'] ?? ''),
-            ];
+            $items[] = self::transferReadPayload(self::row($transfer), true);
         }
 
         return $items;
@@ -1178,6 +1149,10 @@ class ResourceDataService
         $items = [];
         $seenBusinessKeys = [];
         foreach (self::loadAdminOrderRecords() as $row) {
+            if (self::isDeletedOrderRow($row)) {
+                continue;
+            }
+
             $statusInfo = OrderStatusService::forOperations($row);
             $statusCode = (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING);
             $merchantId = (int)($row['merchant_id'] ?? 0);
@@ -1187,12 +1162,16 @@ class ResourceDataService
             $methodName = self::orderMethodName($row, $methodCode);
             $subject = self::orderProductName($row, $methodCode);
             $createdAt = self::firstNonEmptyString(
-                (string)($row['created_at'] ?? ''),
                 (string)($row['pay_time'] ?? ''),
+                (string)($row['created_at'] ?? ''),
                 (string)($row['updated_at'] ?? '')
             );
 
             if ($business !== '') {
+                if (self::systemFundOrderHasBusinessFlow($merchantId, $business, $row)) {
+                    continue;
+                }
+
                 $referenceNo = self::firstNonEmptyString($tradeNo, (string)($row['out_trade_no'] ?? ''));
                 $businessKey = self::adminEarningBusinessKey($business, $merchantId, $referenceNo);
                 if ($businessKey !== '' && isset($seenBusinessKeys[$businessKey])) {
@@ -1209,11 +1188,15 @@ class ResourceDataService
                     'source_label' => self::orderSourceLabel($row),
                     'method_name' => $methodName,
                     'subject' => $subject,
-                    'amount' => self::amount((string)($row['amount'] ?? '0.00')),
+                    'amount' => self::systemFundOrderDisplayAmount($row),
                     'status' => (string)($statusInfo['label'] ?? '待支付'),
                     'status_code' => $statusCode,
                     'status_key' => (string)($statusInfo['key'] ?? 'pending'),
                     'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
+                    'callback_status_label' => (string)($statusInfo['callback_status_label'] ?? ''),
+                    'callback_status_key' => (string)($statusInfo['callback_status_key'] ?? ''),
+                    'callback_status_theme' => (string)($statusInfo['callback_status_theme'] ?? 'warning'),
+                    'callback_status_hint' => (string)($statusInfo['callback_status_hint'] ?? ''),
                     'remark' => $subject,
                     'created_at' => $createdAt,
                 ];
@@ -1227,8 +1210,43 @@ class ResourceDataService
                 continue;
             }
 
+            $businessKey = self::adminEarningBusinessKey('merchant_order', $merchantId, $tradeNo, (string)($row['out_trade_no'] ?? ''));
+            if ($businessKey !== '' && isset($seenBusinessKeys[$businessKey])) {
+                continue;
+            }
+
+            $rowKey = 'earning-order:' . ($tradeNo !== '' ? $tradeNo : md5((string)json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
+            $items[] = [
+                'row_key' => $rowKey,
+                'type' => '商户消费订单',
+                'merchant' => self::merchantDisplayName($merchantId),
+                'trade_no' => $tradeNo,
+                'out_trade_no' => (string)($row['out_trade_no'] ?? ''),
+                'source_label' => self::orderSourceLabel($row),
+                'method_name' => $methodName,
+                'subject' => $subject,
+                'amount' => self::amount((string)($row['amount'] ?? '0.00')),
+                'status' => (string)($statusInfo['label'] ?? '待支付'),
+                'status_code' => $statusCode,
+                'status_key' => (string)($statusInfo['key'] ?? 'pending'),
+                'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
+                'callback_status_label' => (string)($statusInfo['callback_status_label'] ?? ''),
+                'callback_status_key' => (string)($statusInfo['callback_status_key'] ?? ''),
+                'callback_status_theme' => (string)($statusInfo['callback_status_theme'] ?? 'warning'),
+                'callback_status_hint' => (string)($statusInfo['callback_status_hint'] ?? ''),
+                'remark' => $subject,
+                'created_at' => $createdAt,
+            ];
+            if ($businessKey !== '') {
+                $seenBusinessKeys[$businessKey] = true;
+            }
+            continue;
+
             $fee = (float)($row['platform_fee'] ?? 0);
             if ($fee <= 0) {
+                continue;
+            }
+            if (self::amount((string)$fee) === '0.00') {
                 continue;
             }
 
@@ -1252,6 +1270,10 @@ class ResourceDataService
                 'status_code' => $statusCode,
                 'status_key' => (string)($statusInfo['key'] ?? 'pending'),
                 'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
+                'callback_status_label' => (string)($statusInfo['callback_status_label'] ?? ''),
+                'callback_status_key' => (string)($statusInfo['callback_status_key'] ?? ''),
+                'callback_status_theme' => (string)($statusInfo['callback_status_theme'] ?? 'warning'),
+                'callback_status_hint' => (string)($statusInfo['callback_status_hint'] ?? ''),
                 'remark' => $subject,
                 'created_at' => $createdAt,
             ];
@@ -1296,14 +1318,12 @@ class ResourceDataService
     private static function adminSystemFlowEarningsFallback(): array
     {
         $items = [];
+        $orderLookups = [];
+        $adminLookup = self::adminOrderLookup();
         foreach (LocalFundStore::businessFlowsForMerchant(0, 0) as $flow) {
             $row = self::row($flow);
             $refType = trim((string)($row['ref_type'] ?? ''));
-            $business = match ($refType) {
-                'recharge' => 'merchant_recharge',
-                'package_purchase' => 'merchant_package_purchase',
-                default => '',
-            };
+            $business = self::systemFundBusinessByRefType($refType);
             if ($business === '') {
                 continue;
             }
@@ -1316,16 +1336,28 @@ class ResourceDataService
             $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
             $tradeNo = self::firstNonEmptyString($meta['trade_no'] ?? '', (string)($row['ref_no'] ?? ''));
             $outTradeNo = self::firstNonEmptyString($meta['out_trade_no'] ?? '');
+            if (!isset($orderLookups[$merchantId])) {
+                $orderLookups[$merchantId] = $merchantId > 0
+                    ? self::merchantFlowOrderLookup($merchantId)
+                    : ['trade_no' => [], 'out_trade_no' => []];
+            }
+            $orderLookup = $orderLookups[$merchantId];
+            $orderRow = self::resolveAdminEarningOrderRow($merchantId, $orderLookup, $adminLookup, $tradeNo, $outTradeNo, $business);
+            $orderLookups[$merchantId] = $orderLookup;
             $methodCode = self::firstNonEmptyString(
+                self::orderMethodCode($orderRow),
                 $meta['channel_code'] ?? '',
                 self::pluginNotifyMethodCodeByTradeNo($tradeNo)
             );
             $methodName = self::firstNonEmptyString(
+                self::orderMethodName($orderRow, $methodCode),
                 $meta['method_name'] ?? '',
-                self::fundFlowMethodName($refType, $meta, [], $methodCode),
+                self::fundFlowMethodName($refType, $meta, $orderRow, $methodCode),
                 $methodCode !== '' ? PaymentMetaService::friendlyMethodName($methodCode) : ''
             );
+            $sourceLabel = self::fallbackOrderSourceLabel($orderRow, $business);
             $subject = self::firstNonEmptyString(
+                self::fallbackOrderProductName($orderRow, $business, $methodCode),
                 self::normalizeDisplayText($meta['name'] ?? ''),
                 self::normalizeDisplayText($meta['subject'] ?? '')
             );
@@ -1337,7 +1369,17 @@ class ResourceDataService
             ) {
                 $subject = self::systemFundOrderTypeLabel($business);
             }
+            $tradeNo = self::firstNonEmptyString($tradeNo, (string)($orderRow['trade_no'] ?? ''));
+            $outTradeNo = self::firstNonEmptyString($outTradeNo, (string)($orderRow['out_trade_no'] ?? ''));
             $referenceNo = self::firstNonEmptyString($tradeNo, $outTradeNo, (string)($row['ref_no'] ?? ''));
+            $amount = self::firstNonEmptyString(
+                self::displayBusinessAmountFromFlow($row),
+                self::fallbackSystemFundOrderDisplayAmount($orderRow),
+                self::amount((string)abs((float)($row['amount'] ?? 0)))
+            );
+            $statusInfo = $orderRow !== []
+                ? OrderStatusService::forOperations($orderRow)
+                : self::fundFlowStatusMeta((string)($row['status'] ?? 'success'));
 
             $items[] = [
                 'row_key' => 'earning-flow:' . $business . ':' . ($referenceNo !== '' ? $referenceNo : (string)($row['id'] ?? md5((string)json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)))),
@@ -1346,14 +1388,23 @@ class ResourceDataService
                 'merchant' => self::merchantDisplayName($merchantId),
                 'trade_no' => $tradeNo,
                 'out_trade_no' => $outTradeNo,
-                'source_label' => self::adminSystemEarningSourceLabel($business),
+                'source_label' => $sourceLabel,
                 'method_name' => $methodName,
                 'subject' => $subject,
-                'amount' => self::amount((string)abs((float)($row['amount'] ?? 0))),
-                'status' => self::fundFlowStatusLabel((string)($row['status'] ?? 'success')),
-                'status_code' => (string)($row['status'] ?? 'success') === 'success' ? OrderService::STATUS_SUCCESS : OrderService::STATUS_PENDING,
+                'amount' => $amount,
+                'status' => (string)($statusInfo['label'] ?? '成功'),
+                'status_code' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_SUCCESS),
+                'status_key' => (string)($statusInfo['key'] ?? 'success'),
+                'status_theme' => (string)($statusInfo['theme'] ?? 'success'),
+                'callback_status_label' => (string)($statusInfo['callback_status_label'] ?? ''),
+                'callback_status_key' => (string)($statusInfo['callback_status_key'] ?? ''),
+                'callback_status_theme' => (string)($statusInfo['callback_status_theme'] ?? 'muted'),
+                'callback_status_hint' => (string)($statusInfo['callback_status_hint'] ?? ''),
                 'remark' => $subject,
-                'created_at' => (string)($row['created_at'] ?? ''),
+                'created_at' => self::firstNonEmptyString(
+                    (string)($orderRow['created_at'] ?? ''),
+                    (string)($row['created_at'] ?? '')
+                ),
             ];
         }
 
@@ -1363,6 +1414,8 @@ class ResourceDataService
     private static function adminEventEarningsFallback(): array
     {
         $items = [];
+        $adminLookup = self::adminOrderLookup();
+        $merchantLookups = [];
         foreach (LocalOrderEventStore::all(400) as $event) {
             $row = self::row($event);
             if (strtolower(trim((string)($row['event_type'] ?? ''))) !== 'order_created') {
@@ -1370,14 +1423,7 @@ class ResourceDataService
             }
 
             $business = strtolower(trim((string)($row['business'] ?? '')));
-            if (!in_array($business, [
-                'merchant_recharge',
-                'merchant_package_purchase',
-                'merchant_register_fee',
-                'homepage_payment_test',
-                'channel_test',
-                'software_compat_test',
-            ], true)) {
+            if (!self::isSystemEarningBusiness($business)) {
                 continue;
             }
 
@@ -1389,14 +1435,38 @@ class ResourceDataService
             }
 
             $merchantId = (int)($row['merchant_id'] ?? 0);
-            $methodCode = PaymentMetaService::normalizeMethodCode((string)($row['channel_code'] ?? ''));
-            $methodName = $methodCode !== '' ? PaymentMetaService::friendlyMethodName($methodCode) : '';
-            $subject = self::normalizeDisplayText((string)($row['subject'] ?? ''));
+            if (!isset($merchantLookups[$merchantId])) {
+                $merchantLookups[$merchantId] = $merchantId > 0
+                    ? self::merchantFlowOrderLookup($merchantId)
+                    : ['trade_no' => [], 'out_trade_no' => []];
+            }
+            $merchantLookup = $merchantLookups[$merchantId];
+            $orderRow = self::resolveAdminEarningOrderRow($merchantId, $merchantLookup, $adminLookup, $tradeNo, $outTradeNo, $business);
+            $merchantLookups[$merchantId] = $merchantLookup;
+
+            $methodCode = self::firstNonEmptyString(
+                self::orderMethodCode($orderRow),
+                PaymentMetaService::normalizeMethodCode((string)($row['channel_code'] ?? ''))
+            );
+            $methodName = self::firstNonEmptyString(
+                self::orderMethodName($orderRow, $methodCode),
+                $methodCode !== '' ? PaymentMetaService::friendlyMethodName($methodCode) : ''
+            );
+            $sourceLabel = self::fallbackOrderSourceLabel($orderRow, $business);
+            $subject = self::firstNonEmptyString(
+                self::fallbackOrderProductName($orderRow, $business, $methodCode),
+                self::normalizeDisplayText((string)($row['subject'] ?? ''))
+            );
             if ($subject === '' || self::looksLikeUnknownDisplayText($subject) || $subject === $referenceNo) {
                 $subject = self::adminSystemEarningTypeLabel($business);
             }
+            $tradeNo = self::firstNonEmptyString($tradeNo, (string)($orderRow['trade_no'] ?? ''));
+            $outTradeNo = self::firstNonEmptyString($outTradeNo, (string)($orderRow['out_trade_no'] ?? ''));
+            $referenceNo = self::firstNonEmptyString($tradeNo, $outTradeNo);
 
-            $statusInfo = OrderStatusService::forOperations($row);
+            $statusInfo = $orderRow !== []
+                ? OrderStatusService::forOperations($orderRow)
+                : OrderStatusService::forOperations($row);
             $statusCode = (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING);
             $items[] = [
                 'row_key' => 'earning-event:' . $business . ':' . $referenceNo,
@@ -1405,16 +1475,24 @@ class ResourceDataService
                 'merchant' => self::adminEarningMerchantLabel($merchantId, $business),
                 'trade_no' => $tradeNo,
                 'out_trade_no' => $outTradeNo,
-                'source_label' => self::adminSystemEarningSourceLabel($business),
+                'source_label' => $sourceLabel,
                 'method_name' => $methodName,
                 'subject' => $subject,
-                'amount' => self::amount((string)($row['amount'] ?? '0.00')),
+                'amount' => self::amount((string)self::firstNonEmptyString(
+                    self::fallbackSystemFundOrderDisplayAmount($orderRow),
+                    (string)($row['amount'] ?? '0.00')
+                )),
                 'status' => (string)($statusInfo['label'] ?? '待支付'),
                 'status_code' => $statusCode,
                 'status_key' => (string)($statusInfo['key'] ?? 'pending'),
                 'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
+                'callback_status_label' => (string)($statusInfo['callback_status_label'] ?? ''),
+                'callback_status_key' => (string)($statusInfo['callback_status_key'] ?? ''),
+                'callback_status_theme' => (string)($statusInfo['callback_status_theme'] ?? 'warning'),
+                'callback_status_hint' => (string)($statusInfo['callback_status_hint'] ?? ''),
                 'remark' => $subject,
                 'created_at' => self::firstNonEmptyString(
+                    (string)($orderRow['created_at'] ?? ''),
                     (string)($row['event_time'] ?? ''),
                     (string)($row['created_at'] ?? '')
                 ),
@@ -1440,6 +1518,13 @@ class ResourceDataService
             }
 
             $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+            $callbackStatus = (int)($meta['status'] ?? 0);
+            $state = \app\service\payment\CallbackService::describeCallbackState(
+                $callbackStatus,
+                $meta,
+                (int)($meta['retry_count'] ?? 0),
+                (int)($meta['max_retry'] ?? 0)
+            );
             $items[] = [
                 'event_key' => (string)($row['event_key'] ?? ''),
                 'event_type' => $eventType,
@@ -1447,17 +1532,20 @@ class ResourceDataService
                 'out_trade_no' => (string)($row['out_trade_no'] ?? ''),
                 'merchant_id' => $currentMerchantId,
                 'notify_url' => (string)($meta['notify_url'] ?? ''),
-                'result' => match ($eventType) {
-                    'callback_enqueued' => 'queued',
-                    'callback_success' => 'success',
-                    'callback_failed' => 'failed',
-                    default => 'retrying',
-                },
+                'status' => (string)($state['status'] ?? 'pending'),
+                'result' => (string)($state['label'] ?? '待回调'),
+                'result_key' => (string)($state['key'] ?? 'queued'),
+                'result_theme' => (string)($state['theme'] ?? 'warning'),
+                'result_hint' => (string)($state['hint'] ?? ''),
                 'response' => (string)($meta['response'] ?? ''),
                 'retry_count' => (int)($meta['retry_count'] ?? 0),
                 'max_retry' => (int)($meta['max_retry'] ?? 0),
                 'manual_retry' => (bool)($meta['manual_retry'] ?? false),
                 'runtime_exception' => (bool)($meta['runtime_exception'] ?? false),
+                'rejected' => (bool)($meta['rejected'] ?? false),
+                'canceled' => (bool)($meta['canceled'] ?? false),
+                'retry_exhausted' => (bool)($state['retry_exhausted'] ?? false),
+                'status_code' => $callbackStatus,
                 'updated_at' => self::firstNonEmptyString(
                     (string)($row['event_time'] ?? ''),
                     (string)($row['created_at'] ?? '')
@@ -1521,20 +1609,12 @@ class ResourceDataService
 
     private static function adminSystemEarningTypeLabel(string $business): string
     {
-        return match (strtolower(trim($business))) {
-            'merchant_recharge' => '商户充值订单',
-            'merchant_package_purchase' => '套餐购买订单',
-            'merchant_register_fee' => '商户注册收费订单',
-            'homepage_payment_test' => '首页测试订单',
-            'channel_test' => '通道测试订单',
-            'software_compat_test' => '监控软件测试订单',
-            default => '系统业务订单',
-        };
+        return SystemBusinessPaymentService::businessTypeLabel($business) ?: '系统业务订单';
     }
 
     private static function adminEarningMerchantLabel(int $merchantId, string $business): string
     {
-        return match (strtolower(trim($business))) {
+        return match (self::normalizeBusinessKey($business)) {
             'homepage_payment_test' => '游客',
             default => $merchantId > 0 ? self::merchantDisplayName($merchantId) : '游客',
         };
@@ -1542,26 +1622,116 @@ class ResourceDataService
 
     private static function adminSystemEarningSourceLabel(string $business): string
     {
-        return match (strtolower(trim($business))) {
-            'merchant_recharge' => '在线充值',
-            'merchant_package_purchase' => '套餐购买',
-            'merchant_register_fee' => '注册收费',
-            'homepage_payment_test' => '首页测试',
-            'channel_test' => '通道测试',
-            'software_compat_test' => '监控软件测试',
-            default => '系统业务',
-        };
+        return SystemBusinessPaymentService::businessSourceLabel($business) ?: '系统业务';
+    }
+
+    private static function adminOrderLookup(): array
+    {
+        $lookup = [
+            'trade_no' => [],
+            'out_trade_no' => [],
+        ];
+
+        foreach (self::loadAdminOrderRecords() as $order) {
+            self::rememberOrderLookupRow($lookup, self::row($order));
+        }
+
+        return $lookup;
     }
 
     private static function adminEarningBusinessKey(string $business, int $merchantId, string ...$values): string
     {
-        $business = strtolower(trim($business));
+        $business = self::normalizeBusinessKey($business);
         $referenceNo = self::firstNonEmptyString(...$values);
         if ($business === '' || $referenceNo === '') {
             return '';
         }
 
         return $business . ':' . ($merchantId > 0 ? (string)$merchantId : 'guest') . ':' . $referenceNo;
+    }
+
+    private static function displayFlowAmount(array $row): string
+    {
+        $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+        if (!empty($meta['business_only'])) {
+            $amount = self::firstNonEmptyString(
+                (string)($meta['order_amount'] ?? ''),
+                (string)($meta['gross_amount'] ?? '')
+            );
+            if ($amount !== '') {
+                return self::amount($amount);
+            }
+        }
+
+        return self::amount((string)($row['amount'] ?? '0.00'));
+    }
+
+    private static function displayBusinessAmountFromFlow(array $row): string
+    {
+        $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+        $amount = self::firstNonEmptyString(
+            (string)($meta['order_amount'] ?? ''),
+            (string)($meta['gross_amount'] ?? '')
+        );
+
+        return $amount !== '' ? self::amount($amount) : '';
+    }
+
+    private static function fallbackSystemFundOrderDisplayAmount(array $row): string
+    {
+        if ($row === []) {
+            return '';
+        }
+
+        $amount = self::systemFundOrderDisplayAmount($row);
+
+        return $amount === '0.00' && self::firstNonEmptyString(
+            (string)($row['amount'] ?? ''),
+            (string)($row['payable_amount'] ?? '')
+        ) === '' ? '' : $amount;
+    }
+
+    private static function fallbackOrderSourceLabel(array $row, string $business): string
+    {
+        if ($row === []) {
+            return self::adminSystemEarningSourceLabel($business);
+        }
+
+        return self::orderSourceLabel($row);
+    }
+
+    private static function fallbackOrderProductName(array $row, string $business, string $fallbackCode = ''): string
+    {
+        if ($row === []) {
+            return '';
+        }
+
+        $subject = self::orderProductName($row, $fallbackCode);
+
+        if ($subject === self::orderSourceLabel($row) && self::adminEarningBusiness($row) === '') {
+            return '';
+        }
+
+        return $subject;
+    }
+
+    private static function systemFundOrderDisplayAmount(array $row): string
+    {
+        $requestPayload = is_array($row['request_payload'] ?? null) ? $row['request_payload'] : [];
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+        $business = self::orderBusiness($row);
+
+        $amount = self::firstNonEmptyString(
+            (string)($meta['order_amount'] ?? ''),
+            (string)($row['amount'] ?? ''),
+            (string)($row['payable_amount'] ?? '')
+        );
+
+        if ($amount === '') {
+            return '0.00';
+        }
+
+        return self::amount($amount);
     }
 
     private static function loadAdminOrderRecords(int $limit = 400): array
@@ -1600,7 +1770,56 @@ class ResourceDataService
             return strcmp((string)($right['created_at'] ?? ''), (string)($left['created_at'] ?? ''));
         });
 
-        return array_slice($rows, 0, $limit);
+        return self::normalizeLoadedOrderRowsForRead(
+            array_slice($rows, 0, $limit),
+            'resource-admin-orders-read',
+            min(24, max(6, (int)floor($limit / 10)))
+        );
+    }
+
+    private static function normalizeLoadedOrderRowsForRead(array $rows, string $source, int $maxNormalize = 12): array
+    {
+        if ($rows === [] || $maxNormalize <= 0) {
+            return $rows;
+        }
+
+        $normalized = $rows;
+        $seenTradeNos = [];
+        $processed = 0;
+
+        foreach ($normalized as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $tradeNo = trim((string)($row['trade_no'] ?? ''));
+            if ($tradeNo === '' || isset($seenTradeNos[$tradeNo])) {
+                continue;
+            }
+
+            $seenTradeNos[$tradeNo] = true;
+
+            $status = (int)($row['status'] ?? OrderService::STATUS_PENDING);
+            if (!in_array($status, [OrderService::STATUS_PENDING, OrderService::STATUS_SUCCESS], true)) {
+                continue;
+            }
+
+            try {
+                $normalizedOrder = OrderService::findByTradeNoForRead($tradeNo, [
+                    'source' => $source,
+                ]);
+                $normalized[$index] = self::row($normalizedOrder);
+                $processed++;
+            } catch (Throwable) {
+                continue;
+            }
+
+            if ($processed >= $maxNormalize) {
+                break;
+            }
+        }
+
+        return $normalized;
     }
 
     private static function merchantRateRows(): array
@@ -1685,6 +1904,8 @@ class ResourceDataService
             'callback_status_label' => (string)($statusInfo['callback_status_label'] ?? ''),
             'callback_status_code' => (int)($statusInfo['callback_status_code'] ?? 0),
             'callback_status_key' => (string)($statusInfo['callback_status_key'] ?? ''),
+            'callback_status_theme' => (string)($statusInfo['callback_status_theme'] ?? 'warning'),
+            'callback_status_hint' => (string)($statusInfo['callback_status_hint'] ?? ''),
             'refund_amount' => (string)($statusInfo['refund_amount'] ?? '0.00'),
             'txid' => self::orderPaymentReference($row),
             'txid_raw' => $rawPaymentReference,
@@ -1700,13 +1921,26 @@ class ResourceDataService
             'manual_action' => $manualAction,
             'can_delete' => $canDelete,
             'action_hint' => $merchantView
-                ? self::merchantOrderActionHint($row, $isDeleted, $statusCode, $notifyUrl, $sourceKey, $manualAction)
+                ? self::merchantOrderActionHint(
+                    $row,
+                    $isDeleted,
+                    $statusCode,
+                    $notifyUrl,
+                    $sourceKey,
+                    $manualAction,
+                    (string)($statusInfo['callback_status_key'] ?? ''),
+                    (string)($statusInfo['callback_status_label'] ?? ''),
+                    (string)($statusInfo['callback_status_hint'] ?? '')
+                )
                 : self::adminOrderActionHint(
                     $isDeleted,
                     $isMerchantOrder,
                     $statusCode,
                     $notifyUrl,
-                    $sourceKey
+                    $sourceKey,
+                    (string)($statusInfo['callback_status_key'] ?? ''),
+                    (string)($statusInfo['callback_status_label'] ?? ''),
+                    (string)($statusInfo['callback_status_hint'] ?? '')
                 ),
             'created_at' => (string)($row['created_at'] ?? ''),
         ];
@@ -1751,10 +1985,18 @@ class ResourceDataService
         bool $isMerchantOrder,
         int $statusCode,
         string $notifyUrl,
-        string $sourceKey
+        string $sourceKey,
+        string $callbackStatusKey = '',
+        string $callbackStatusLabel = '',
+        string $callbackStatusHint = ''
     ): string {
         if ($isDeleted) {
             return '已删除';
+        }
+
+        $callbackHint = self::orderCallbackActionHint($statusCode, $callbackStatusKey, $callbackStatusLabel, $callbackStatusHint);
+        if ($callbackHint !== '') {
+            return $callbackHint;
         }
 
         if ($isMerchantOrder) {
@@ -1764,7 +2006,6 @@ class ResourceDataService
         return match (strtolower(trim($sourceKey))) {
             'homepage_payment_test' => '游客测试订单',
             'channel_test' => '通道测试订单',
-            'software_compat_test' => '监控软件测试订单',
             default => '',
         };
     }
@@ -1775,7 +2016,10 @@ class ResourceDataService
         int $statusCode,
         string $notifyUrl,
         string $sourceKey,
-        string $manualAction
+        string $manualAction,
+        string $callbackStatusKey = '',
+        string $callbackStatusLabel = '',
+        string $callbackStatusHint = ''
     ): string {
         if ($isDeleted) {
             return '已删除';
@@ -1785,12 +2029,15 @@ class ResourceDataService
             return '未配置回调地址';
         }
 
-        if ($manualAction === 'retry') {
-            return '可手动重发回调';
-        }
-
         if ($manualAction === 'confirm') {
             return '可人工确认成功并立即回调';
+        }
+
+        $callbackHint = self::orderCallbackActionHint($statusCode, $callbackStatusKey, $callbackStatusLabel, $callbackStatusHint);
+        if ($manualAction === 'retry') {
+            return $callbackHint !== ''
+                ? $callbackHint . '，可手动重发回调'
+                : '可手动重发回调';
         }
 
         if ($statusCode === OrderStatusService::DISPLAY_EXPIRED) {
@@ -1809,8 +2056,8 @@ class ResourceDataService
             return '订单已退款';
         }
 
-        if ($statusCode === OrderStatusService::DISPLAY_CALLBACK_FAILED) {
-            return '支付已成功，但回调失败';
+        if ($callbackHint !== '') {
+            return $callbackHint;
         }
 
         if ($statusCode === OrderStatusService::DISPLAY_PENDING_CONFIRM) {
@@ -1830,6 +2077,51 @@ class ResourceDataService
         }
 
         return '待支付订单暂不支持手动回调';
+    }
+
+    private static function orderCallbackActionHint(
+        int $statusCode,
+        string $callbackStatusKey,
+        string $callbackStatusLabel,
+        string $callbackStatusHint
+    ): string {
+        $key = strtolower(trim($callbackStatusKey));
+        $label = trim($callbackStatusLabel);
+        $hint = trim($callbackStatusHint);
+
+        if ($key === '' || $key === 'none' || $key === 'success') {
+            return '';
+        }
+
+        if ($statusCode === OrderStatusService::DISPLAY_CALLBACK_FAILED) {
+            if ($hint !== '') {
+                return '支付已成功，' . $hint;
+            }
+
+            if ($label !== '') {
+                return '支付已成功，' . $label;
+            }
+
+            return '支付已成功，但回调失败';
+        }
+
+        if ($statusCode !== OrderStatusService::DISPLAY_SUCCESS) {
+            return $hint !== '' ? $hint : '';
+        }
+
+        if ($hint !== '') {
+            return '支付已成功，' . $hint;
+        }
+
+        if ($key === 'queued') {
+            return '支付已成功，等待异步回调';
+        }
+
+        if ($label !== '') {
+            return '支付已成功，' . $label;
+        }
+
+        return '';
     }
 
     private static function appendAdminOrderBucketRow(
@@ -1852,6 +2144,13 @@ class ResourceDataService
                 $rechargeOrders[] = self::adminSystemOrderRow($row, $merchantName, $business);
             } else {
                 $packageOrders[] = self::adminSystemOrderRow($row, $merchantName, $business);
+            }
+
+            if ($dedupKey === '' || !isset($seenKeys['orders'][$dedupKey])) {
+                $items[] = self::orderRow($row, $merchantName, false);
+                if ($dedupKey !== '') {
+                    $seenKeys['orders'][$dedupKey] = true;
+                }
             }
         } else {
             $items[] = self::orderRow($row, $merchantName, false);
@@ -1879,6 +2178,137 @@ class ResourceDataService
         }
 
         return 'orders';
+    }
+
+    private static function appendAdminSystemFundOrders(
+        array &$items,
+        array &$rechargeOrders,
+        array &$packageOrders,
+        array &$seenKeys,
+        array $merchants
+    ): void {
+        $adminLookup = self::adminOrderLookup();
+        $merchantLookups = [];
+
+        foreach (LocalFundStore::businessFlowsForMerchant(0, 0) as $flow) {
+            $row = self::row($flow);
+            if (trim((string)($row['status'] ?? '')) !== 'success') {
+                continue;
+            }
+
+            $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
+            $business = self::systemFundBusinessByRefType($refType);
+            if (!SystemBusinessPaymentService::isFundBusiness($business)) {
+                continue;
+            }
+
+            $merchantId = (int)($row['merchant_id'] ?? 0);
+            if (!isset($merchantLookups[$merchantId])) {
+                $merchantLookups[$merchantId] = $merchantId > 0
+                    ? self::merchantFlowOrderLookup($merchantId)
+                    : ['trade_no' => [], 'out_trade_no' => []];
+            }
+
+            $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+            $tradeNo = self::firstNonEmptyString(
+                (string)($meta['trade_no'] ?? ''),
+                (string)($row['ref_no'] ?? '')
+            );
+            $outTradeNo = self::firstNonEmptyString((string)($meta['out_trade_no'] ?? ''));
+
+            $merchantLookup = $merchantLookups[$merchantId];
+            $orderRow = self::resolveAdminEarningOrderRow($merchantId, $merchantLookup, $adminLookup, $tradeNo, $outTradeNo, $business);
+            $merchantLookups[$merchantId] = $merchantLookup;
+
+            if ($orderRow === []) {
+                $orderRow = self::buildSystemFundFallbackOrderRow($row, $business, $merchants[$merchantId] ?? []);
+            }
+
+            if ($orderRow === []) {
+                continue;
+            }
+
+            $bucket = match ($business) {
+                'merchant_recharge' => 'recharge',
+                'merchant_package_purchase' => 'package',
+                default => 'orders',
+            };
+            self::appendAdminOrderBucketRow(
+                $bucket,
+                $orderRow,
+                (string)(($merchants[$merchantId]['name'] ?? '') ?: ''),
+                $items,
+                $rechargeOrders,
+                $packageOrders,
+                $seenKeys
+            );
+        }
+    }
+
+    private static function buildSystemFundFallbackOrderRow(array $flow, string $business, array $merchant = []): array
+    {
+        $meta = is_array($flow['meta'] ?? null) ? $flow['meta'] : [];
+        $tradeNo = self::firstNonEmptyString(
+            (string)($meta['trade_no'] ?? ''),
+            (string)($flow['ref_no'] ?? '')
+        );
+        $outTradeNo = self::firstNonEmptyString((string)($meta['out_trade_no'] ?? ''));
+        $merchantId = (int)($flow['merchant_id'] ?? 0);
+        $merchantName = self::firstNonEmptyString(
+            self::normalizeDisplayText($merchant['merchant_name'] ?? ''),
+            self::normalizeDisplayText($merchant['name'] ?? '')
+        );
+        if ($merchantName === '' && $merchantId > 0) {
+            $merchantName = self::merchantDisplayName($merchantId);
+        }
+        $subject = self::firstNonEmptyString(
+            self::normalizeDisplayText($meta['subject'] ?? ''),
+            self::normalizeDisplayText($meta['name'] ?? ''),
+            self::systemFundOrderTypeLabel($business)
+        );
+        $methodCode = PaymentMetaService::normalizeMethodCode(self::firstNonEmptyString(
+            (string)($meta['channel_code'] ?? ''),
+            self::pluginNotifyMethodCodeByTradeNo($tradeNo)
+        ));
+        $methodName = self::firstNonEmptyString(
+            self::normalizeDisplayText($meta['method_name'] ?? ''),
+            self::pluginNotifyMethodNameByTradeNo($tradeNo),
+            $methodCode !== '' ? PaymentMetaService::friendlyMethodName($methodCode) : ''
+        );
+        $amount = self::firstNonEmptyString(
+            (string)($meta['order_amount'] ?? ''),
+            (string)($meta['gross_amount'] ?? ''),
+            (string)($flow['amount'] ?? '0.00')
+        );
+
+        return [
+            'trade_no' => $tradeNo,
+            'out_trade_no' => $outTradeNo,
+            'merchant_id' => $merchantId,
+            'merchant_name' => $merchantName,
+            'amount' => $amount,
+            'payable_amount' => $amount,
+            'subject' => $subject,
+            'name' => $merchantName,
+            'channel_code' => $methodCode,
+            'method_name' => $methodName,
+            'status' => OrderService::STATUS_SUCCESS,
+            'pay_status' => 1,
+            'pay_time' => (string)($flow['created_at'] ?? ''),
+            'created_at' => (string)($flow['created_at'] ?? ''),
+            'request_payload' => [
+                '_meta' => [
+                    'business' => $business,
+                    'source_protocol' => $business,
+                    'channel_code' => $methodCode,
+                    'method_name' => $methodName,
+                    'order_amount' => $amount,
+                    'subject' => $subject,
+                    'name' => $merchantName,
+                    'merchant_name' => $merchantName,
+                ],
+            ],
+        ];
     }
 
     private static function shouldIncludeMerchantOrderList(array $row): bool
@@ -1937,7 +2367,12 @@ class ResourceDataService
         $methodCode = self::orderMethodCode($row);
         $requestPayload = is_array($row['request_payload'] ?? null) ? $row['request_payload'] : [];
         $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
-        $subject = trim((string)($row['subject'] ?? ''));
+        $subject = self::firstNonEmptyString(
+            self::orderProductName($row, $methodCode),
+            self::normalizeDisplayText($meta['package_name'] ?? ''),
+            self::normalizeDisplayText($row['subject'] ?? ''),
+            self::systemFundOrderTypeLabel($business)
+        );
         $statusInfo = OrderStatusService::forOperations($row);
 
         return [
@@ -1950,7 +2385,7 @@ class ResourceDataService
             'payment_type' => self::orderMethodName($row, $methodCode),
             'package_name' => self::firstNonEmptyString(
                 $meta['package_name'] ?? '',
-                $subject !== '' ? $subject : self::systemFundOrderTypeLabel($business)
+                $subject
             ),
             'amount' => self::amount((string)($row['amount'] ?? '0.00')),
             'status' => (string)($statusInfo['label'] ?? '待支付'),
@@ -1997,13 +2432,47 @@ class ResourceDataService
             'merchant_register_fee' => '注册收费',
             'homepage_payment_test' => '首页测试',
             'channel_test' => '通道测试',
-            'software_compat_test' => '监控软件测试',
             'v1' => '易支付 V1',
             'v2' => '易支付 V2',
             'mapi-test' => 'MAPI 测试',
             'submit-test' => '提交测试',
             default => '普通订单',
         };
+    }
+
+    private static function normalizeBusinessKey(string $business): string
+    {
+        return strtolower(trim($business));
+    }
+
+    private static function isSystemFundBusiness(string $business): bool
+    {
+        return SystemBusinessPaymentService::isFundBusiness($business);
+    }
+
+    private static function systemFundRefType(string $business): string
+    {
+        return SystemBusinessPaymentService::fundRefType($business);
+    }
+
+    private static function systemFundBusinessByRefType(string $refType): string
+    {
+        return SystemBusinessPaymentService::businessByFundRefType($refType);
+    }
+
+    private static function isSystemEarningBusiness(string $business): bool
+    {
+        $normalized = self::normalizeBusinessKey($business);
+        if (SystemBusinessPaymentService::isFundBusiness($normalized) || SystemBusinessPaymentService::isTestSyncBusiness($normalized)) {
+            return true;
+        }
+
+        return SystemBusinessPaymentService::businessMeta($normalized) !== [];
+    }
+
+    private static function systemEarningBusinessMeta(string $business): array
+    {
+        return SystemBusinessPaymentService::businessMeta($business);
     }
 
     private static function merchantFlowOrderLookup(int $merchantId, array $systemOrders = []): array
@@ -2058,23 +2527,19 @@ class ResourceDataService
             return [];
         }
 
-        if (\database_available()) {
-            try {
-                $query = Order::where('merchant_id', $merchantId);
-                if ($tradeNo !== '') {
-                    $query->where('trade_no', $tradeNo);
-                } else {
-                    $query->where('out_trade_no', $outTradeNo);
-                }
-
-                $order = $query->find();
-                if ($order) {
-                    $row = self::row($order);
-                    self::rememberOrderLookupRow($lookup, $row);
-                    return $row;
-                }
-            } catch (Throwable) {
-            }
+        try {
+            $order = OrderService::gatewayMerchantOrderForRead(
+                $merchantId,
+                $tradeNo !== '' ? $tradeNo : null,
+                $outTradeNo !== '' ? $outTradeNo : null,
+                [
+                    'source' => 'resource-merchant-flow-order-read',
+                ]
+            );
+            $row = self::row($order);
+            self::rememberOrderLookupRow($lookup, $row);
+            return $row;
+        } catch (Throwable) {
         }
 
         $localOrder = LocalOrderStore::findByMerchantOrder(
@@ -2089,6 +2554,76 @@ class ResourceDataService
         }
 
         return [];
+    }
+
+    private static function resolveAdminEarningOrderRow(
+        int $merchantId,
+        array &$merchantLookup,
+        array &$adminLookup,
+        string $tradeNo = '',
+        string $outTradeNo = '',
+        string $business = ''
+    ): array {
+        $tradeNo = trim($tradeNo);
+        $outTradeNo = trim($outTradeNo);
+
+        $resolved = self::lookupMerchantOrderRow($merchantId, $merchantLookup, $tradeNo, $outTradeNo);
+        if ($resolved !== []) {
+            self::rememberOrderLookupRow($adminLookup, $resolved);
+            return $business !== '' ? self::mergeResolvedEarningBusiness($resolved, $business) : $resolved;
+        }
+
+        if ($tradeNo !== '' && isset($adminLookup['trade_no'][$tradeNo]) && is_array($adminLookup['trade_no'][$tradeNo])) {
+            $resolved = $adminLookup['trade_no'][$tradeNo];
+            return $business !== '' ? self::mergeResolvedEarningBusiness($resolved, $business) : $resolved;
+        }
+
+        if ($outTradeNo !== '' && isset($adminLookup['out_trade_no'][$outTradeNo]) && is_array($adminLookup['out_trade_no'][$outTradeNo])) {
+            $resolved = $adminLookup['out_trade_no'][$outTradeNo];
+            return $business !== '' ? self::mergeResolvedEarningBusiness($resolved, $business) : $resolved;
+        }
+
+        if ($tradeNo !== '') {
+            try {
+                $order = OrderService::findByTradeNoForRead($tradeNo, [
+                    'source' => 'resource-admin-earning-order-read',
+                ]);
+                $resolved = self::row($order);
+                self::rememberOrderLookupRow($adminLookup, $resolved);
+                self::rememberOrderLookupRow($merchantLookup, $resolved);
+                return $business !== '' ? self::mergeResolvedEarningBusiness($resolved, $business) : $resolved;
+            } catch (Throwable) {
+            }
+
+            $localOrder = LocalOrderStore::findByTradeNo($tradeNo);
+            if ($localOrder !== null) {
+                $resolved = self::row($localOrder);
+                self::rememberOrderLookupRow($adminLookup, $resolved);
+                self::rememberOrderLookupRow($merchantLookup, $resolved);
+                return $business !== '' ? self::mergeResolvedEarningBusiness($resolved, $business) : $resolved;
+            }
+        }
+
+        return [];
+    }
+
+    private static function mergeResolvedEarningBusiness(array $row, string $business): array
+    {
+        if ($row === []) {
+            return [];
+        }
+
+        if (self::adminEarningBusiness($row) !== '') {
+            return $row;
+        }
+
+        $requestPayload = is_array($row['request_payload'] ?? null) ? $row['request_payload'] : [];
+        $meta = is_array($requestPayload['_meta'] ?? null) ? $requestPayload['_meta'] : [];
+        $meta['business'] = $business;
+        $requestPayload['_meta'] = $meta;
+        $row['request_payload'] = $requestPayload;
+
+        return $row;
     }
 
     private static function orderMethodCode(array $row): string
@@ -2174,18 +2709,6 @@ class ResourceDataService
             }
         }
 
-        if ($sourceKey === 'software_compat_test') {
-            $subjectKey = strtolower($subject);
-            return match ($subjectKey) {
-                'callback event verify' => '监控回调校验订单',
-                'heartbeat test order' => '监控心跳测试订单',
-                'checkorder test order' => '监控查单测试订单',
-                'pcnotify test order' => '监控回调测试订单',
-                'report test order' => '监控上报测试订单',
-                default => ($subject !== '' && !self::looksLikeUnknownDisplayText($subject)) ? $subject : '监控软件测试订单',
-            };
-        }
-
         if ($subject !== '' && !self::looksLikeUnknownDisplayText($subject)) {
             return $subject;
         }
@@ -2210,8 +2733,8 @@ class ResourceDataService
         if ($normalizedMethod !== '') {
             foreach ([
                 $normalizedMethod . ' 测试订单',
-                $normalizedMethod . '赞赏码 测试订单',
-                $normalizedMethod . '收款码 测试订单',
+                $normalizedMethod . '赞赏码测试订单',
+                $normalizedMethod . '收款码测试订单',
             ] as $pattern) {
                 if (mb_strtolower($subject, 'UTF-8') === mb_strtolower($pattern, 'UTF-8')) {
                     return '通道测试订单';
@@ -2264,19 +2787,80 @@ class ResourceDataService
         return match (trim($refType)) {
             'package_purchase' => '余额支付',
             'settlement_withdraw' => '余额提现',
-            'settlement_reject' => '余额退回',
+            'settlement_reject' => '提现退回',
             'transfer' => '余额代付',
             'refund' => '原路退款',
             default => $methodCode !== '' ? PaymentMetaService::friendlyMethodName($methodCode) : '',
         };
     }
 
+    private static function fundFlowSourceLabel(string $refType, array $orderRow = []): string
+    {
+        if ($orderRow !== []) {
+            $sourceLabel = self::orderSourceLabel($orderRow);
+            if ($sourceLabel !== '' && !($sourceLabel === '普通订单' && self::systemFundBusinessByRefType($refType) !== '')) {
+                return $sourceLabel;
+            }
+        }
+
+        $business = self::systemFundBusinessByRefType($refType);
+        if ($business !== '') {
+            return self::adminSystemEarningSourceLabel($business);
+        }
+
+        return match (trim($refType)) {
+            'settlement_withdraw' => '提现申请',
+            'settlement_reject' => '提现退回',
+            'transfer' => '余额代付',
+            'refund' => '原路退款',
+            default => '',
+        };
+    }
+
+    private static function fundFlowSubject(string $type, string $refType, array $meta, array $orderRow = []): string
+    {
+        $methodCode = self::orderMethodCode($orderRow);
+        $business = self::systemFundBusinessByRefType($refType);
+        $subject = self::firstNonEmptyString(
+            self::fallbackOrderProductName($orderRow, $business, $methodCode),
+            self::normalizeDisplayText($meta['subject'] ?? ''),
+            self::normalizeDisplayText($meta['name'] ?? '')
+        );
+        if ($refType !== '' && $orderRow === [] && $business === '' && self::isPayoutFlowRefType($refType)) {
+            $subject = '';
+        }
+        if ($subject !== '' && !self::looksLikeUnknownDisplayText($subject)) {
+            return $subject;
+        }
+
+        if ($business !== '') {
+            return self::systemFundOrderTypeLabel($business);
+        }
+
+        return match (trim($refType)) {
+            'settlement_withdraw' => '提现申请',
+            'settlement_reject' => '提现退回',
+            'transfer' => '余额代付',
+            'refund' => '订单退款',
+            default => trim($type) !== '' ? trim($type) : '资金流水',
+        };
+    }
+
     private static function fundFlowRemark(array $row, array $orderRow = []): string
     {
         $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+        $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
+        $payoutRemark = self::payoutFlowRemark($refType, $meta);
+        if ($payoutRemark !== '') {
+            return $payoutRemark;
+        }
 
         return self::firstNonEmptyString(
             $meta['remark'] ?? '',
+            $meta['reason'] ?? '',
+            $meta['proof_no'] ?? '',
+            $meta['channel_trade_no'] ?? '',
+            $meta['channel_order_no'] ?? '',
             $meta['subject'] ?? '',
             $meta['name'] ?? '',
             $orderRow['subject'] ?? '',
@@ -2342,6 +2926,10 @@ class ResourceDataService
     private static function orderMerchantName(array $row, string $merchantName, bool $merchantView): string
     {
         $merchantId = (int)($row['merchant_id'] ?? 0);
+        if (!$merchantView && self::orderSourceKey($row) === 'homepage_payment_test') {
+            return '游客';
+        }
+
         if (!$merchantView && trim($merchantName) !== '') {
             return self::normalizeOrderMerchantName(
                 AccountService::cleanMerchantDisplayName($merchantName, '', $merchantId),
@@ -2364,7 +2952,7 @@ class ResourceDataService
             return '未知商户';
         }
 
-        if (\database_available()) {
+        if (database_available()) {
             try {
                 $merchant = Merchant::find($merchantId);
                 if ($merchant) {
@@ -2429,6 +3017,17 @@ class ResourceDataService
         };
     }
 
+    private static function refundStatusMeta(int $status, string $result = '', string $lastError = ''): array
+    {
+        $label = self::refundStatusLabel($status, $result, $lastError);
+
+        return match ($label) {
+            '成功' => self::statusMetaPayload(OrderStatusService::DISPLAY_SUCCESS, $label),
+            '失败' => self::statusMetaPayload(OrderStatusService::DISPLAY_FAILED, $label),
+            default => self::statusMetaPayload(OrderStatusService::DISPLAY_PENDING, $label),
+        };
+    }
+
     private static function transferStatusLabel(int $status, string $result = '', string $lastError = ''): string
     {
         return match ($status) {
@@ -2437,9 +3036,294 @@ class ResourceDataService
             default => match (trim($result)) {
                 'manual_transfer_pending' => '人工待代付',
                 'plugin_transfer_pending' => '自动同步中',
-                default => trim($lastError) !== '' ? '待处理' : '待处理',
+                default => trim($lastError) !== '' ? '待处理' : '处理中',
             },
         };
+    }
+
+    private static function transferStatusMeta(int $status, string $result = '', string $lastError = ''): array
+    {
+        $label = self::transferStatusLabel($status, $result, $lastError);
+
+        return match ($label) {
+            '代付成功' => self::statusMetaPayload(OrderStatusService::DISPLAY_SUCCESS, $label),
+            '代付失败' => self::statusMetaPayload(OrderStatusService::DISPLAY_FAILED, $label),
+            '已驳回' => self::statusMetaPayload(OrderStatusService::DISPLAY_CLOSED, $label),
+            default => self::statusMetaPayload(OrderStatusService::DISPLAY_PENDING, $label),
+        };
+    }
+
+    private static function settlementStatusMeta(int $status, string $result = '', string $lastError = ''): array
+    {
+        $normalizedResult = strtolower(trim($result));
+        $hasError = trim($lastError) !== '';
+
+        if ($status === 1 || $normalizedResult === 'manual_approved') {
+            return self::statusMetaPayload(OrderStatusService::DISPLAY_SUCCESS, '已通过');
+        }
+
+        if (
+            $status === 2
+            || $normalizedResult === 'manual_rejected'
+            || $normalizedResult === 'rejected'
+        ) {
+            return self::statusMetaPayload(OrderStatusService::DISPLAY_CLOSED, '已驳回');
+        }
+
+        if ($hasError) {
+            return self::statusMetaPayload(OrderStatusService::DISPLAY_PENDING, '待处理');
+        }
+
+        return self::statusMetaPayload(OrderStatusService::DISPLAY_PENDING, '待审核');
+    }
+
+    private static function isPayoutFlowRefType(string $refType): bool
+    {
+        return in_array(strtolower(trim($refType)), ['refund', 'transfer', 'settlement_withdraw', 'settlement_reject'], true);
+    }
+
+    private static function displayFundFlowStatusMeta(array $row): array
+    {
+        $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
+        $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+
+        return match ($refType) {
+            'refund' => self::refundStatusMeta(
+                1,
+                (string)($meta['result'] ?? ''),
+                self::firstNonEmptyString($meta['reason'] ?? '', $meta['remark'] ?? '')
+            ),
+            'transfer' => self::transferStatusMeta(
+                strtolower(trim((string)($meta['payout_status'] ?? ''))) === 'rejected' ? 2 : 1,
+                (string)($meta['result'] ?? ''),
+                self::firstNonEmptyString($meta['reason'] ?? '', $meta['remark'] ?? '')
+            ),
+            'settlement_withdraw', 'settlement_reject' => self::settlementFlowStatusMeta($row, $meta),
+            default => self::fundFlowStatusMeta((string)($row['status'] ?? 'success')),
+        };
+    }
+
+    private static function settlementFlowStatusMeta(array $row, array $meta = []): array
+    {
+        $settleNo = self::firstNonEmptyString(
+            (string)($row['ref_no'] ?? ''),
+            $meta['reference_no'] ?? ''
+        );
+        if ($settleNo !== '') {
+            $settlement = LocalSettlementStore::find($settleNo);
+            if ($settlement) {
+                return self::settlementStatusMeta(
+                    (int)($settlement->status ?? 0),
+                    (string)($settlement->result ?? ''),
+                    (string)($settlement->last_error ?? '')
+                );
+            }
+        }
+
+        $payoutStatus = strtolower(trim((string)($meta['payout_status'] ?? '')));
+        $fallbackStatus = match ($payoutStatus) {
+            'rejected' => 2,
+            'approved', 'success' => 1,
+            default => 0,
+        };
+
+        return self::settlementStatusMeta(
+            $fallbackStatus,
+            (string)($meta['result'] ?? ''),
+            self::firstNonEmptyString($meta['reason'] ?? '', $meta['remark'] ?? '')
+        );
+    }
+
+    private static function payoutFlowLookup(int $merchantId, string $refType, string $referenceNo): array
+    {
+        $merchantId = max(0, $merchantId);
+        $refType = trim($refType);
+        $referenceNo = trim($referenceNo);
+        if ($merchantId <= 0 || $refType === '' || $referenceNo === '') {
+            return ['row' => [], 'meta' => []];
+        }
+
+        $flow = LocalFundStore::findFlowByReference($merchantId, $refType, $referenceNo);
+        $row = self::row($flow);
+        $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+
+        return [
+            'row' => $row,
+            'meta' => $meta,
+        ];
+    }
+
+    private static function payoutFlowRemark(string $refType, array $meta): string
+    {
+        return match (strtolower(trim($refType))) {
+            'refund' => self::firstNonEmptyString(
+                $meta['remark'] ?? '',
+                $meta['proof_no'] ?? '',
+                $meta['channel_trade_no'] ?? '',
+                $meta['channel_order_no'] ?? '',
+                $meta['result'] ?? ''
+            ),
+            'transfer' => self::firstNonEmptyString(
+                $meta['remark'] ?? '',
+                $meta['proof_no'] ?? '',
+                $meta['channel_trade_no'] ?? '',
+                $meta['channel_order_no'] ?? '',
+                self::joinDisplayParts([
+                    $meta['target_name'] ?? '',
+                    $meta['target_account'] ?? '',
+                ]),
+                $meta['result'] ?? ''
+            ),
+            'settlement_withdraw' => self::firstNonEmptyString(
+                $meta['remark'] ?? '',
+                self::joinDisplayParts([
+                    $meta['account_name'] ?? '',
+                    $meta['account'] ?? '',
+                ]),
+                $meta['result'] ?? ''
+            ),
+            'settlement_reject' => self::firstNonEmptyString(
+                $meta['reason'] ?? '',
+                $meta['remark'] ?? '',
+                self::joinDisplayParts([
+                    $meta['account_name'] ?? '',
+                    $meta['account'] ?? '',
+                ]),
+                $meta['result'] ?? ''
+            ),
+            default => '',
+        };
+    }
+
+    private static function refundReadPayload(array $row, bool $adminView = false): array
+    {
+        $merchantId = (int)($row['merchant_id'] ?? 0);
+        $flowLookup = self::payoutFlowLookup($merchantId, 'refund', (string)($row['refund_no'] ?? ''));
+        $flowRow = is_array($flowLookup['row'] ?? null) ? $flowLookup['row'] : [];
+        $flowMeta = is_array($flowLookup['meta'] ?? null) ? $flowLookup['meta'] : [];
+        $result = self::firstNonEmptyString($row['result'] ?? '', $flowMeta['result'] ?? '');
+        $errmsg = self::firstNonEmptyString(
+            $row['last_error'] ?? '',
+            $flowMeta['reason'] ?? '',
+            $flowMeta['remark'] ?? ''
+        );
+        $effectiveStatus = (int)($row['status'] ?? 0);
+        if ($effectiveStatus === 0 && $flowRow !== []) {
+            $effectiveStatus = 1;
+        }
+        $statusInfo = self::refundStatusMeta($effectiveStatus, $result, $errmsg);
+
+        return [
+            'category' => 'refund',
+            'category_label' => '退款',
+            'refund_no' => (string)($row['refund_no'] ?? ''),
+            'out_refund_no' => (string)($row['out_refund_no'] ?? ''),
+            'biz_no' => (string)($row['refund_no'] ?? ''),
+            'out_biz_no' => (string)($row['out_refund_no'] ?? ''),
+            'trade_no' => self::firstNonEmptyString((string)($row['trade_no'] ?? ''), $flowMeta['trade_no'] ?? ''),
+            'amount' => self::amount((string)self::firstNonEmptyString(
+                (string)($row['reducemoney'] ?? $row['money'] ?? ''),
+                (string)($flowMeta['refund_amount'] ?? '0.00')
+            )),
+            'status_code' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING),
+            'status_key' => (string)($statusInfo['key'] ?? 'pending'),
+            'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
+            'status' => (string)($statusInfo['label'] ?? '未执行'),
+            'result' => $result,
+            'errmsg' => $errmsg,
+            'proof_no' => self::firstNonEmptyString(
+                (string)($row['proof_no'] ?? ''),
+                $flowMeta['proof_no'] ?? '',
+                $flowMeta['channel_trade_no'] ?? '',
+                $flowMeta['channel_order_no'] ?? ''
+            ),
+            'operator' => self::firstNonEmptyString((string)($row['operator'] ?? ''), $flowMeta['operator'] ?? ''),
+            'channel_plugin_code' => self::firstNonEmptyString((string)($row['channel_plugin_code'] ?? ''), $flowMeta['plugin_code'] ?? ''),
+            'channel_order_no' => self::firstNonEmptyString((string)($row['channel_order_no'] ?? ''), $flowMeta['channel_order_no'] ?? ''),
+            'channel_trade_no' => self::firstNonEmptyString((string)($row['channel_trade_no'] ?? ''), $flowMeta['channel_trade_no'] ?? ''),
+            'mode' => trim($result) === 'manual_refund_pending' ? 'manual' : 'auto',
+            'mode_label' => trim($result) === 'manual_refund_pending' ? '人工处理' : '自动同步',
+            'remark' => self::firstNonEmptyString((string)($row['remark'] ?? ''), self::payoutFlowRemark('refund', $flowMeta)),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'finished_at' => self::firstNonEmptyString((string)($row['finished_at'] ?? ''), (string)($flowRow['created_at'] ?? '')),
+            'raw_status' => (int)($row['status'] ?? 0),
+            'effective_status' => $effectiveStatus,
+            'is_pending' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING) === OrderStatusService::DISPLAY_PENDING,
+            'merchant' => $adminView ? self::merchantDisplayName($merchantId) : '',
+        ];
+    }
+
+    private static function transferReadPayload(array $row, bool $adminView = false): array
+    {
+        $merchantId = (int)($row['merchant_id'] ?? 0);
+        $flowLookup = self::payoutFlowLookup($merchantId, 'transfer', (string)($row['biz_no'] ?? ''));
+        $flowRow = is_array($flowLookup['row'] ?? null) ? $flowLookup['row'] : [];
+        $flowMeta = is_array($flowLookup['meta'] ?? null) ? $flowLookup['meta'] : [];
+        $result = self::firstNonEmptyString($row['result'] ?? '', $flowMeta['result'] ?? '');
+        $errmsg = self::firstNonEmptyString(
+            $row['last_error'] ?? '',
+            $flowMeta['reason'] ?? '',
+            $flowMeta['remark'] ?? ''
+        );
+        $effectiveStatus = (int)($row['status'] ?? 0);
+        if ($effectiveStatus === 0 && $flowRow !== []) {
+            $effectiveStatus = strtolower(trim((string)($flowMeta['payout_status'] ?? ''))) === 'rejected' ? 2 : 1;
+        }
+        $statusInfo = self::transferStatusMeta($effectiveStatus, $result, $errmsg);
+
+        return [
+            'category' => 'transfer',
+            'category_label' => '代付',
+            'biz_no' => (string)($row['biz_no'] ?? ''),
+            'out_biz_no' => self::firstNonEmptyString((string)($row['out_biz_no'] ?? ''), $flowMeta['out_biz_no'] ?? ''),
+            'trade_no' => '',
+            'type' => self::firstNonEmptyString((string)($row['type'] ?? ''), $flowMeta['type'] ?? $flowMeta['target_type'] ?? ''),
+            'account' => self::firstNonEmptyString((string)($row['account'] ?? ''), $flowMeta['target_account'] ?? '', $flowMeta['account'] ?? ''),
+            'name' => self::firstNonEmptyString((string)($row['name'] ?? ''), $flowMeta['target_name'] ?? '', $flowMeta['name'] ?? ''),
+            'amount' => self::amount((string)self::firstNonEmptyString(
+                (string)($row['money'] ?? ''),
+                (string)($flowMeta['transfer_amount'] ?? '0.00')
+            )),
+            'status_code' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING),
+            'status_key' => (string)($statusInfo['key'] ?? 'pending'),
+            'status_theme' => (string)($statusInfo['theme'] ?? 'warning'),
+            'status' => (string)($statusInfo['label'] ?? '处理中'),
+            'result' => $result,
+            'errmsg' => $errmsg,
+            'proof_no' => self::firstNonEmptyString(
+                (string)($row['proof_no'] ?? ''),
+                $flowMeta['proof_no'] ?? '',
+                $flowMeta['channel_trade_no'] ?? '',
+                $flowMeta['channel_order_no'] ?? ''
+            ),
+            'operator' => self::firstNonEmptyString((string)($row['operator'] ?? ''), $flowMeta['operator'] ?? ''),
+            'channel_plugin_code' => self::firstNonEmptyString((string)($row['channel_plugin_code'] ?? ''), $flowMeta['plugin_code'] ?? ''),
+            'channel_order_no' => self::firstNonEmptyString((string)($row['channel_order_no'] ?? ''), $flowMeta['channel_order_no'] ?? ''),
+            'channel_trade_no' => self::firstNonEmptyString((string)($row['channel_trade_no'] ?? ''), $flowMeta['channel_trade_no'] ?? ''),
+            'mode' => trim($result) === 'manual_transfer_pending' ? 'manual' : 'auto',
+            'mode_label' => trim($result) === 'manual_transfer_pending' ? '人工处理' : '自动同步',
+            'remark' => self::firstNonEmptyString((string)($row['remark'] ?? ''), self::payoutFlowRemark('transfer', $flowMeta)),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'finished_at' => self::firstNonEmptyString((string)($row['finished_at'] ?? ''), (string)($flowRow['created_at'] ?? '')),
+            'rejected_at' => (string)($row['rejected_at'] ?? ''),
+            'raw_status' => (int)($row['status'] ?? 0),
+            'effective_status' => $effectiveStatus,
+            'is_pending' => (int)($statusInfo['code'] ?? OrderStatusService::DISPLAY_PENDING) === OrderStatusService::DISPLAY_PENDING,
+            'merchant' => $adminView ? self::merchantDisplayName($merchantId) : '',
+        ];
+    }
+
+    private static function joinDisplayParts(array $parts, string $separator = ' / '): string
+    {
+        $items = [];
+        foreach ($parts as $part) {
+            $text = self::normalizeDisplayText($part);
+            if ($text !== '') {
+                $items[] = $text;
+            }
+        }
+
+        return $items === [] ? '' : implode($separator, $items);
     }
 
     private static function fundFlowStatusLabel(string $status): string
@@ -2452,6 +3336,31 @@ class ResourceDataService
             'processing', 'pending' => '处理中',
             default => trim($status) !== '' ? $status : '成功',
         };
+    }
+
+    private static function fundFlowStatusMeta(string $status): array
+    {
+        $normalized = strtolower(trim($status));
+        $label = self::fundFlowStatusLabel($status);
+
+        return match ($normalized) {
+            'success', 'succeeded' => self::statusMetaPayload(OrderStatusService::DISPLAY_SUCCESS, $label),
+            'failed', 'fail', 'error' => self::statusMetaPayload(OrderStatusService::DISPLAY_FAILED, $label),
+            'closed' => self::statusMetaPayload(OrderStatusService::DISPLAY_CLOSED, $label),
+            'expired' => self::statusMetaPayload(OrderStatusService::DISPLAY_EXPIRED, $label),
+            'processing', 'pending' => self::statusMetaPayload(OrderStatusService::DISPLAY_PENDING, $label),
+            default => self::statusMetaPayload(OrderStatusService::DISPLAY_SUCCESS, $label),
+        };
+    }
+
+    private static function statusMetaPayload(int $code, string $label): array
+    {
+        return [
+            'code' => $code,
+            'key' => OrderStatusService::keyByCode($code),
+            'theme' => OrderStatusService::themeByCode($code),
+            'label' => $label,
+        ];
     }
 
     private static function maskAccount(string $account): string

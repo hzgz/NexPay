@@ -86,7 +86,7 @@ class YouzanPlugin extends BasePayment
             'pay_tool' => $pay_tool,
             'user_ip' => request()->clientip,
             'pay_notify_url' => config_get('localurl') . 'pay/notify/' . $tradeNo . '/',
-            'expire_time' => date('Y-m-d H:i:s', time() + 1800),
+            'expire_time' => date('Y-m-d H:i:s', time() + 360),
         ];
         if ($ext) $params['ext'] = $ext;
 

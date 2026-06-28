@@ -10,6 +10,7 @@ class PaymentMetaService
             'wxpay' => '微信支付',
             'alipay' => '支付宝',
             'qqpay' => 'QQ钱包',
+            'balance' => '余额支付',
             'bank' => '银行卡 / 云闪付',
             'jdpay' => '京东支付',
             'paypal' => 'PayPal',
@@ -47,6 +48,8 @@ class PaymentMetaService
             'wechat' => 'wxpay',
             'weixin' => 'wxpay',
             'alipay' => 'alipay',
+            'balance' => 'balance',
+            'wallet' => 'balance',
             'qq' => 'qqpay',
             'qqwallet' => 'qqpay',
             'qqpay' => 'qqpay',
@@ -89,6 +92,7 @@ class PaymentMetaService
             'wxpay' => ['wxpay', 'wechat', 'wechatpay', 'weixin'],
             'alipay' => ['alipay'],
             'qqpay' => ['qqpay', 'qq', 'qqwallet'],
+            'balance' => ['balance', 'wallet'],
             'bank' => ['bank', 'unionpay', 'union', 'yinlian', 'yunshanfu', 'cloudquickpass', 'ecny'],
             'jdpay' => ['jdpay'],
             'paypal' => ['paypal'],
@@ -185,6 +189,7 @@ class PaymentMetaService
             'douyin pay',
             'bank / unionpay',
             'on-chain realtime',
+            'balance',
         ];
 
         if ($trimmed === '' || self::containsMojibake($trimmed) || in_array($normalizedName, $legacyEnglishNames, true)) {
@@ -236,6 +241,7 @@ class PaymentMetaService
             'wxpay' => '默认微信支付通道',
             'alipay' => '默认支付宝通道',
             'qqpay' => '默认 QQ 钱包通道',
+            'balance' => '系统余额支付',
             'bank' => '默认银行卡 / 云闪付通道',
             'paypal' => '默认 PayPal 通道',
             default => self::isChainMethodCode($code) ? '默认链上通道' : '默认收款通道',
@@ -274,6 +280,10 @@ class PaymentMetaService
         $trimmed = trim($text);
         if ($trimmed === '') {
             return false;
+        }
+
+        if (preg_match('/\?{2,}/', $trimmed) === 1) {
+            return true;
         }
 
         return preg_match('/[\x{FFFD}\x{95B8}\x{95B9}\x{95BF}\x{95C1}\x{95C2}\x{7035}]/u', $trimmed) === 1;

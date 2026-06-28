@@ -427,8 +427,13 @@ class MerchantChannelService
         $methodCode = PaymentMetaService::normalizeMethodCode((string)($item['method_code'] ?? ''));
         $tradeNo = 'TST' . date('YmdHis') . random_int(100000, 999999);
         $amount = number_format((float)($payload['amount'] ?? '1.00'), 2, '.', '');
+        OrderService::assertPositiveOrderAmount($amount, '通道测试金额');
         self::assertAmountWithinLimits($item, (float)$amount);
-        $subject = trim((string)($payload['subject'] ?? ($item['method_name'] ?? '通道测试订单')));
+        $subject = OrderService::normalizeGatewayOrderSubject(
+            (string)($payload['subject'] ?? ($item['method_name'] ?? '')),
+            '通道测试订单'
+        );
+        $outTradeNo = OrderService::normalizeGatewayOutTradeNo('test-' . $tradeNo);
         $baseUrl = rtrim(ConfigService::gatewayBaseUrl(), '/');
         $notifyUrl = $baseUrl . '/callback/success';
         $returnUrl = $baseUrl . '/pay/checkout/' . $tradeNo;
@@ -446,9 +451,13 @@ class MerchantChannelService
             'remark' => (string)($item['remark'] ?? ''),
         ];
 
-        $order = SystemBusinessPaymentService::createFromLegacyChannelSnapshot($legacySnapshot, [
+        $order = SystemBusinessPaymentService::createBusinessOrderFromLegacyChannelSnapshot(
+            $legacySnapshot,
+            $merchantId,
+            'channel_test',
+            [
             'trade_no' => $tradeNo,
-            'out_trade_no' => 'test-' . $tradeNo,
+            'out_trade_no' => $outTradeNo !== '' ? $outTradeNo : SystemBusinessPaymentService::fallbackBusinessOutTradeNo('TEST', $merchantId, [$tradeNo]),
             'merchant_id' => $merchantId,
             'merchant_channel_id' => $id,
             'channel_code' => $methodCode,
@@ -470,9 +479,12 @@ class MerchantChannelService
                     'order_scene' => 'merchant_channel_test',
                 ],
             ],
-        ]);
+            ]
+        );
 
-        $order = OrderService::findByTradeNo((string)$order->trade_no);
+        $order = OrderService::findByTradeNoForRead((string)$order->trade_no, [
+            'source' => 'merchant-channel-test-read',
+        ]);
         self::bootstrapTestOrderSource($order, $item);
 
         return [
@@ -1099,7 +1111,7 @@ class MerchantChannelService
                 'name' => PaymentMetaService::safeMethodName((string)($item['name'] ?? ''), $code),
                 'category' => PaymentMetaService::safeCategoryLabel((string)($item['category'] ?? ''), $code),
                 'settlement' => PaymentMetaService::safeSettlementLabel((string)($item['settlement'] ?? ''), $code),
-                'status' => '鍚敤',
+                'status' => '启用',
                 'status_code' => 1,
             ];
         }
@@ -1147,7 +1159,7 @@ class MerchantChannelService
                 'name' => PaymentMetaService::safeMethodName((string)($item['name'] ?? ''), $code),
                 'category' => PaymentMetaService::safeCategoryLabel((string)($item['category'] ?? ''), $code),
                 'settlement' => PaymentMetaService::safeSettlementLabel((string)($item['settlement'] ?? ''), $code),
-                'status' => '鍚敤',
+                'status' => '启用',
                 'status_code' => 1,
             ];
         }
